@@ -37,7 +37,7 @@ export function render(ctx: CanvasRenderingContext2D, sim: Simulation, history: 
     ctx.fill();
   }
 
-  drawGraph(ctx, history, fullDisc, playH, w, h - playH);
+  if (sim.graphVisible) drawGraph(ctx, history, fullDisc, playH, w, h - playH);
 }
 
 function drawGraph(

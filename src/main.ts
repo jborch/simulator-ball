@@ -1,14 +1,19 @@
 import './style.css';
 import { setupControls, type ControlState } from './controls';
-import { CONFIG } from './config';
+import { CONFIG, validateConfig } from './config';
 import { discPixelCount } from './geometry';
 import { History } from './graph';
 import { render } from './render';
 import { Simulation } from './simulation';
 
+const configError = validateConfig(CONFIG);
+if (configError) {
+  document.body.textContent = configError;
+  throw new Error(configError);
+}
+
 const canvas = document.getElementById('world') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
-const stat = document.getElementById('stat')!;
 
 function deviceSize(): { w: number; h: number } {
   const dpr = window.devicePixelRatio || 1;
@@ -22,12 +27,14 @@ canvas.height = initial.h;
 const sim = new Simulation(initial.w, initial.h);
 const history = new History(initial.w);
 const fullDisc = discPixelCount(CONFIG.ball.radius);
-const state: ControlState = { paused: false, speed: CONFIG.speeds[0] };
+const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true };
 
-setupControls(state, () => {
-  sim.reset();
-  history.clear();
-  stat.textContent = '0';
+setupControls(state, {
+  onReset: () => {
+    sim.reset();
+    history.clear();
+  },
+  onGraphToggle: (visible) => sim.setGraphVisible(visible),
 });
 
 window.addEventListener('resize', () => {
@@ -42,7 +49,6 @@ function frame(): void {
   if (!state.paused) {
     sim.step(state.speed);
     history.push(sim.value, state.speed);
-    stat.textContent = String(sim.value);
   }
   render(ctx, sim, history, fullDisc);
   requestAnimationFrame(frame);

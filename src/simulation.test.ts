@@ -33,6 +33,13 @@ describe('Simulation', () => {
     expect(Math.abs(sim.value - discPixelCount(CONFIG.ball.radius))).toBeLessThan(10);
   });
 
+  it('expands the play area to full height when the graph is hidden', () => {
+    const sim = new Simulation(1920, 1000);
+    expect(sim.playHeight).toBe(Math.floor(1000 * (1 - CONFIG.graph.heightFraction)));
+    sim.setGraphVisible(false);
+    expect(sim.playHeight).toBe(1000);
+  });
+
   it('keeps the ball inside the play area while bouncing', () => {
     const sim = new Simulation(1920, 1080, () => 1);
     for (let i = 0; i < 1000; i++) {

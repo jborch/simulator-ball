@@ -28,6 +28,11 @@ body {
   border-radius: 8px;
   background: rgba(46, 52, 64, 0.75);
   user-select: none;
+  transition: opacity 0.3s;
+}
+
+#controls.hidden {
+  opacity: 0;
 }
 
 #controls button {
@@ -54,13 +59,4 @@ body {
   width: 1px;
   height: 20px;
   background: #4c566a;
-}
-
-#stat {
-  position: fixed;
-  top: 12px;
-  right: 20px;
-  font-size: 48px;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }

@@ -11,7 +11,9 @@ export function ballSpeed(worldWidth: number, cfg: Config = CONFIG): number {
 
 export class Simulation {
   width = 0;
+  height = 0;
   playHeight = 0;
+  graphVisible = true;
   readonly head: VerticalMover;
   readonly detector: VerticalMover;
   ball: Ball | null = null;
@@ -31,7 +33,14 @@ export class Simulation {
 
   private setSize(width: number, height: number): void {
     this.width = width;
-    this.playHeight = Math.floor(height * (1 - this.cfg.graph.heightFraction));
+    this.height = height;
+    const graphFraction = this.graphVisible ? this.cfg.graph.heightFraction : 0;
+    this.playHeight = Math.floor(height * (1 - graphFraction));
+  }
+
+  setGraphVisible(visible: boolean): void {
+    this.graphVisible = visible;
+    this.resize(this.width, this.height);
   }
 
   resize(width: number, height: number): void {
