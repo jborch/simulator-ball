@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ball Detector Simulator</title>
+  </head>
+  <body>
+    <canvas id="world"></canvas>
+    <div id="controls">
+      <button id="pause" title="Space">Pause</button>
+      <span class="sep"></span>
+      <button data-speed="1" title="1">1×</button>
+      <button data-speed="0.5" title="2">1/2×</button>
+      <button data-speed="0.25" title="3">1/4×</button>
+      <span class="sep"></span>
+      <button id="reset" title="R">Reset</button>
+    </div>
+    <div id="stat">0</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
