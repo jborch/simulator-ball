@@ -1,5 +1,6 @@
 import { CONFIG, type Config } from './config';
 import { type Ball, VerticalMover, moverRect } from './entities';
+import type { SimEvents } from './events';
 import { type Rect, countOverlapPixels } from './geometry';
 
 /** Ball speed in px/frame: crosses the world in crossFrames, clamped so a clean hit always gets a fully-inside frame. */
@@ -18,7 +19,10 @@ export class Simulation {
   readonly detector: VerticalMover;
   ball: Ball | null = null;
   value = 0;
+  events: SimEvents | null = null;
   private gapRemaining = 0;
+  private shot = 0;
+  private totalOverlap = 0;
 
   constructor(
     width: number,
@@ -65,6 +69,7 @@ export class Simulation {
     this.ball = null;
     this.value = 0;
     this.gapRemaining = 0;
+    this.totalOverlap = 0;
   }
 
   step(scale: number): void {
@@ -74,6 +79,7 @@ export class Simulation {
     if (this.ball) {
       this.moveBall(this.ball, scale);
       if (this.ball.x - this.ball.r > this.width) {
+        this.events?.onBallExited({ shot: this.shot, totalOverlap: this.totalOverlap });
         this.ball = null;
         this.gapRemaining = this.cfg.ball.gapFrames;
       }
@@ -83,6 +89,10 @@ export class Simulation {
     }
 
     this.value = this.ball ? countOverlapPixels(this.ball, this.detectorRect()) : 0;
+    if (this.ball) {
+      this.totalOverlap += this.value * scale;
+      this.events?.onBallFlight({ shot: this.shot, x: this.ball.x, y: this.ball.y, overlap: this.value });
+    }
   }
 
   private fire(): void {
@@ -98,6 +108,15 @@ export class Simulation {
       r: radius,
       trail: [],
     };
+    this.shot++;
+    this.totalOverlap = 0;
+    const det = this.detectorRect();
+    this.events?.onBallFired({
+      shot: this.shot,
+      headY: this.ball.y,
+      angleDeg: (-angle * 180) / Math.PI,
+      detectorY: det.y + det.h / 2,
+    });
   }
 
   private moveBall(b: Ball, scale: number): void {

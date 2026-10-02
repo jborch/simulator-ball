@@ -1,4 +1,7 @@
 import './style.css';
+import { CatchAiConnection } from './catchai/connection';
+import { bindStatusDot, installConsoleApi } from './catchai/console';
+import { CatchAiReporter } from './catchai/reporter';
 import { setupControls, type ControlState } from './controls';
 import { CONFIG, validateConfig } from './config';
 import { discPixelCount } from './geometry';
@@ -26,6 +29,12 @@ canvas.height = initial.h;
 
 const sim = new Simulation(initial.w, initial.h);
 const history = new History(initial.w);
+
+const catchAi = new CatchAiConnection();
+sim.events = new CatchAiReporter(catchAi.enqueue);
+installConsoleApi(catchAi);
+bindStatusDot(document.getElementById('catchai-status')!, catchAi);
+catchAi.restore();
 const fullDisc = discPixelCount(CONFIG.ball.radius);
 const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true };
 

@@ -29,6 +29,31 @@ export const CONFIG = {
   controls: {
     autoHideMs: 2000,
   },
+  // Credentials are set from the browser console: catchai.connect('<apiKey>', '<url?>').
+  catchAi: {
+    defaultUrl: 'http://localhost:30000',
+    deviceId: 'BallSim1',
+    storageKey: 'catchai.connection',
+    batchIntervalMs: 100,
+    maxBatchSize: 5000,
+    queueCap: 50000,
+    retryMinMs: 1000,
+    retryMaxMs: 30000,
+    properties: {
+      headY: { Key: 'p600', Name: 'HeadY', Type: 'Float', Unit: 'px' },
+      shotAngle: { Key: 'p601', Name: 'ShotAngle', Type: 'Float', Unit: 'deg' },
+      detectorY: { Key: 'p602', Name: 'DetectorY', Type: 'Float', Unit: 'px' },
+      ballX: { Key: 'p603', Name: 'BallX', Type: 'Float', Unit: 'px' },
+      ballY: { Key: 'p604', Name: 'BallY', Type: 'Float', Unit: 'px' },
+      overlap: { Key: 'p605', Name: 'Overlap', Type: 'Integer', Unit: 'px' },
+      // Float: speed-weighted sum can be fractional at 1/2× and 1/4×.
+      totalOverlap: { Key: 'p606', Name: 'TotalOverlap', Type: 'Float', Unit: 'px' },
+    },
+    events: {
+      ballFired: { Key: 'e600', Name: 'BallFired' },
+      ballExited: { Key: 'e601', Name: 'BallExited' },
+    },
+  },
   colors: {
     background: '#1e2127',
     graphBackground: '#171a1f',

@@ -40,6 +40,39 @@ describe('Simulation', () => {
     expect(sim.playHeight).toBe(1000);
   });
 
+  it('emits fired, flight and exited events with a speed-weighted total', () => {
+    for (const scale of [1, 0.25]) {
+      const sim = new Simulation(1920, 1000, () => 0.5);
+      const log: string[] = [];
+      let sum = 0;
+      let total = -1;
+      let fired = { headY: 0, angleDeg: 1 };
+      sim.events = {
+        onBallFired: (e) => {
+          log.push('fired');
+          fired = e;
+        },
+        onBallFlight: (e) => {
+          if (log.at(-1) !== 'flight') log.push('flight');
+          sum += e.overlap * scale;
+        },
+        onBallExited: (e) => {
+          log.push('exited');
+          total = e.totalOverlap;
+        },
+      };
+      // Keep the detector aligned with the ball so the flight produces overlap.
+      for (let i = 0; i < 4000 && total < 0; i++) {
+        if (sim.ball) sim.detector.y = sim.ball.y - sim.detector.height / 2;
+        sim.step(scale);
+      }
+      expect(log).toEqual(['fired', 'flight', 'exited']);
+      expect(fired.angleDeg).toBeCloseTo(0);
+      expect(total).toBeGreaterThan(0);
+      expect(total).toBeCloseTo(sum);
+    }
+  });
+
   it('keeps the ball inside the play area while bouncing', () => {
     const sim = new Simulation(1920, 1080, () => 1);
     for (let i = 0; i < 1000; i++) {
