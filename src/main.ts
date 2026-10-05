@@ -36,7 +36,13 @@ installConsoleApi(catchAi);
 bindStatusDot(document.getElementById('catchai-status')!, catchAi);
 catchAi.restore();
 const fullDisc = discPixelCount(CONFIG.ball.radius);
-const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true };
+const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true, clockVisible: true };
+const clockEl = document.getElementById('clock')!;
+
+function formatClock(d: Date): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
 
 setupControls(state, {
   onReset: () => {
@@ -60,6 +66,7 @@ function frame(): void {
     history.push(sim.value, state.speed);
   }
   render(ctx, sim, history, fullDisc);
+  if (state.clockVisible) clockEl.textContent = formatClock(new Date());
   requestAnimationFrame(frame);
 }
 

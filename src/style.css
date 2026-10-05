@@ -61,6 +61,24 @@ body {
   background: #4c566a;
 }
 
+#clock {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(46, 52, 64, 0.75);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+#clock.hidden {
+  display: none;
+}
+
 .dot {
   width: 10px;
   height: 10px;

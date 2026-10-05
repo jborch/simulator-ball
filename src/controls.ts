@@ -5,6 +5,7 @@ export interface ControlState {
   speed: number;
   pinned: boolean;
   graphVisible: boolean;
+  clockVisible: boolean;
 }
 
 export interface ControlActions {
@@ -18,6 +19,8 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   const resetBtn = document.getElementById('reset') as HTMLButtonElement;
   const graphBtn = document.getElementById('graph') as HTMLButtonElement;
   const pinBtn = document.getElementById('pin') as HTMLButtonElement;
+  const clockBtn = document.getElementById('clock-btn') as HTMLButtonElement;
+  const clockEl = document.getElementById('clock') as HTMLDivElement;
   const speedBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-speed]'));
 
   let hideTimer: number | undefined;
@@ -34,6 +37,8 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
     pauseBtn.classList.toggle('active', state.paused);
     graphBtn.classList.toggle('active', state.graphVisible);
     pinBtn.classList.toggle('active', state.pinned);
+    clockBtn.classList.toggle('active', state.clockVisible);
+    clockEl.classList.toggle('hidden', !state.clockVisible);
     for (const b of speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === state.speed);
   };
 
@@ -50,6 +55,10 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
     actions.onGraphToggle(state.graphVisible);
     sync();
   };
+  const toggleClock = () => {
+    state.clockVisible = !state.clockVisible;
+    sync();
+  };
   const togglePin = () => {
     state.pinned = !state.pinned;
     sync();
@@ -60,6 +69,7 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   resetBtn.addEventListener('click', actions.onReset);
   graphBtn.addEventListener('click', toggleGraph);
   pinBtn.addEventListener('click', togglePin);
+  clockBtn.addEventListener('click', toggleClock);
   for (const b of speedBtns) b.addEventListener('click', () => setSpeed(Number(b.dataset.speed)));
 
   window.addEventListener('keydown', (e) => {
@@ -71,6 +81,8 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
       actions.onReset();
     } else if (e.key === 'g' || e.key === 'G') {
       toggleGraph();
+    } else if (e.key === 'c' || e.key === 'C') {
+      toggleClock();
     } else if (e.key === 'p' || e.key === 'P') {
       togglePin();
     } else {
@@ -80,7 +92,7 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   });
 
   // Keep focused buttons from also reacting to Space.
-  for (const b of [pauseBtn, resetBtn, graphBtn, pinBtn, ...speedBtns]) {
+  for (const b of [pauseBtn, resetBtn, graphBtn, clockBtn, pinBtn, ...speedBtns]) {
     b.addEventListener('keydown', (e) => e.code === 'Space' && e.preventDefault());
   }
 
