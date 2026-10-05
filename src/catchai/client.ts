@@ -50,7 +50,7 @@ export class CatchAiClient {
       method,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'x-api-key': this.apiKey,
+        ...(this.apiKey ? { 'x-api-key': this.apiKey } : {}),
         'ngrok-skip-browser-warning': 'true',
       },
       body: body === undefined ? undefined : JSON.stringify(body),

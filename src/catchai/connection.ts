@@ -28,6 +28,7 @@ export class CatchAiConnection {
   private client: CatchAiClient | null = null;
   private queue: SendQueue<DeviceData> | null = null;
   private timer: number | undefined;
+  private retryTimer: number | undefined;
   private lastError: string | null = null;
   // Guards against a stale connect() finishing after a newer connect/disconnect.
   private generation = 0;
@@ -38,7 +39,11 @@ export class CatchAiConnection {
     this.queue?.push(record);
   };
 
-  async connect(apiKey: string, url: string = cfg.defaultUrl): Promise<void> {
+  connect(apiKey: string, url: string = cfg.defaultUrl): Promise<void> {
+    return this.open(apiKey, url, 0);
+  }
+
+  private async open(apiKey: string, url: string, retry: number): Promise<void> {
     this.stop();
     const gen = ++this.generation;
     this.storage.setItem(cfg.storageKey, JSON.stringify({ url, apiKey } satisfies StoredCredentials));
@@ -66,7 +71,9 @@ export class CatchAiConnection {
       this.state = 'error';
       this.lastError = err instanceof Error ? err.message : String(err);
       this.queue = null;
-      console.error(`[catchai] connect failed: ${this.lastError}`);
+      const delay = Math.min(cfg.retryMaxMs, cfg.retryMinMs * 2 ** retry);
+      console.error(`[catchai] connect failed: ${this.lastError} (retrying in ${delay / 1000}s)`);
+      this.retryTimer = window.setTimeout(() => void this.open(apiKey, url, retry + 1), delay);
     }
   }
 
@@ -83,7 +90,8 @@ export class CatchAiConnection {
     if (!raw) return;
     try {
       const { url, apiKey } = JSON.parse(raw) as StoredCredentials;
-      if (apiKey) void this.connect(apiKey, url);
+      // An empty API key is valid.
+      if (typeof apiKey === 'string') void this.connect(apiKey, url);
     } catch {
       this.storage.removeItem(cfg.storageKey);
     }
@@ -103,6 +111,8 @@ export class CatchAiConnection {
   private stop(): void {
     window.clearInterval(this.timer);
     this.timer = undefined;
+    window.clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     this.queue = null;
     this.client = null;
     this.state = 'off';
