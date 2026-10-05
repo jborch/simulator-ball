@@ -41,7 +41,10 @@ installConsoleApi(catchAi);
 bindStatusDot(document.getElementById('catchai-status')!, catchAi);
 catchAi.restore();
 const fullDisc = discPixelCount(CONFIG.ball.radius);
-const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true, clockVisible: true };
+const GRAPH_KEY = 'ui.graphVisible';
+const graphVisible = localStorage.getItem(GRAPH_KEY) !== 'false';
+sim.setGraphVisible(graphVisible);
+const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible, clockVisible: true };
 const clockEl = document.getElementById('clock')!;
 const clockTime = document.getElementById('clock-time')!;
 const clockInfo = document.getElementById('clock-info')!;
@@ -65,7 +68,10 @@ setupControls(state, {
     sim.reset();
     history.clear();
   },
-  onGraphToggle: (visible) => sim.setGraphVisible(visible),
+  onGraphToggle: (visible) => {
+    sim.setGraphVisible(visible);
+    localStorage.setItem(GRAPH_KEY, String(visible));
+  },
 });
 
 window.addEventListener('resize', () => {
