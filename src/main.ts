@@ -43,6 +43,17 @@ catchAi.restore();
 const fullDisc = discPixelCount(CONFIG.ball.radius);
 const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible: true, clockVisible: true };
 const clockEl = document.getElementById('clock')!;
+const clockTime = document.getElementById('clock-time')!;
+const clockInfo = document.getElementById('clock-info')!;
+let fpsFrames = 0;
+let fpsSince = performance.now();
+let fps = 0;
+
+function formatInfo(): string {
+  const off = timeSync.status().offsetMs;
+  const offText = off === null ? 'local' : `${off >= 0 ? '+' : ''}${off.toFixed(1)} ms`;
+  return `offset ${offText}  ${fps.toFixed(0)} fps`;
+}
 
 function formatClock(d: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, '0');
@@ -65,14 +76,21 @@ window.addEventListener('resize', () => {
   history.resize(w);
 });
 
-function frame(): void {
+function frame(t: number): void {
+  fpsFrames++;
+  if (t - fpsSince >= 1000) {
+    fps = Math.round((fpsFrames * 1000) / (t - fpsSince));
+    fpsFrames = 0;
+    fpsSince = t;
+    if (state.clockVisible) clockInfo.textContent = formatInfo();
+  }
   if (!state.paused) {
     sim.step(state.speed);
     history.push(sim.value, state.speed);
   }
   render(ctx, sim, history, fullDisc);
   if (state.clockVisible) {
-    clockEl.textContent = formatClock(timeSync.date());
+    clockTime.textContent = formatClock(timeSync.date());
     const ts = timeSync.state;
     clockEl.classList.toggle('unsynced', ts === 'pending' || ts === 'error');
   }

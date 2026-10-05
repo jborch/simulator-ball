@@ -79,6 +79,13 @@ body {
   display: none;
 }
 
+#clock-info {
+  margin-right: 14px;
+  font-size: 14px;
+  opacity: 0.7;
+  white-space: pre;
+}
+
 #clock.unsynced {
   color: #ebcb8b;
 }
