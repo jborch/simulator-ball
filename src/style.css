@@ -79,6 +79,10 @@ body {
   display: none;
 }
 
+#clock.unsynced {
+  color: #ebcb8b;
+}
+
 .dot {
   width: 10px;
   height: 10px;

@@ -8,6 +8,7 @@ import { discPixelCount } from './geometry';
 import { History } from './graph';
 import { render } from './render';
 import { Simulation } from './simulation';
+import { TimeSync, installTimeSyncConsole } from './timesync';
 
 const configError = validateConfig(CONFIG);
 if (configError) {
@@ -30,8 +31,12 @@ canvas.height = initial.h;
 const sim = new Simulation(initial.w, initial.h);
 const history = new History(initial.w);
 
+const timeSync = new TimeSync();
+installTimeSyncConsole(timeSync);
+timeSync.restore();
+
 const catchAi = new CatchAiConnection();
-sim.events = new CatchAiReporter(catchAi.enqueue);
+sim.events = new CatchAiReporter(catchAi.enqueue, CONFIG.catchAi, () => timeSync.date());
 installConsoleApi(catchAi);
 bindStatusDot(document.getElementById('catchai-status')!, catchAi);
 catchAi.restore();
@@ -66,7 +71,11 @@ function frame(): void {
     history.push(sim.value, state.speed);
   }
   render(ctx, sim, history, fullDisc);
-  if (state.clockVisible) clockEl.textContent = formatClock(new Date());
+  if (state.clockVisible) {
+    clockEl.textContent = formatClock(timeSync.date());
+    const ts = timeSync.state;
+    clockEl.classList.toggle('unsynced', ts === 'pending' || ts === 'error');
+  }
   requestAnimationFrame(frame);
 }
 

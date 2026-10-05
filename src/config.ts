@@ -29,6 +29,15 @@ export const CONFIG = {
   controls: {
     autoHideMs: 2000,
   },
+  // Optional server clock, set from the browser console: timesync.connect('<url>').
+  timeSync: {
+    storageKey: 'timesync.url',
+    samples: 5,
+    // The browser's monotonic clock drifts tens of ppm, so resync often to stay within a few ms.
+    resyncMs: 60_000,
+    retryMs: 10_000,
+    requestTimeoutMs: 2000,
+  },
   // Credentials are set from the browser console: catchai.connect('<apiKey>', '<url?>').
   catchAi: {
     defaultUrl: 'http://localhost:30000',
