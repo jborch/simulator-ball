@@ -44,7 +44,16 @@ const fullDisc = discPixelCount(CONFIG.ball.radius);
 const GRAPH_KEY = 'ui.graphVisible';
 const graphVisible = localStorage.getItem(GRAPH_KEY) !== 'false';
 sim.setGraphVisible(graphVisible);
-const state: ControlState = { paused: false, speed: CONFIG.speeds[0], pinned: false, graphVisible, clockVisible: true };
+const CLOCK_SIZE_KEY = 'ui.clockSize';
+const clockSize = Number(localStorage.getItem(CLOCK_SIZE_KEY)) || CONFIG.clock.sizePx;
+const state: ControlState = {
+  paused: false,
+  speed: CONFIG.speeds[0],
+  pinned: false,
+  graphVisible,
+  clockVisible: true,
+  clockSize,
+};
 const clockEl = document.getElementById('clock')!;
 const clockTime = document.getElementById('clock-time')!;
 const clockInfo = document.getElementById('clock-info')!;
@@ -72,6 +81,7 @@ setupControls(state, {
     sim.setGraphVisible(visible);
     localStorage.setItem(GRAPH_KEY, String(visible));
   },
+  onClockSize: (size) => localStorage.setItem(CLOCK_SIZE_KEY, String(size)),
 });
 
 window.addEventListener('resize', () => {

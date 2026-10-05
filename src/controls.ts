@@ -6,11 +6,13 @@ export interface ControlState {
   pinned: boolean;
   graphVisible: boolean;
   clockVisible: boolean;
+  clockSize: number;
 }
 
 export interface ControlActions {
   onReset: () => void;
   onGraphToggle: (visible: boolean) => void;
+  onClockSize: (size: number) => void;
 }
 
 export function setupControls(state: ControlState, actions: ControlActions): void {
@@ -21,6 +23,8 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   const pinBtn = document.getElementById('pin') as HTMLButtonElement;
   const clockBtn = document.getElementById('clock-btn') as HTMLButtonElement;
   const clockEl = document.getElementById('clock') as HTMLDivElement;
+  const smallerBtn = document.getElementById('clock-smaller') as HTMLButtonElement;
+  const biggerBtn = document.getElementById('clock-bigger') as HTMLButtonElement;
   const speedBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-speed]'));
 
   let hideTimer: number | undefined;
@@ -39,6 +43,7 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
     pinBtn.classList.toggle('active', state.pinned);
     clockBtn.classList.toggle('active', state.clockVisible);
     clockEl.classList.toggle('hidden', !state.clockVisible);
+    clockEl.style.setProperty('--clock-size', `${state.clockSize}px`);
     for (const b of speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === state.speed);
   };
 
@@ -59,6 +64,12 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
     state.clockVisible = !state.clockVisible;
     sync();
   };
+  const resizeClock = (factor: number) => {
+    const { minSizePx, maxSizePx } = CONFIG.clock;
+    state.clockSize = Math.round(Math.min(maxSizePx, Math.max(minSizePx, state.clockSize * factor)));
+    actions.onClockSize(state.clockSize);
+    sync();
+  };
   const togglePin = () => {
     state.pinned = !state.pinned;
     sync();
@@ -70,6 +81,8 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   graphBtn.addEventListener('click', toggleGraph);
   pinBtn.addEventListener('click', togglePin);
   clockBtn.addEventListener('click', toggleClock);
+  smallerBtn.addEventListener('click', () => resizeClock(1 / CONFIG.clock.sizeStep));
+  biggerBtn.addEventListener('click', () => resizeClock(CONFIG.clock.sizeStep));
   for (const b of speedBtns) b.addEventListener('click', () => setSpeed(Number(b.dataset.speed)));
 
   window.addEventListener('keydown', (e) => {
@@ -83,6 +96,10 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
       toggleGraph();
     } else if (e.key === 'c' || e.key === 'C') {
       toggleClock();
+    } else if (e.key === '-') {
+      resizeClock(1 / CONFIG.clock.sizeStep);
+    } else if (e.key === '+' || e.key === '=') {
+      resizeClock(CONFIG.clock.sizeStep);
     } else if (e.key === 'p' || e.key === 'P') {
       togglePin();
     } else {
@@ -92,7 +109,7 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
   });
 
   // Keep focused buttons from also reacting to Space.
-  for (const b of [pauseBtn, resetBtn, graphBtn, clockBtn, pinBtn, ...speedBtns]) {
+  for (const b of [pauseBtn, resetBtn, graphBtn, clockBtn, smallerBtn, biggerBtn, pinBtn, ...speedBtns]) {
     b.addEventListener('keydown', (e) => e.code === 'Space' && e.preventDefault());
   }
 

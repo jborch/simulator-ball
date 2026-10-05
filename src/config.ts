@@ -29,6 +29,12 @@ export const CONFIG = {
   controls: {
     autoHideMs: 2000,
   },
+  clock: {
+    sizePx: 36,
+    minSizePx: 16,
+    maxSizePx: 240,
+    sizeStep: 1.25,
+  },
   // Optional server clock, set from the browser console: timesync.connect('<url>').
   timeSync: {
     storageKey: 'timesync.url',
