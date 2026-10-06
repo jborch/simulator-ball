@@ -90,6 +90,24 @@ body {
   color: #ebcb8b;
 }
 
+#overlap {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  padding: 0.15em 0.4em;
+  border-radius: 0.25em;
+  background: rgba(46, 52, 64, 0.75);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: var(--clock-size, 36px);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+#overlap.active {
+  color: #ebcb8b;
+}
+
 .dot {
   width: 10px;
   height: 10px;

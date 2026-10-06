@@ -43,7 +43,7 @@ export function setupControls(state: ControlState, actions: ControlActions): voi
     pinBtn.classList.toggle('active', state.pinned);
     clockBtn.classList.toggle('active', state.clockVisible);
     clockEl.classList.toggle('hidden', !state.clockVisible);
-    clockEl.style.setProperty('--clock-size', `${state.clockSize}px`);
+    document.documentElement.style.setProperty('--clock-size', `${state.clockSize}px`);
     for (const b of speedBtns) b.classList.toggle('active', Number(b.dataset.speed) === state.speed);
   };
 

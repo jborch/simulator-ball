@@ -57,6 +57,8 @@ const state: ControlState = {
 const clockEl = document.getElementById('clock')!;
 const clockTime = document.getElementById('clock-time')!;
 const clockInfo = document.getElementById('clock-info')!;
+const overlapEl = document.getElementById('overlap')!;
+let shownOverlap = -1;
 let fpsFrames = 0;
 let fpsSince = performance.now();
 let fps = 0;
@@ -105,6 +107,11 @@ function frame(t: number): void {
     history.push(sim.value, state.speed);
   }
   render(ctx, sim, history, fullDisc);
+  if (sim.value !== shownOverlap) {
+    shownOverlap = sim.value;
+    overlapEl.textContent = String(shownOverlap);
+    overlapEl.classList.toggle('active', shownOverlap > 0);
+  }
   if (state.clockVisible) {
     clockTime.textContent = formatClock(timeSync.date());
     const ts = timeSync.state;
