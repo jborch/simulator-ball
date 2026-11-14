@@ -40,6 +40,7 @@ export interface Mover {
   lastLap: number | null;
 }
 
+/** What a station does to the mover in front of it, decided by the PLC. */
 export type Op =
   | { kind: 'load'; srId: number; mark: string }
   | { kind: 'assemble'; parts: PartType[]; fragile: boolean; measure: QualityKey | null }
@@ -47,17 +48,21 @@ export type Op =
   | { kind: 'reject'; bin: string }
   | { kind: 'unload'; good: boolean; bin: string };
 
+/** Ops a robot carries out by placing parts on the mover. */
+export type PlaceOp = Extract<Op, { kind: 'load' | 'assemble' }>;
+export type InspectOp = Extract<Op, { kind: 'inspect' }>;
+
 export interface CycleResult {
   measurement: number | null;
   /** Decoded DataMatrix, or null if unreadable. Undefined when not read. */
   code?: string | null;
 }
 
-export interface Cycle {
-  op: Op;
-  moverId: number;
-  mechLeft: number;
-  fixedLeft: number;
+/** Inspection camera: the PLC triggers a cycle and waits for `done`. */
+export interface Camera {
+  cycle: { op: InspectOp; moverId: number; mechLeft: number; fixedLeft: number } | null;
+  done: boolean;
+  result: CycleResult | null;
 }
 
 export interface Reader {
@@ -79,7 +84,7 @@ export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
 
 /** One step of a robot job program. Targets are resolved when the step starts. */
 export type RobotStep =
-  | { k: 'z'; z: number }
+  | { k: 'z'; to: 'safe' | 'mover' | 'source' | 'drop' }
   | { k: 'xy'; to: 'home' | 'source' | 'drop' }
   | { k: 'waitSource' }
   | { k: 'waitDrop' }
@@ -107,13 +112,13 @@ export interface Robot {
   /** What the current step is doing, for display. */
   phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked' | 'fault';
   holding: Held | null;
-  /** Op applied when placing on a mover (load / assemble). */
-  op: Op | null;
+  /** Op applied when placing on a mover. */
+  op: PlaceOp | null;
   moverId: number;
   dropTarget: { kind: 'bin'; bin: string } | { kind: 'tray' } | null;
   /** Reserved nest pocket or tray pocket for the current job. */
   slot: number | null;
-  done: boolean;
+  /** What the station measured during the last place (e.g. snap force). */
   result: CycleResult | null;
   /** Seconds until an axis fault is repaired; 0 when healthy. The robot is frozen meanwhile. */
   fault: number;
@@ -147,14 +152,13 @@ export interface TrayState {
   changing: number;
 }
 
+/** A station's physical equipment: stop gate, RFID reader and either a robot or a camera. */
 export interface PlantStation {
   id: string;
   gateClosed: boolean;
-  cycle: Cycle | null;
-  cycleDone: boolean;
-  result: CycleResult | null;
   reader: Reader;
   robot: Robot | null;
+  camera: Camera | null;
 }
 
 export interface PlantState {

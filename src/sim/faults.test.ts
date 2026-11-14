@@ -1,14 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { LINE, type LineConfig } from './config';
 import { Simulation } from './simulation';
+import { steadyConfig } from './testing';
 import type { BatchEvent, ItemProcessedEvent, MachineState, SimEvent, StationEvent } from './types';
 
 function sim(mutate?: (c: LineConfig) => void, seed = 8): Simulation {
-  const cfg: LineConfig = structuredClone(LINE);
-  cfg.faults.enabled = false;
-  cfg.batch.size = 1_000_000;
-  mutate?.(cfg);
-  const s = new Simulation({ seed, cfg, epochMs: Date.UTC(2026, 10, 14, 8) });
+  const s = new Simulation({ seed, cfg: steadyConfig(mutate), epochMs: Date.UTC(2026, 10, 14, 8) });
   s.command({ type: 'start' });
   return s;
 }

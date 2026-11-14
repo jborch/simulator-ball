@@ -1,19 +1,12 @@
 import { beforeAll, describe, expect, test } from 'vitest';
-import { LINE, type LineConfig } from './config';
+import { LINE } from './config';
 import { gtinWithCheck } from './gs1';
 import { Simulation } from './simulation';
+import { steadyConfig } from './testing';
 import { forward, pose, trackLength } from './track';
 import type { ItemProcessedEvent, ItemsMergedEvent, SimEvent } from './types';
 
 const L = trackLength(LINE.track);
-
-/** Steady-state line: no random faults and one batch big enough to never run out. */
-export function steadyConfig(): LineConfig {
-  const cfg: LineConfig = structuredClone(LINE);
-  cfg.faults.enabled = false;
-  cfg.batch.size = 1_000_000;
-  return cfg;
-}
 
 function running(seed = 7): Simulation {
   const sim = new Simulation({ seed, epochMs: Date.UTC(2026, 10, 14), cfg: steadyConfig() });
@@ -210,9 +203,9 @@ describe('machine control', () => {
     expect(sim.command({ type: 'abort' })).toBe(true);
     sim.advance(0.02);
     expect(sim.state.plant.beltSpeed).toBe(0);
-    const frozen = JSON.stringify(sim.state.plant.stations.map((s) => s.cycle));
+    const frozen = JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robot?.steps));
     sim.advance(5);
-    expect(JSON.stringify(sim.state.plant.stations.map((s) => s.cycle))).toBe(frozen);
+    expect(JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robot?.steps))).toBe(frozen);
     expect(sim.command({ type: 'start' })).toBe(false);
     expect(sim.command({ type: 'reset' })).toBe(true);
     expect(sim.state.plc.machine).toBe('Stopped');

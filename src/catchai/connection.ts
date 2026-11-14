@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CATCHAI } from './config';
 import { CatchAiClient } from './client';
 import { SendQueue } from './queue';
 import { seed } from './seed';
@@ -20,7 +20,7 @@ interface StoredCredentials {
   apiKey: string;
 }
 
-const cfg = CONFIG.catchAi;
+const cfg = CATCHAI;
 
 /** Owns credentials, seeding and the send queue; the rest of the app only calls enqueue(). */
 export class CatchAiConnection {

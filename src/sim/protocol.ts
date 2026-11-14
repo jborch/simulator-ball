@@ -65,12 +65,13 @@ export interface Frame {
   feeders: { id: string; items: number[]; jam: number }[];
   nests: { station: string; slots: number[]; changing: number }[];
   tray: { count: number; changing: number };
-  batch: (Batch & { size: number; autoNext: boolean }) | { name: null; size: number; autoNext: boolean };
+  batch: Batch | null;
+  /** Applies to the next batch. */
+  batchSettings: { size: number; autoNext: boolean };
   counters: {
     good: number;
     rejected: number;
     traysOut: number;
-    trayFill: number;
     bins: Record<string, number>;
   };
 }

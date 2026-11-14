@@ -1,21 +1,16 @@
 // The plant: physical truth of the line. It moves movers on the belt, blocks them at closed
-// gates and behind each other, runs station actuators and RFID readers, and changes the
-// physical assemblies. It knows nothing about control logic; the PLC only talks to it
-// through sensors (readInputs) and actuator fields (gateClosed, cycle, reader, beltRunning, ...).
-import { applyOp, moverById } from './assembly';
+// gates and behind each other, runs station equipment (robots, cameras, RFID readers, feeders)
+// and changes the physical assemblies. It knows nothing about control logic; the PLC only talks
+// to it through sensors (readInputs) and actuator fields (gateClosed, camera, reader, robot jobs,
+// beltRunning, ...).
+import { inspectMover, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
-import { createFeeder, createNest, createRobot, nextFailure, stepFeeder, stepNest, stepRobot, stepTray } from './devices';
+import { createFeeder, createNest, nextFailure, stepFeeder, stepNest, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
+import { createRobot, stepRobot } from './robot';
+import { copyTag, emptyTag } from './tags';
 import { forward, trackLength } from './track';
-import type { Mover, PlantState, PlantStation, Tag } from './types';
-
-export { moverById };
-
-export const emptyTag = (): Tag => ({ srId: null, status: 'empty', done: [], reason: null });
-
-export function copyTag(t: Tag): Tag {
-  return { srId: t.srId, status: t.status, done: [...t.done], reason: t.reason };
-}
+import type { Mover, PlantState, PlantStation } from './types';
 
 function makeProfile(cfg: LineConfig, rng: RngState, id: number): MoverProfile {
   const p = cfg.moverProfiles;
@@ -69,11 +64,9 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
   const stations: PlantStation[] = cfg.stations.map((d) => ({
     id: d.id,
     gateClosed: true,
-    cycle: null,
-    cycleDone: false,
-    result: null,
     reader: { busy: false, kind: 'read', left: 0, moverId: 0, write: null, done: false, ok: false, data: null },
     robot: d.kind === 'inspect' ? null : createRobot(cfg.layout.z.safe, nextFailure(rng, cfg.faults.robotMtbf)),
+    camera: d.kind === 'inspect' ? { cycle: null, done: false, result: null } : null,
   }));
   return {
     t: 0,
@@ -113,11 +106,11 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
 
   moveMovers(p, cfg, L, dt);
   if (p.estop) return;
-  for (let i = 0; i < p.stations.length; i++) {
-    stepStation(p, cfg, rng, i, dt);
-    const robot = p.stations[i].robot;
-    if (robot) stepRobot(p, cfg, rng, cfg.stations[i], robot, dt);
-  }
+  p.stations.forEach((ps, i) => {
+    stepReader(p, rng, ps, dt);
+    if (ps.camera) stepCamera(p, cfg, rng, ps, dt);
+    if (ps.robot) stepRobot(p, cfg, rng, cfg.stations[i], ps.robot, dt);
+  });
   p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], cfg, rng, dt));
   for (const n of p.nests) stepNest(n, cfg, dt);
   stepTray(p, dt);
@@ -174,34 +167,32 @@ function moveMovers(p: PlantState, cfg: LineConfig, L: number, dt: number): void
   }
 }
 
-function stepStation(p: PlantState, cfg: LineConfig, rng: RngState, i: number, dt: number): void {
-  const ps = p.stations[i];
-  const def = cfg.stations[i];
-
-  const c = ps.cycle;
-  if (c) {
-    if (c.mechLeft > 0) c.mechLeft -= dt * p.speed;
-    else c.fixedLeft -= dt;
-    if (c.mechLeft <= 0 && c.fixedLeft <= 0) {
-      ps.result = applyOp(p, cfg, rng, def, c.op, c.moverId);
-      ps.cycle = null;
-      ps.cycleDone = true;
-    }
+function stepCamera(p: PlantState, cfg: LineConfig, rng: RngState, ps: PlantStation, dt: number): void {
+  const cam = ps.camera!;
+  const c = cam.cycle;
+  if (!c) return;
+  if (c.mechLeft > 0) c.mechLeft -= dt * p.speed;
+  else c.fixedLeft -= dt;
+  if (c.mechLeft <= 0 && c.fixedLeft <= 0) {
+    cam.result = inspectMover(p, cfg, rng, c.op, c.moverId);
+    cam.cycle = null;
+    cam.done = true;
   }
+}
 
+/** RFID read/write on the mover at the gate; each try succeeds with the mover's tag reliability. */
+function stepReader(p: PlantState, rng: RngState, ps: PlantStation, dt: number): void {
   const r = ps.reader;
-  if (r.busy) {
-    r.left -= dt;
-    if (r.left <= 0) {
-      const m = moverById(p, r.moverId);
-      r.busy = false;
-      r.done = true;
-      r.ok = random(rng) < m.profile.rfidOk;
-      if (r.ok) {
-        if (r.kind === 'read') r.data = copyTag(m.tag);
-        else if (r.write) m.tag = copyTag(r.write);
-      }
-    }
+  if (!r.busy) return;
+  r.left -= dt;
+  if (r.left > 0) return;
+  const m = moverById(p, r.moverId);
+  r.busy = false;
+  r.done = true;
+  r.ok = random(rng) < m.profile.rfidOk;
+  if (r.ok) {
+    if (r.kind === 'read') r.data = copyTag(m.tag);
+    else if (r.write) m.tag = copyTag(r.write);
   }
 }
 
@@ -210,8 +201,6 @@ export interface Inputs {
   occupant: (number | null)[];
   /** Mover resting at the gate and settled. */
   inPos: boolean[];
-  /** Movers between the previous gate and this one (photo-eye zone). */
-  zoneCount: number[];
 }
 
 /** Sensor image, sampled by the PLC each scan. */
@@ -220,24 +209,17 @@ export function readInputs(p: PlantState, cfg: LineConfig): Inputs {
   const k = cfg.stations.length;
   const occupant: (number | null)[] = new Array(k).fill(null);
   const inPos: boolean[] = new Array(k).fill(false);
-  const zoneCount: number[] = new Array(k).fill(0);
 
-  for (let oi = 0; oi < p.gateOrder.length; oi++) {
-    const si = p.gateOrder[oi];
-    const g = cfg.stations[si].s;
-    const prevG = cfg.stations[p.gateOrder[(oi - 1 + p.gateOrder.length) % p.gateOrder.length]].s;
-    const span = forward(prevG, g, L);
+  cfg.stations.forEach((d, si) => {
     let best = Infinity;
     for (const m of p.movers) {
-      const past = forward(g, m.s, L);
+      const past = forward(d.s, m.s, L);
       if (past <= cfg.gateZone && past < best) {
         best = past;
         occupant[si] = m.id;
         inPos[si] = past === 0 && m.v === 0 && m.stoppedAt !== null && p.t - m.stoppedAt >= m.profile.settle;
       }
-      const fromPrev = forward(prevG, m.s, L);
-      if (fromPrev > cfg.gateZone && fromPrev <= span) zoneCount[si]++;
     }
-  }
-  return { occupant, inPos, zoneCount };
+  });
+  return { occupant, inPos };
 }

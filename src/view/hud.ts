@@ -1,5 +1,5 @@
 import type { LineConfig } from '../sim/config';
-import { ACCEPTS } from '../sim/plc';
+import { ACCEPTS } from '../sim/commands';
 import type { Command, Frame } from '../sim/protocol';
 import type { SimEvent } from '../sim/types';
 
@@ -95,7 +95,7 @@ export class Hud {
     });
 
     const b = f.batch;
-    if (b.name === null) {
+    if (!b) {
       $('#b-name').textContent = 'No batch';
       $('#b-state').textContent = '';
     } else {
@@ -107,8 +107,8 @@ export class Hud {
       $('#b-out').textContent = `${b.good} good · ${b.rejected} rejected`;
     }
     const size = $<HTMLInputElement>('#b-size');
-    if (document.activeElement !== size) size.value = String(b.size);
-    $<HTMLInputElement>('#b-auto').checked = b.autoNext;
+    if (document.activeElement !== size) size.value = String(f.batchSettings.size);
+    $<HTMLInputElement>('#b-auto').checked = f.batchSettings.autoNext;
 
     this.updateInspector(f);
   }

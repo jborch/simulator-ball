@@ -1,14 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { LINE, type LineConfig } from './config';
 import { Simulation } from './simulation';
+import { steadyConfig } from './testing';
 import type { ItemProcessedEvent, SimEvent, StationStatus } from './types';
 
 function sim(mutate?: (c: LineConfig) => void, seed = 4): Simulation {
-  const cfg: LineConfig = structuredClone(LINE);
-  cfg.faults.enabled = false;
-  cfg.batch.size = 1_000_000;
-  mutate?.(cfg);
-  const s = new Simulation({ seed, cfg });
+  const s = new Simulation({ seed, cfg: steadyConfig(mutate) });
   s.command({ type: 'start' });
   return s;
 }

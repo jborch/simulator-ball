@@ -1,6 +1,8 @@
 import { LINE, type LineConfig } from './config';
 import { createPlant, stepPlant } from './plant';
-import { applyCommand, createPlc, scanPlc } from './plc';
+import { applyCommand } from './commands';
+import { buildFrame } from './frame';
+import { createPlc, scanPlc } from './plc';
 import type { Command, Frame } from './protocol';
 import type { SimEvent, SimState } from './types';
 
@@ -54,58 +56,6 @@ export class Simulation {
   }
 
   frame(): Frame {
-    const { plant, plc, mes } = this.state;
-    return {
-      t: plant.t,
-      epochMs: this.state.epochMs,
-      machine: plc.machine,
-      speed: plant.speed,
-      speedTarget: plc.speedTarget,
-      beltSpeed: plant.beltSpeed,
-      movers: plant.movers.map((m) => ({
-        id: m.id,
-        s: m.s,
-        v: m.v,
-        status: m.tag.status,
-        parts: m.load ? [...m.load.parts] : [],
-        srId: m.load?.srId ?? null,
-        mark: m.load?.mark ?? null,
-        laps: m.laps,
-        lastLap: m.lastLap,
-      })),
-      stations: plc.stations.map((st, i) => {
-        const c = plant.stations[i].cycle;
-        const def = this.cfg.stations[i];
-        const total = def.mech + def.fixed;
-        const left = c ? Math.max(0, c.mechLeft) + Math.max(0, c.fixedLeft) : 0;
-        const r = plant.stations[i].robot;
-        const held = r?.holding;
-        return {
-          id: st.id,
-          status: st.status,
-          gateClosed: plant.stations[i].gateClosed,
-          moverId: st.moverId,
-          progress: c && total > 0 ? 1 - left / total : null,
-          robot: r
-            ? { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null }
-            : null,
-          fault: r?.fault ?? 0,
-          scrap: plant.scrap[st.id] ?? 0,
-        };
-      }),
-      feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items], jam: f.jam })),
-      nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
-      tray: { ...plant.tray },
-      batch: plc.batch
-        ? { ...plc.batch, size: plc.batchSize, autoNext: plc.autoNext }
-        : { name: null, size: plc.batchSize, autoNext: plc.autoNext },
-      counters: {
-        good: mes.good,
-        rejected: mes.rejected,
-        traysOut: plant.traysOut,
-        trayFill: plant.tray.count,
-        bins: { ...plant.bins },
-      },
-    };
+    return buildFrame(this.state, this.cfg);
   }
 }
