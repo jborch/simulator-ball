@@ -48,6 +48,7 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
     switch (cmd.type) {
       case 'start':
         if (!plc.batch || plc.batch.state === 'complete') startBatch(s);
+        plc.interrupted = false;
         setMachine(s, 'Starting');
         break;
       case 'unhold':
@@ -60,6 +61,7 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
         setMachine(s, 'Holding');
         break;
       case 'abort':
+        plc.interrupted = true;
         setMachine(s, 'Aborted');
         break;
       case 'reset':

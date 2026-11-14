@@ -202,6 +202,18 @@ export interface PlcStation {
   stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };
   /** Last seen fault input, to emit events on change. */
   faulted: boolean;
+  /** A pen picked off a mover whose drop (tray or bin) hasn't finished yet; recorded when it has. */
+  output: PendingOutput | null;
+}
+
+export interface PendingOutput {
+  pen: number;
+  good: boolean;
+  cause: string;
+  bin: string;
+  moverId: number;
+  /** Sim time the pick started. */
+  start: number;
 }
 
 export interface Batch {
@@ -224,6 +236,8 @@ export interface PlcState {
   nests: Record<string, { srId: number; used: number }>;
   tray: { srId: number; count: number };
   batch: Batch | null;
+  /** Set by an E-stop: equipment stays halted (even after Reset) until the next Start. */
+  interrupted: boolean;
   batchSize: number;
   autoNext: boolean;
   /** Feeder jam state last seen, to emit events on change. */
@@ -242,7 +256,7 @@ export interface ItemProcessedEvent {
   identifier?: string;
   sourceScopedId?: number;
   sourcePosition?: number;
-  properties?: Record<string, number | string | boolean>;
+  properties?: Record<string, number | string | boolean | null>;
 }
 
 export interface ItemsMergedEvent {

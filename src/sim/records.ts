@@ -5,7 +5,7 @@ import { carrierId, emit, now, processId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, SimState, Tag } from './types';
 
-type Props = Record<string, number | string | boolean>;
+type Props = Record<string, number | string | boolean | null>;
 
 interface Evaluation {
   passed: boolean;
@@ -17,7 +17,7 @@ function evaluate(def: StationDef, value: number | null): Evaluation {
   const lim = def.inspect!;
   const passed = value !== null && value >= lim.lower && value <= lim.upper;
   const props: Props = {
-    'Inspection Value': value ?? Number.NaN,
+    'Inspection Value': value,
     'Inspection Lower Limit': lim.lower,
     'Inspection Upper Limit': lim.upper,
     'Inspection Passed': passed,
@@ -104,35 +104,47 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
     }
 
     case 'reject':
-    case 'unload': {
-      const pen = tag.srId;
-      if (pen === null) return emptyTag();
-      const mes = s.mes;
-      const batch = s.plc.batch;
-      const moverStats = (mes.movers[st.moverId!] ??= { pens: 0, rejects: 0 });
-      if (op.kind === 'unload' && op.good) {
-        const tray = s.plc.tray;
-        emit(s, { kind: 'merged', process, target: tray.srId, source: pen, sourceType: 'Pen', position: tray.count, logged: from });
-        emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Tray Position': tray.count } });
-        tray.count++;
-        mes.good++;
-        moverStats.pens++;
-        if (batch) batch.good++;
-        if (tray.count >= cfg.traySize) {
-          emit(s, { kind: 'processed', process, scopedId: tray.srId, itemType: 'Tray', from, to, properties: { Count: tray.count } });
-          tray.srId = ++s.plc.srCounter;
-          tray.count = 0;
-        }
-      } else {
-        const cause = tag.reason ?? 'Incomplete';
-        emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Reject Cause': cause, Bin: op.bin } });
-        mes.rejected++;
-        mes.rejectsByCause[cause] = (mes.rejectsByCause[cause] ?? 0) + 1;
-        moverStats.rejects++;
-        if (batch) batch.rejected++;
+    case 'unload':
+      // The pen is in the gripper now; it's recorded as output once the drop is done (recordOutput).
+      if (tag.srId !== null) {
+        st.output = { pen: tag.srId, good: op.kind === 'unload' && op.good, cause: tag.reason ?? 'Incomplete', bin: op.bin, moverId: st.moverId!, start: st.cycleStart };
       }
-      delete mes.identifiers[pen];
       return emptyTag();
-    }
   }
+}
+
+/** Records a pen that station i's robot has dropped: into the tray (good) or a reject bin. */
+export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
+  const def = cfg.stations[i];
+  const st = s.plc.stations[i];
+  const out = st.output!;
+  st.output = null;
+  const process = processId(cfg, def);
+  const carrier = carrierId(out.moverId);
+  const from = s.epochMs + out.start * 1000;
+  const to = now(s);
+  const mes = s.mes;
+  const batch = s.plc.batch;
+  const moverStats = (mes.movers[out.moverId] ??= { pens: 0, rejects: 0 });
+  if (out.good) {
+    const tray = s.plc.tray;
+    emit(s, { kind: 'merged', process, target: tray.srId, source: out.pen, sourceType: 'Pen', position: tray.count, logged: to });
+    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Tray Position': tray.count } });
+    tray.count++;
+    mes.good++;
+    moverStats.pens++;
+    if (batch) batch.good++;
+    if (tray.count >= cfg.traySize) {
+      emit(s, { kind: 'processed', process, scopedId: tray.srId, itemType: 'Tray', from, to, properties: { Count: tray.count } });
+      tray.srId = ++s.plc.srCounter;
+      tray.count = 0;
+    }
+  } else {
+    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
+    mes.rejected++;
+    mes.rejectsByCause[out.cause] = (mes.rejectsByCause[out.cause] ?? 0) + 1;
+    moverStats.rejects++;
+    if (batch) batch.rejected++;
+  }
+  delete mes.identifiers[out.pen];
 }

@@ -70,7 +70,8 @@ export const LINE = {
   plcScan: 0.01,
   /** Mover centre within this distance past a gate counts as "at gate". */
   gateZone: 0.02,
-  rfid: { readTime: 0.04, writeTime: 0.04, retryDelay: 0.3, maxTries: 3 },
+  /** After maxTries failed writes the station holds the mover and retries every stuckRetryDelay. */
+  rfid: { readTime: 0.04, writeTime: 0.04, retryDelay: 0.3, maxTries: 3, stuckRetryDelay: 2 },
   dataMatrix: { readFailRate: 0.002 },
   nestSize: 24,
   traySize: 12,

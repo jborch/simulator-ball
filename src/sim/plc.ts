@@ -5,7 +5,7 @@ import type { LineConfig } from './config';
 import { makeIdentifier } from './gs1';
 import { carrierId, emit, now, processId, setMachine, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
-import { recordCycle } from './records';
+import { recordCycle, recordOutput } from './records';
 import { startJob } from './robot';
 import { copyTag } from './tags';
 import type { Op, PlaceOp, PlcState, SimState, Tag } from './types';
@@ -30,12 +30,14 @@ export function createPlc(cfg: LineConfig): PlcState {
       op: null,
       stats: { cycles: 0, passes: 0, busy: 0, noReads: 0, faults: 0, faultTime: 0 },
       faulted: false,
+      output: null,
     })),
     // SR ids 1.. are taken by the first tray and the first nest of each nest-fed station.
     srCounter: 1 + nestStations.length,
     tray: { srId: 1, count: 0 },
     nests: Object.fromEntries(nestStations.map((d, i) => [d.id, { srId: 2 + i, used: 0 }])),
     batch: null,
+    interrupted: false,
     batchSize: cfg.batch.size,
     autoNext: cfg.batch.autoNext,
     jammed: {},
@@ -47,15 +49,18 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   const io = readInputs(plant, cfg);
 
   plant.speedTarget = plc.speedTarget;
-  plant.estop = plc.machine === 'Aborted';
+  // After an E-stop the equipment stays frozen, through Reset, until the operator presses Start.
+  plant.estop = plc.machine === 'Aborted' || plc.interrupted;
   scanMachine(s, cfg);
   scanFaults(s, cfg, dt);
-  if (plc.machine === 'Aborted') return;
+  if (plant.estop) return;
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
-    scanStation(s, cfg, io, i, canStart, dt);
     const robot = plant.stations[i].robot;
+    // A picked pen counts as output only once the robot has dropped it in the tray or bin.
+    if (robot && robot.job === null && plc.stations[i].output) recordOutput(s, cfg, i);
+    scanStation(s, cfg, io, i, canStart, dt);
     if (!robot) return;
     if (robot.fault > 0) plc.stations[i].status = 'fault';
     // Pre-pick: a robot with a part source fetches the next part while movers index. While
@@ -226,18 +231,21 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
       if (!r.done) break;
       r.done = false;
       if (r.ok) {
+        if (st.tries >= cfg.rfid.maxTries) emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID write recovered', carrier: carrierId(st.moverId!), logged: now(s) });
         release(s, i, false);
-      } else if (++st.tries < cfg.rfid.maxTries) {
-        st.timer = cfg.rfid.retryDelay;
-        st.step = 'retryWrite';
-      } else {
-        // The item is physically changed but its tag is stale.
-        emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID write failed', carrier: carrierId(st.moverId!), logged: now(s) });
-        release(s, i, false);
+        break;
       }
+      // Never release a mover whose tag doesn't match what was done to it: after the normal
+      // retries the station holds it in fault and keeps retrying (as an operator would).
+      if (++st.tries === cfg.rfid.maxTries) {
+        emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID write failed: holding mover', carrier: carrierId(st.moverId!), logged: now(s) });
+      }
+      st.timer = st.tries >= cfg.rfid.maxTries ? cfg.rfid.stuckRetryDelay : cfg.rfid.retryDelay;
+      st.step = 'retryWrite';
       break;
 
     case 'retryWrite':
+      if (st.tries >= cfg.rfid.maxTries) st.status = 'fault';
       st.timer -= dt;
       if (st.timer <= 0) {
         startRfid(s, cfg, i, 'write', st.pendingTag);

@@ -99,8 +99,10 @@ describe('feeders, nest and tray', () => {
     expect(maxFill).toBe(LINE.traySize);
     const good = s.state.mes.good;
     const p = s.state.plant;
-    expect(p.traysOut * LINE.traySize + p.tray.count).toBeGreaterThanOrEqual(good - 1);
-    expect(p.traysOut * LINE.traySize + p.tray.count).toBeLessThanOrEqual(good);
+    // A pen is recorded as good after the robot drops it (next PLC scan), never before.
+    const packed = p.traysOut * LINE.traySize + p.tray.count;
+    expect(packed - good).toBeGreaterThanOrEqual(0);
+    expect(packed - good).toBeLessThanOrEqual(1);
   }, 60_000);
 });
 
