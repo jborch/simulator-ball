@@ -100,7 +100,7 @@ describe('feeders, nest and tray', () => {
     const good = s.state.mes.good;
     const p = s.state.plant;
     // A pen is recorded as good after the robot drops it (next PLC scan), never before.
-    const packed = p.traysOut * LINE.traySize + p.tray.count;
+    const packed = p.pensOut + p.tray.count;
     expect(packed - good).toBeGreaterThanOrEqual(0);
     expect(packed - good).toBeLessThanOrEqual(1);
   }, 60_000);
@@ -118,7 +118,7 @@ test('parts are conserved: every body leaving the feeder is on a mover, in a gri
   const onMovers = p.movers.filter((m) => m.load).length;
   const inGrippers = p.stations.filter((st) => st.robot?.holding).filter((st) => st.robot!.holding!.kind === 'pen' || st.robot!.holding!.parts.includes('body')).length;
   const inBins = Object.values(p.bins).reduce((a, b) => a + b, 0);
-  const packed = p.traysOut * LINE.traySize + p.tray.count;
+  const packed = p.pensOut + p.tray.count;
   const scrappedBodies = p.scrap.ST10 ?? 0;
   expect(onMovers + inGrippers + inBins + packed + scrappedBodies).toBe(leftFeeder);
 

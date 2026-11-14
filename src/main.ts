@@ -14,6 +14,8 @@ const client = connectLocal(clientName);
 const frames = new FrameBuffer(trackLength(LINE.track));
 const hud = new Hud(LINE, (c) => client.send(c));
 const stage = new Stage(document.querySelector('#view')!);
+const side = document.querySelector<HTMLElement>('#side')!;
+new ResizeObserver(() => stage.setInsetRight(side.offsetWidth + 12)).observe(side);
 
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
@@ -21,6 +23,7 @@ client.onEvents = (es) => hud.addEvents(es);
 const models = await loadModels();
 const line = new LineView(LINE, models);
 stage.scene.add(line.group);
+stage.fit(line.bounds());
 
 // Click a mover to inspect it; a ring marks the selection.
 const ray = new THREE.Raycaster();
@@ -64,4 +67,4 @@ function loop() {
 loop();
 
 // Dev-only handle for poking at the scene from the console (e.g. moving the camera).
-if (import.meta.env.DEV) Object.assign(window, { line: { stage, view: line, client, frames } });
+if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames } });

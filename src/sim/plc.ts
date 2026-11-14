@@ -5,10 +5,10 @@ import type { LineConfig } from './config';
 import { makeIdentifier } from './gs1';
 import { carrierId, emit, now, processId, setMachine, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
-import { recordCycle, recordOutput } from './records';
+import { closeTray, recordCycle, recordOutput } from './records';
 import { startJob } from './robot';
 import { copyTag } from './tags';
-import type { Op, PlaceOp, PlcState, SimState, Tag } from './types';
+import type { Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
 
 export function createPlc(cfg: LineConfig): PlcState {
   const nestStations = cfg.stations.filter((d) => d.source === 'nest');
@@ -34,7 +34,7 @@ export function createPlc(cfg: LineConfig): PlcState {
     })),
     // SR ids 1.. are taken by the first tray and the first nest of each nest-fed station.
     srCounter: 1 + nestStations.length,
-    tray: { srId: 1, count: 0 },
+    tray: { srId: 1, count: 0, start: 0 },
     nests: Object.fromEntries(nestStations.map((d, i) => [d.id, { srId: 2 + i, used: 0 }])),
     batch: null,
     interrupted: false,
@@ -58,24 +58,47 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
     const robot = plant.stations[i].robot;
-    // A picked pen counts as output only once the robot has dropped it in the tray or bin.
-    if (robot && robot.job === null && plc.stations[i].output) recordOutput(s, cfg, i);
+    // A picked pen counts as output once the robot has let go of it over the tray or bin.
+    if (robot?.dropped) {
+      robot.dropped = false;
+      if (plc.stations[i].output) recordOutput(s, cfg, i);
+    }
     scanStation(s, cfg, io, i, canStart, dt);
     if (!robot) return;
     if (robot.fault > 0) plc.stations[i].status = 'fault';
-    // Pre-pick: a robot with a part source fetches the next part while movers index. While
-    // stopping it still fetches for a mover the station has already committed to.
-    const needed = canStart || plc.stations[i].step === 'waitRobot';
-    if (def.source && needed && robot.job === null && !robot.holding) startJob(robot, def, 'prepick');
+    // Pre-pick: a robot with a part source fetches the next part while movers index, as long as
+    // more parts will be needed. While stopping it only fetches for a mover it's committed to.
+    if (!def.source) return;
+    const running = plc.machine === 'Starting' || plc.machine === 'Execute' || (plc.machine === 'Completing' && def.kind !== 'load');
+    const needed = running || plc.stations[i].step === 'waitRobot';
+    if (needed && robot.job === null && !robot.holding) startJob(robot, def, 'prepick');
+    else if (!needed && waitingForPart(robot)) cancelJob(robot);
   });
+}
+
+/** A pre-pick still waiting at an empty source hasn't touched anything yet and may be called off. */
+function waitingForPart(robot: Robot): boolean {
+  return robot.job === 'prepick' && robot.steps[0]?.k === 'waitSource';
+}
+
+function cancelJob(robot: Robot): void {
+  robot.job = null;
+  robot.steps = [];
+  robot.phase = 'idle';
 }
 
 /** Machine (PackML-style) state machine: belt drive, batch run-out and auto-next. */
 function scanMachine(s: SimState, cfg: LineConfig): void {
   const { plant, plc } = s;
   const batch = plc.batch;
-  // A station whose mover is only leaving has finished its work (the queue ahead may never move while stopping).
-  const allIdle = plc.stations.every((st) => st.step === 'idle' || st.step === 'leaving');
+  // A station whose mover is only leaving has finished its work (the queue ahead may never move
+  // while stopping). Robots, nest and tray changes must have finished too, so nothing moves once
+  // stopped.
+  const allIdle =
+    plc.stations.every((st) => st.step === 'idle' || st.step === 'leaving') &&
+    plant.stations.every((ps) => !ps.robot || ps.robot.job === null || waitingForPart(ps.robot)) &&
+    plant.tray.changing === 0 &&
+    plant.nests.every((n) => n.changing === 0);
   plant.beltRunning = !['Stopped', 'Held', 'Aborted', 'Complete'].includes(plc.machine);
 
   switch (plc.machine) {
@@ -93,7 +116,13 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
     case 'Completing': {
       // Run-out: ST10 has stopped loading; finish every pen still on the line.
       const inFlight = batch ? batch.loaded - batch.good - batch.rejected : 0;
-      if (inFlight <= 0 && allIdle) {
+      if (inFlight > 0 || !allIdle) break;
+      // The batch's last tray goes out even if it isn't full, so batches never share a tray.
+      if (plc.tray.count > 0) {
+        closeTray(s, cfg);
+        plant.tray.discharge = true;
+      }
+      if (!plant.tray.discharge && plant.tray.changing === 0) {
         if (batch) {
           batch.state = 'complete';
           emit(s, { kind: 'batch', name: batch.name, state: 'completed', target: batch.target, good: batch.good, rejected: batch.rejected, logged: now(s) });
@@ -295,13 +324,14 @@ function release(s: SimState, i: number, passing: boolean): void {
 }
 
 /**
- * A twin partner can take a mover that needs work if it isn't working and hasn't already been
- * promised one. Movers already processed upstream only pass through it, so they don't block.
+ * A twin partner can take a mover that needs work if it isn't working or faulted and hasn't
+ * already been promised one. Movers already processed upstream only pass through it, so they don't block.
  */
 function partnerFree(s: SimState, cfg: LineConfig, partnerId: string): number | null {
   const pi = cfg.stations.findIndex((d) => d.id === partnerId);
   const p = s.plc.stations[pi];
-  return p.step !== 'working' && p.step !== 'waitRobot' && !p.reserved ? pi : null;
+  const faulted = (s.plant.stations[pi].robot?.fault ?? 0) > 0 || p.status === 'fault';
+  return p.step !== 'working' && p.step !== 'waitRobot' && !p.reserved && !faulted ? pi : null;
 }
 
 /** Decides what to do with the mover whose tag was just read. */

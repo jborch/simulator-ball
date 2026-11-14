@@ -56,6 +56,8 @@ YELLOW = lambda: mat("MoverTop", (0.95, 0.75, 0.1), rough=0.5)
 TRAY = lambda: mat("TrayPET", (0.35, 0.55, 0.75), rough=0.4)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
+# Pen bodies are frosted translucent plastic, so the spring and cartridge show through.
+BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
 
 
 def cyl(r, h, z0, m, name, verts=32):
@@ -108,6 +110,24 @@ def dm_material():
     return m
 
 
+def cut(target, cutter):
+    """Boolean-subtracts cutter from target and deletes the cutter."""
+    b = target.modifiers.new("cut", "BOOLEAN")
+    b.object = cutter
+    b.operation = "DIFFERENCE"
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.modifier_apply(modifier="cut")
+    bpy.data.objects.remove(cutter)
+    return target
+
+
+def tube(r_out, r_in, h, z0, m, name, floor=0.0, verts=32):
+    """Open-topped tube; `floor` leaves a closed bottom of that thickness."""
+    o = cyl(r_out, h, z0, m, name, verts)
+    cut(o, cyl(r_in, h, z0 + floor, m, name + "_bore", verts))
+    return o
+
+
 def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
     """A plane bent onto a cylinder surface, facing -Y. UVs span 0..1 so the app can paint a texture on it."""
     bpy.ops.mesh.primitive_grid_add(x_subdivisions=segments, y_subdivisions=1, size=1)
@@ -123,17 +143,23 @@ def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
     return o
 
 
+# Geometry along the pen axis matches LINE.parts in src/sim/config.ts: the spring sits in the body
+# from 6 mm, the cartridge on top of it from 51 mm, the housing slides over the body from 8 mm.
+DM_Z = 0.045  # centre of the laser-marked code on the body
+
+
 def pen_body():
-    core = cyl(0.0065, 0.11, 0.0, WHITE(), "body_core")
+    # Open tube with a closed bottom; the spring and cartridge go in from the top.
+    core = tube(0.0065, 0.0053, 0.11, 0.0, BODY(), "body_core", floor=0.006)
     flange = cyl(0.0078, 0.004, 0.0, WHITE(), "body_flange")
-    button = cyl(0.005, 0.008, 0.11, WHITE(), "body_button")
-    # Laser-marked GS1 DataMatrix with the item identifier, 6 x 6 mm, just above the mover fixture.
-    dm = wrapped_patch(0.0065, 0.006, 0.006, 0.045, "dm_mark", dm_material())
-    return group("PenBody", [core, flange, button, dm])
+    # Laser-marked GS1 DataMatrix with the item identifier, 6 x 6 mm, on a white marking field.
+    field = wrapped_patch(0.0065, 0.008, 0.008, DM_Z, "dm_field", WHITE())
+    dm = wrapped_patch(0.00652, 0.006, 0.006, DM_Z, "dm_mark", dm_material())
+    return group("PenBody", [core, flange, field, dm])
 
 
 def spring(z0=0.0):
-    coils, r, wire, h = 12, 0.0045, 0.0006, 0.045
+    coils, r, wire, h = 12, 0.0042, 0.0006, 0.045
     curve = bpy.data.curves.new("spring_curve", "CURVE")
     curve.dimensions = "3D"
     curve.bevel_depth = wire
@@ -163,8 +189,15 @@ def cartridge():
     return group("Cartridge", [glass, drug, stopper, neck, crimp])
 
 
+def housing_shell(name):
+    """Housing tube that slides over the body, with a code window over the body's DataMatrix."""
+    shell = tube(0.0085, 0.0068, 0.12, 0.0, BLUE(), name, verts=48)
+    cut(shell, box(0.01, 0.006, 0.01, (0, -0.0078, DM_Z - 0.008), BLUE(), name + "_code_window"))
+    return shell
+
+
 def housing():
-    shell = cyl(0.0085, 0.12, 0.0, BLUE(), "housing_shell", verts=48)
+    shell = housing_shell("housing_shell")
     window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "housing_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "housing_clip")
     return group("Housing", [shell, window, clip])
@@ -177,12 +210,13 @@ def cap():
 
 
 def assembled_pen():
-    shell = cyl(0.0085, 0.12, 0.0, BLUE(), "pen_shell", verts=48)
+    """Housing with its cap on, origin at the housing's base (8 mm above the body's base). The app
+    draws the body, spring and cartridge inside it; the body's code shows through the code window."""
+    shell = housing_shell("pen_shell")
     window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "pen_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "pen_clip")
-    button = cyl(0.005, 0.008, -0.008, WHITE(), "pen_button")
     c = cyl(0.009, 0.035, 0.12, ORANGE(), "pen_cap", verts=48)
-    return group("AssembledPen", [shell, window, clip, button, c])
+    return group("AssembledPen", [shell, window, clip, c])
 
 
 LABEL = lambda: mat("MoverLabel", (0.97, 0.97, 0.95), rough=0.6)
@@ -215,8 +249,15 @@ def number_text(num, loc, rot, size, name):
 def mover(num=None):
     base = bevel(box(0.12, 0.12, 0.025, (0, 0, 0.0125), DARK(), "mover_base"), 0.004, 3)
     top = bevel(box(0.1, 0.1, 0.004, (0, 0, 0.027), YELLOW(), "mover_top"), 0.002)
-    fixture = cyl(0.014, 0.03, 0.029, ALU(), "mover_fixture", verts=32)
-    hole = cyl(0.0095, 0.031, 0.03, RUBBER(), "mover_hole")
+    # Socket fixture: the pen stands in a bore (fits the housing) with a lead-in chamfer, on a
+    # rubber seat at z = 0.03; a slot at the back locates the housing's clip side.
+    fixture = cyl(0.016, 0.026, 0.029, ALU(), "mover_fixture", verts=48)
+    cut(fixture, cyl(0.0093, 0.03, 0.03, ALU(), "fixture_bore", verts=48))
+    bpy.ops.mesh.primitive_cone_add(radius1=0.0093, radius2=0.0125, depth=0.004, vertices=48, location=(0, 0, 0.0535))
+    cut(fixture, bpy.context.object)
+    cut(fixture, box(0.004, 0.01, 0.01, (0, 0.013, 0.055), ALU(), "fixture_slot"))
+    bevel(fixture, 0.0006)
+    hole = cyl(0.0093, 0.001, 0.0292, RUBBER(), "mover_hole")
     # RFID tag on the leading face (+X = direction of travel), read by antennas at each station.
     tag = box(0.004, 0.03, 0.012, (0.061, 0, 0.012), WHITE(), "mover_rfid")
     # Number labels: top (operator view from above) and both long sides.
@@ -236,20 +277,14 @@ def tray(cols=4, rows=3, pitch=0.03):
     w, d = cols * pitch + 0.02, rows * pitch + 0.02
     plate = bevel(box(w, d, 0.006, (0, 0, 0.003), TRAY(), "tray_plate"), 0.002)
     rim = bevel(box(w, d, 0.02, (0, 0, 0.01), TRAY(), "tray_rim"), 0.002)
-    # hollow the rim with a boolean
-    inner = box(w - 0.006, d - 0.006, 0.02, (0, 0, 0.016), TRAY(), "tray_cut")
-    b = rim.modifiers.new("cut", "BOOLEAN")
-    b.object = inner
-    b.operation = "DIFFERENCE"
-    bpy.context.view_layer.objects.active = rim
-    bpy.ops.object.modifier_apply(modifier="cut")
-    bpy.data.objects.remove(inner)
+    cut(rim, box(w - 0.006, d - 0.006, 0.02, (0, 0, 0.016), TRAY(), "tray_cut"))
+    # Deep pocket collars hold the pens upright.
     pockets = []
     for i in range(cols):
         for j in range(rows):
             x = (i - (cols - 1) / 2) * pitch
             y = (j - (rows - 1) / 2) * pitch
-            pockets.append(cyl(0.0095, 0.004, 0.006, RUBBER(), f"tray_pocket_{i}_{j}", verts=24))
+            pockets.append(tube(0.0125, 0.0095, 0.028, 0.006, TRAY(), f"tray_pocket_{i}_{j}", verts=24))
             pockets[-1].location.x, pockets[-1].location.y = x, y
     return group("Tray", [plate, rim, *pockets])
 
@@ -307,7 +342,9 @@ for i, (root, _, label) in enumerate(big):
     root.location = ((i - 1) * 0.16, 0.15, 0.0)
 # Put a pen in the mover and on the tray to show fit.
 demo = assembled_pen()
-demo.location = big[0][0].location + Vector((0, 0, 0.03))
+demo.location = big[0][0].location + Vector((0, 0, 0.038))  # seat 0.03 + housing offset 0.008
+demo_body = pen_body()
+demo_body.location = big[0][0].location + Vector((0, 0, 0.03))
 
 for root, _, label in assets:
     bpy.ops.object.text_add(location=(root.location.x, root.location.y - 0.03 - (0.05 if root in [a[0] for a in big] else 0), 0.0))

@@ -35,6 +35,11 @@ export interface StationDef {
   requires?: Step[];
   parts?: PartType[];
   inspect?: Limits;
+  /**
+   * Robot stations: how far above its seated position the part is brought before it is pushed
+   * home. The push takes `mech` seconds (fast z move when mech is 0).
+   */
+  insert?: number;
   /** Downstream partner of a same-belt twin station; this station passes movers to it when it's free. */
   twin?: string;
   /** Degrades the assembly it touches (like EM14B in the C# sim). */
@@ -65,7 +70,21 @@ export const LINE = {
     count: 32,
     length: 0.12,
     gravity: 9.81,
+    /** Height of the fixture seat (bottom of the pen body) above the belt surface. */
+    seat: 0.03,
   },
+  /**
+   * Part geometry along the pen axis: where each part's base sits above the fixture seat in the
+   * finished assembly, and its length. The body is an open tube: the spring and the cartridge go
+   * inside it, the housing slides over it and the cap closes the housing.
+   */
+  parts: {
+    body: { seat: 0, length: 0.11, radius: 0.0065 },
+    spring: { seat: 0.006, length: 0.045, radius: 0.0048 },
+    cartridge: { seat: 0.051, length: 0.073, radius: 0.0048 },
+    housing: { seat: 0.008, length: 0.12, radius: 0.0085 },
+    cap: { seat: 0.128, length: 0.035, radius: 0.009 },
+  } satisfies Record<PartType, PartGeometry> as Record<PartType, PartGeometry>,
   plantDt: 0.001,
   plcScan: 0.01,
   /** Mover centre within this distance past a gate counts as "at gate". */
@@ -82,7 +101,7 @@ export const LINE = {
   /** Bowl feeders push parts onto a linear track toward the robot's pick point. */
   feeders: [
     { id: 'bodies', part: 'body', interval: 1.0, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
-    { id: 'springs', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.3 },
+    { id: 'springs', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.22 },
     { id: 'housings', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
   ] as FeederDef[],
   /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
@@ -115,24 +134,24 @@ export const LINE = {
     tray: { station: 'ST70', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
     bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 } } as Record<string, { a: number; r: number }>,
     /**
-     * Gripper tip heights above the belt surface. Each part hangs a fixed length below the tip,
-     * chosen so a part held at `mover` height sits exactly in (or on) the mover's fixture.
+     * Gripper tip heights above the belt surface. The gripper holds a part (or a pen) by its top,
+     * so on the mover the tip height follows from the part geometry (see layout.ts).
      */
-    z: { safe: 0.36, mover: 0.17, nest: 0.07, bin: 0.2, tray: 0.092 },
+    z: { safe: 0.36, nest: 0.073, bin: 0.2, tray: 0.159 },
   },
   gs1: { gtin: '0571234500001', expiryYears: 3 },
   stations: [
-    { id: 'ST10', name: 'Laser mark + load body', kind: 'load', s: 0.35, mech: 0, fixed: 0.3, step: 'body', parts: ['body'], source: 'bodies' },
-    { id: 'ST20', name: 'Mount spring', kind: 'assemble', s: 0.85, mech: 0.3, fixed: 0, step: 'spring', requires: ['body'], parts: ['spring'], source: 'springs' },
+    { id: 'ST10', name: 'Laser mark + load body', kind: 'load', s: 0.35, mech: 0, fixed: 0.3, step: 'body', parts: ['body'], source: 'bodies', insert: 0.03 },
+    { id: 'ST20', name: 'Mount spring', kind: 'assemble', s: 0.85, mech: 0.3, fixed: 0, step: 'spring', requires: ['body'], parts: ['spring'], source: 'springs', insert: 0.11 },
     {
       id: 'ST30', name: 'Spring inspection', kind: 'inspect', s: 1.35, mech: 0.3, fixed: 0.5, step: 'springInsp', requires: ['spring'],
       inspect: { key: 'springAngle', lower: 35, upper: 55, noise: 0.4, unit: 'deg', cause: 'Spring angle out of tolerance' },
     },
     { id: 'R1', name: 'Early reject', kind: 'reject', s: 1.85, mech: 0, fixed: 0, bin: 'BIN1' },
-    { id: 'ST40A', name: 'Insert cartridge A', kind: 'assemble', s: 2.45, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', twin: 'ST40B' },
-    { id: 'ST40B', name: 'Insert cartridge B', kind: 'assemble', s: 2.7, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', fragile: true },
+    { id: 'ST40A', name: 'Insert cartridge A', kind: 'assemble', s: 2.45, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', insert: 0.065, twin: 'ST40B' },
+    { id: 'ST40B', name: 'Insert cartridge B', kind: 'assemble', s: 2.7, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', insert: 0.065, fragile: true },
     {
-      id: 'ST50', name: 'Mount housing + cap', kind: 'assemble', s: BOTTOM + 0.6, mech: 0.6, fixed: 0, step: 'housing', requires: ['cartridge'], parts: ['housing', 'cap'], source: 'housings',
+      id: 'ST50', name: 'Mount housing + cap', kind: 'assemble', s: BOTTOM + 0.6, mech: 0.6, fixed: 0, step: 'housing', requires: ['cartridge'], parts: ['housing', 'cap'], source: 'housings', insert: 0.11,
       inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window' },
     },
     {
@@ -163,6 +182,14 @@ export const LINE = {
     } as Record<number, Partial<MoverProfile>>,
   },
 };
+
+export interface PartGeometry {
+  /** Base of the part above the fixture seat in the finished pen. */
+  seat: number;
+  length: number;
+  /** Outer radius (where the gripper jaws close on it). */
+  radius: number;
+}
 
 export interface MoverProfile {
   /** Drive-pad friction coefficient against the belt; limits acceleration. */

@@ -13,7 +13,7 @@ const frame = (t: number, s: number): Frame => ({
   stations: [],
   feeders: [],
   nests: [],
-  tray: { count: 0, changing: 0 },
+  tray: { count: 0, changing: 0, queue: [] },
   batch: null,
   batchSettings: { size: 300, autoNext: true },
   counters: { good: 0, rejected: 0, traysOut: 0, bins: {} },

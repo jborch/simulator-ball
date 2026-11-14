@@ -64,7 +64,8 @@ export interface Frame {
   stations: StationFrame[];
   feeders: { id: string; items: number[]; jam: number }[];
   nests: { station: string; slots: number[]; changing: number }[];
-  tray: { count: number; changing: number };
+  /** Tray being filled, and the pen counts of the trays queued on the outfeed (newest first). */
+  tray: { count: number; changing: number; queue: number[] };
   batch: Batch | null;
   /** Applies to the next batch. */
   batchSettings: { size: number; autoNext: boolean };

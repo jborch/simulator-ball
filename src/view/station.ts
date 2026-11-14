@@ -1,17 +1,17 @@
 import * as THREE from 'three';
 import type { LineConfig, StationDef } from '../sim/config';
-import { nestPocket, trayPocket } from '../sim/layout';
+import { heldLength, nestPocket, seatedTip, trayPocket } from '../sim/layout';
 import type { Frame, StationFrame } from '../sim/protocol';
 import { pose } from '../sim/track';
 import { BELT_Y, LIGHT_COLORS, type LightColor, M, RAIL_Y, type Reach, TABLE, cyl, label, lerp, local, v3 } from './build';
-import { BinView, FeederView, NestView, RobotView, ScrapView, TrayView, cameraGantry } from './devices';
+import { BinView, FeederView, InspectionView, NestView, RobotView, ScrapView, TrayView, finishedPen } from './devices';
 import type { Models } from './models';
+import { AssemblyView } from './movers';
 
 export class StationView {
   readonly group = new THREE.Group();
   readonly scrap: ScrapView;
-  private readonly camera: THREE.Object3D | null = null;
-  private readonly cameraRest: number = 0;
+  private readonly inspection: InspectionView | null = null;
   readonly robot: RobotView | null = null;
   readonly feeder: FeederView | null = null;
   readonly nest: NestView | null = null;
@@ -30,21 +30,25 @@ export class StationView {
     this.group.position.copy(v3(p.x, p.y, BELT_Y));
     this.group.rotation.y = p.heading;
 
-    let lightAt = { a: 0, r: -0.12, y: 0.42 };
+    let lightAt = { a: 0, r: 0.2, y: 0.44 };
     if (def.kind === 'inspect') {
-      this.camera = cameraGantry(this.group);
-      this.cameraRest = this.camera.position.y;
+      this.inspection = new InspectionView(cfg, !!def.readsCode);
+      this.group.add(this.inspection.group);
     } else {
       const reach = StationView.reach(cfg, def);
-      this.robot = new RobotView(reach, models, def.kind === 'load');
+      const beamR = StationView.beamR(cfg, def, reach);
+      this.robot = new RobotView(reach, beamR, StationView.lowestTip(cfg, def), cfg, models, def.kind === 'load');
       this.group.add(this.robot.group);
-      lightAt = { a: reach.aMin, r: reach.rMax, y: RAIL_Y + 0.02 };
+      lightAt = { a: reach.aMin - 0.01, r: beamR, y: RAIL_Y + 0.02 };
     }
     if (def.source === 'nest') this.nest = new NestView(cfg, models);
-    else if (def.source) this.feeder = new FeederView(def.source, cfg, models);
+    else if (def.source) this.feeder = new FeederView(def.source, def.parts ?? [], cfg, models);
     if (def.kind === 'unload') this.tray = new TrayView(cfg, models);
     if (def.bin) {
-      this.bin = new BinView(def.bin, models.pen);
+      // Early rejects are part-built pens; the unload station only rejects finished ones.
+      const rejected = def.kind === 'reject' ? StationView.partBuilt(cfg, models) : finishedPen(cfg, models);
+      const length = def.kind === 'reject' ? cfg.parts.body.length : heldLength(cfg, ['body', 'housing', 'cap']);
+      this.bin = new BinView(def.bin, rejected, length);
       const b = cfg.layout.bins[def.bin];
       this.bin.group.position.copy(local(b.a, TABLE, b.r));
     }
@@ -72,6 +76,34 @@ export class StationView {
     this.group.add(tagObj);
   }
 
+  /** A pen body with its spring, as rejected after the spring inspection. */
+  private static partBuilt(cfg: LineConfig, models: Models): THREE.Object3D {
+    const a = new AssemblyView(cfg, models);
+    a.show(['body', 'spring']);
+    return a.root;
+  }
+
+  /** Lowest gripper height this station's robot goes to (placing, picking or dropping). */
+  private static lowestTip(cfg: LineConfig, def: StationDef): number {
+    const z = cfg.layout.z;
+    const tips = [z.safe];
+    if (def.parts) tips.push(seatedTip(cfg, def.parts));
+    if (def.source === 'nest') tips.push(z.nest);
+    else if (def.source) tips.push(cfg.feeders.find((f) => f.id === def.source)!.pickZ);
+    if (def.kind === 'reject' || def.kind === 'unload') tips.push(seatedTip(cfg, ['body']));
+    if (def.bin) tips.push(z.bin);
+    if (def.kind === 'unload') tips.push(z.tray);
+    return Math.min(...tips);
+  }
+
+  /** The gantry beam stands just outside the bins and tray conveyor under the robot. */
+  private static beamR(cfg: LineConfig, def: StationDef, reach: Reach): number {
+    let outer = reach.rMax;
+    if (def.bin) outer = Math.max(outer, cfg.layout.bins[def.bin].r + 0.1);
+    if (def.kind === 'unload') outer = Math.max(outer, cfg.layout.tray.r + 0.07);
+    return outer + 0.04;
+  }
+
   /** Gantry extent covering every point the robot visits, plus margin. */
   private static reach(cfg: LineConfig, def: StationDef): Reach {
     const pts: { a: number; r: number }[] = [{ a: 0, r: 0 }];
@@ -96,14 +128,11 @@ export class StationView {
     }
     const nest = this.nest && fa.nests.find((x) => x.station === this.def.id);
     if (nest) this.nest!.update(nest.slots, nest.changing);
-    this.tray?.update(fa.tray.count, fa.tray.changing, fa.counters.traysOut);
+    this.tray?.update(fa.tray.count, fa.tray.changing, fa.tray.queue, fa.counters.traysOut);
     this.bin?.setCount(fa.counters.bins[this.def.bin!] ?? 0);
     this.scrap.setCount(f.scrap);
 
-    if (this.camera) {
-      const k = f.progress === null ? 0 : Math.sin(Math.min(1, f.progress) * Math.PI);
-      this.camera.position.y = this.cameraRest - 0.03 * k;
-    }
+    this.inspection?.update(f.progress !== null, t);
     const ra = f.robot;
     const rb = fb.stations[index].robot;
     if (this.robot && ra && rb) {

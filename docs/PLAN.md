@@ -359,17 +359,21 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 - **Pre-picking:** loading stations fetch the next part while the mover is still indexing. Feeders sit on stands at near-travel height, so a fetch takes about 1.3 s.
 - **Feeders:** bowl feeders push parts onto linear tracks where they queue up. An empty track **starves** the station: the stack light shows blue, and the HUD shows the station as starved.
 - **Cartridge nests:** each twin station has its own nest of 24, and each pick goes to a specific pocket. When a nest is empty, a nest change takes 4 s. The robot's pre-picked spare covers that, but a slower change starves the station.
-- **Rejects and tray:** R1 and ST70 pick the pen off the mover and drop it in a bin, or place it in a tray pocket. A full tray indexes out in 3 s, during which ST70 is **blocked**.
-- **Laser marking:** the DataMatrix only exists on the body after the laser dwell, and ST60 reads what was physically marked.
+- **Part geometry:** one table in the config (`LINE.parts`) says where each part sits in the finished pen and how long it is. Robots, feeders and the 3D view all derive heights from it. The pen body is a translucent open tube, the spring and cartridge go inside it, and the housing slides over it. Grippers hold every part, and every pen, by its top.
+- **Insertion:** a robot brings the part to an approach height above the mover, then pushes it home over the station's press time (`insert` stroke, `mech` seconds). It doesn't hover and then swap models.
+- **Rejects and tray:** R1 and ST70 pick the pen off the mover and drop it in a bin, or place it in a tray pocket. The pen counts as output the moment it is let go. A full tray indexes out in 3 s, during which ST70 is **blocked**. Filled trays then queue on the outfeed conveyor.
+- **Interlocks:** nest and tray changes only start once the robot's gripper is back up at safe height.
+- **Laser marking:** the DataMatrix only exists on the body after the laser dwell, and ST60 reads what was physically marked. The code faces the inner side of the loop, where the laser head and ST60's side reader are. It stays visible through a code window in the housing.
 - **Tests:** axis limits, pre-pick timing, feeder starvation, nest/tray changes, and part conservation (every body that leaves the feeder is accounted for).
 
 ## 10c. Faults and batches (built in milestone 6)
 
 - **Feeder jams:** each part fed has a 1/450 chance of jamming the bowl. A jammed bowl stops feeding until it's cleared after 20–60 s. The track drains, then the station starves.
+- **Twin station:** ST40A only passes a mover on to ST40B when B is free and not faulted.
 - **Robot axis faults:** these are based on operating time, with a 30-min mean time between faults per robot (about 7–8 per hour across the line). The robot freezes and the station shows *fault* until it's repaired after 30–90 s. The queue behind it builds.
 - **Misplaced parts:** 0.3 % of placed parts don't seat and end up as scrap on the table. The tag still says the step was done, so a later inspection rejects the pen as **Part missing**. This is a realistic mismatch between what the PLC believes and what is physically there.
 - **Fault injection:** a `fault` command that any client can send to trigger an axis fault on any robot or a jam on any feeder.
-- **Batches:** a batch has a target number of pens *loaded*. When it's reached, the machine goes **Completing**: ST10 stops loading and the line runs empty. It then goes **Complete**, and after a 20 s pause the next batch starts automatically. The batch size and auto-next can be set from the HUD, and a batch can be ended early. Batches are named `yyyyMMddHHmmss` and emit started/completed events (for CATCH.AI periods).
+- **Batches:** a batch has a target number of pens *loaded*. When it's reached, the machine goes **Completing**: ST10 stops loading (and stops pre-picking bodies) and the line runs empty. The last, part-filled tray is closed and sent out, so batches never share a tray. Once every robot has finished its job, the machine goes **Complete**, and after a 20 s pause the next batch starts automatically. The batch size and auto-next can be set from the HUD, and a batch can be ended early. Batches are named `yyyyMMddHHmmss` and emit started/completed events (for CATCH.AI periods).
 - With default faults, throughput drops visibly compared with a clean line; the tests check it stays above 60 % of clean.
 
 ## 11. Milestones

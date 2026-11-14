@@ -27,6 +27,8 @@ export const M = {
   bin: mat(0xb02b2b, { roughness: 0.7 }),
   bowl: mat(0x9aa3ae, { metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }),
   nest: mat(0xf2f2f2, { roughness: 0.7 }),
+  /** Vibratory drive housings and other dark machine parts. */
+  drive: mat(0x3a3f47, { metalness: 0.3, roughness: 0.5 }),
   laser: new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.85 }),
 };
 

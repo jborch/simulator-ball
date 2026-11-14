@@ -7,7 +7,7 @@ import { inspectMover, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
 import { createFeeder, createNest, nextFailure, stepFeeder, stepNest, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
-import { createRobot, stepRobot } from './robot';
+import { createRobot, stepRobot, toolClear } from './robot';
 import { copyTag, emptyTag } from './tags';
 import { forward, trackLength } from './track';
 import type { Mover, PlantState, PlantStation } from './types';
@@ -82,8 +82,10 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
     nests: cfg.stations.filter((d) => d.source === 'nest').map((d) => createNest(cfg, d.id)),
-    tray: { count: 0, changing: 0 },
+    tray: { count: 0, changing: 0, discharge: false },
     traysOut: 0,
+    pensOut: 0,
+    trayQueue: [],
   };
 }
 
@@ -112,8 +114,9 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
     if (ps.robot) stepRobot(p, cfg, rng, cfg.stations[i], ps.robot, dt);
   });
   p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], cfg, rng, dt));
-  for (const n of p.nests) stepNest(n, cfg, dt);
-  stepTray(p, dt);
+  const robotOf = (id: string) => p.stations.find((s) => s.id === id)?.robot ?? null;
+  for (const n of p.nests) stepNest(n, cfg, toolClear(cfg, robotOf(n.station)), dt);
+  stepTray(p, cfg, toolClear(cfg, robotOf(cfg.layout.tray.station)), dt);
 }
 
 function moveMovers(p: PlantState, cfg: LineConfig, L: number, dt: number): void {

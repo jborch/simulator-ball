@@ -84,13 +84,15 @@ export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
 
 /** One step of a robot job program. Targets are resolved when the step starts. */
 export type RobotStep =
-  | { k: 'z'; to: 'safe' | 'mover' | 'source' | 'drop' }
+  | { k: 'z'; to: 'safe' | 'approach' | 'mover' | 'source' | 'drop' }
   | { k: 'xy'; to: 'home' | 'source' | 'drop' }
   | { k: 'waitSource' }
   | { k: 'waitDrop' }
   | { k: 'grip'; from: 'source' | 'mover' }
   | { k: 'release'; to: 'mover' | 'drop' }
-  | { k: 'dwell'; mech: number; fixed: number; phase: 'press' | 'laser' }
+  /** Pushes the part home from the approach height to the mover in `mech` seconds (scaled by speed). */
+  | { k: 'press'; mech: number }
+  | { k: 'dwell'; fixed: number; phase: 'laser' }
   | { k: 'mark' };
 
 export interface Robot {
@@ -109,6 +111,8 @@ export interface Robot {
   stepStarted: boolean;
   dwellMech: number;
   dwellFixed: number;
+  /** Height the current press stroke started from. */
+  pressFrom: number;
   /** What the current step is doing, for display. */
   phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked' | 'fault';
   holding: Held | null;
@@ -120,6 +124,8 @@ export interface Robot {
   slot: number | null;
   /** What the station measured during the last place (e.g. snap force). */
   result: CycleResult | null;
+  /** Set when a pen has been let go over its bin or tray; the PLC acknowledges by clearing it. */
+  dropped: boolean;
   /** Seconds until an axis fault is repaired; 0 when healthy. The robot is frozen meanwhile. */
   fault: number;
   /** Operating (busy) seconds left until the next random axis fault. */
@@ -150,6 +156,8 @@ export interface TrayState {
   count: number;
   /** Seconds left of a tray change, 0 when an empty tray is in place. */
   changing: number;
+  /** PLC request to send out a partly filled tray (end of batch). Cleared when it has gone. */
+  discharge: boolean;
 }
 
 /** A station's physical equipment: stop gate, RFID reader and either a robot or a camera. */
@@ -180,6 +188,10 @@ export interface PlantState {
   scrap: Record<string, number>;
   tray: TrayState;
   traysOut: number;
+  /** Pens in the trays that have gone out. */
+  pensOut: number;
+  /** Pens in the most recent trays out, newest first (the ones still queued on the outfeed). */
+  trayQueue: number[];
 }
 
 export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
@@ -202,7 +214,7 @@ export interface PlcStation {
   stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };
   /** Last seen fault input, to emit events on change. */
   faulted: boolean;
-  /** A pen picked off a mover whose drop (tray or bin) hasn't finished yet; recorded when it has. */
+  /** A pen picked off a mover that hasn't been dropped in its tray or bin yet; recorded when it has. */
   output: PendingOutput | null;
 }
 
@@ -234,7 +246,8 @@ export interface PlcState {
   srCounter: number;
   /** Nest currently being de-nested at each nest-fed station (for genealogy). */
   nests: Record<string, { srId: number; used: number }>;
-  tray: { srId: number; count: number };
+  /** Tray being filled at the unload station: tracking id, pens in it, and when its first pen went in. */
+  tray: { srId: number; count: number; start: number };
   batch: Batch | null;
   /** Set by an E-stop: equipment stays halted (even after Reset) until the next Start. */
   interrupted: boolean;

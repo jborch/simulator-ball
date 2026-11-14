@@ -1,25 +1,19 @@
 import * as THREE from 'three';
-import type { PartType } from '../sim/config';
+import type { LineConfig, PartType } from '../sim/config';
+import { heldLength } from '../sim/layout';
 import type { MoverFrame } from '../sim/protocol';
 import type { Pose } from '../sim/track';
 import { type Models, findMesh } from './models';
 import { dataMatrixTexture, numberTexture } from './textures';
 
-/** Fixture seat height on the mover (Blender: pen sits at z = 0.03). */
-export const SEAT = 0.03;
-/** Gripper height when placing on / picking from a mover (config layout.z.mover). */
-const GRIP_AT_MOVER = 0.17;
-
-/**
- * How far below the gripper tip each held thing's origin hangs, chosen so that a part held at
- * mover height sits exactly where it rests on the mover.
- */
-export const HANG = {
-  assembly: GRIP_AT_MOVER - SEAT,
-  spring: GRIP_AT_MOVER - (SEAT + 0.112),
-  cartridge: GRIP_AT_MOVER - (SEAT + 0.07),
-  housing: GRIP_AT_MOVER - (SEAT + 0.008),
-};
+/** Housing with its cap on, origin at the housing's base (as fed and as picked). */
+export function housingWithCap(cfg: LineConfig, models: Models): THREE.Object3D {
+  const g = new THREE.Group();
+  const cap = models.cap.clone(true);
+  cap.position.y = cfg.parts.cap.seat - cfg.parts.housing.seat;
+  g.add(models.housing.clone(true), cap);
+  return g;
+}
 
 /** A pen in any state of assembly, origin at the body's base. */
 export class AssemblyView {
@@ -31,16 +25,18 @@ export class AssemblyView {
   readonly dmMaterial = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
   private key = '';
 
-  constructor(models: Models) {
+  constructor(cfg: LineConfig, models: Models) {
+    const at = (o: THREE.Object3D, part: PartType) => {
+      o.position.y = cfg.parts[part].seat;
+      return o;
+    };
     this.body = models.pen_body.clone(true);
+    this.spring = at(models.spring.clone(true), 'spring');
+    this.cartridge = at(models.cartridge.clone(true), 'cartridge');
+    // The finished-pen model is the housing with its cap; the body stays inside it.
+    this.pen = at(models.pen.clone(true), 'housing');
     const dm = findMesh(this.body, 'dm_mark');
     if (dm) dm.material = this.dmMaterial;
-    this.spring = models.spring.clone(true);
-    this.spring.position.y = 0.112;
-    this.cartridge = models.cartridge.clone(true);
-    this.cartridge.position.y = 0.07;
-    this.pen = models.pen.clone(true);
-    this.pen.position.y = 0.008;
     for (const o of [this.body, this.spring, this.cartridge, this.pen]) {
       o.visible = false;
       this.root.add(o);
@@ -51,15 +47,16 @@ export class AssemblyView {
     const key = parts.join(',');
     if (key === this.key) return;
     this.key = key;
-    const assembled = parts.includes('housing');
-    this.pen.visible = assembled;
-    this.body.visible = parts.includes('body') && !assembled;
-    this.cartridge.visible = parts.includes('cartridge') && !assembled;
-    this.spring.visible = parts.includes('spring') && !parts.includes('cartridge') && !assembled;
+    // Every part is drawn where it sits: the spring and cartridge show through the translucent
+    // body, and the body's code through the housing's code window.
+    this.pen.visible = parts.includes('housing');
+    this.body.visible = parts.includes('body');
+    this.cartridge.visible = parts.includes('cartridge');
+    this.spring.visible = parts.includes('spring');
   }
 }
 
-/** Whatever a robot gripper holds, hung below the gripper tip (origin = tip). */
+/** Whatever a robot gripper holds, held by its top at the gripper tip (origin = tip). */
 export class HeldView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
@@ -68,18 +65,17 @@ export class HeldView {
   private readonly housing = new THREE.Group();
   private key = '-';
 
-  constructor(models: Models) {
-    this.assembly = new AssemblyView(models);
-    this.assembly.root.position.y = -HANG.assembly;
+  constructor(
+    private readonly cfg: LineConfig,
+    models: Models,
+  ) {
+    this.assembly = new AssemblyView(cfg, models);
     this.spring = models.spring.clone(true);
-    this.spring.position.y = -HANG.spring;
+    this.spring.position.y = -heldLength(cfg, ['spring']);
     this.cartridge = models.cartridge.clone(true);
-    this.cartridge.position.y = -HANG.cartridge;
-    const housing = models.housing.clone(true);
-    const cap = models.cap.clone(true);
-    cap.position.y = 0.12;
-    this.housing.add(housing, cap);
-    this.housing.position.y = -HANG.housing;
+    this.cartridge.position.y = -heldLength(cfg, ['cartridge']);
+    this.housing.add(housingWithCap(cfg, models));
+    this.housing.position.y = -heldLength(cfg, ['housing', 'cap']);
     this.root.add(this.assembly.root, this.spring, this.cartridge, this.housing);
     this.show(null);
   }
@@ -91,7 +87,10 @@ export class HeldView {
     const has = (p: PartType) => !!parts?.includes(p);
     const isPen = has('body');
     this.assembly.root.visible = isPen;
-    if (isPen) this.assembly.show(parts!);
+    if (isPen) {
+      this.assembly.show(parts!);
+      this.assembly.root.position.y = -heldLength(this.cfg, parts!);
+    }
     this.spring.visible = !isPen && has('spring');
     this.cartridge.visible = !isPen && has('cartridge');
     this.housing.visible = !isPen && has('housing');
@@ -112,6 +111,7 @@ export class MoverView {
 
   constructor(
     readonly id: number,
+    cfg: LineConfig,
     models: Models,
   ) {
     this.root.name = `mover-${id}`;
@@ -129,8 +129,8 @@ export class MoverView {
     this.led.position.set(0.04, 0.031, 0.04);
     this.root.add(this.led);
 
-    this.assembly = new AssemblyView(models);
-    this.assembly.root.position.y = SEAT;
+    this.assembly = new AssemblyView(cfg, models);
+    this.assembly.root.position.y = cfg.mover.seat;
     this.root.add(this.assembly.root);
   }
 

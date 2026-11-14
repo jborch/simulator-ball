@@ -44,7 +44,8 @@ export function stepFeeder(f: Feeder, def: FeederDef, cfg: LineConfig, rng: RngS
   }
 }
 
-export function stepNest(n: Nest, cfg: LineConfig, dt: number): void {
+/** Swaps an empty nest for a full one, once the robot's gripper is clear of it. */
+export function stepNest(n: Nest, cfg: LineConfig, toolClear: boolean, dt: number): void {
   if (n.changing > 0) {
     n.changing -= dt;
     if (n.changing <= 0) {
@@ -52,18 +53,30 @@ export function stepNest(n: Nest, cfg: LineConfig, dt: number): void {
       n.slots.fill(1);
       n.count++;
     }
-  } else if (n.slots.every((s) => s === 0)) {
+  } else if (toolClear && n.slots.every((s) => s === 0)) {
     n.changing = cfg.nestChange;
   }
 }
 
-export function stepTray(p: PlantState, dt: number): void {
-  if (p.tray.changing > 0) {
-    p.tray.changing -= dt;
-    if (p.tray.changing <= 0) {
-      p.tray.changing = 0;
-      p.tray.count = 0;
+/**
+ * Indexes the tray out (full, or partly filled on a discharge request) and an empty one in, once
+ * the unload robot's gripper is clear of it.
+ */
+export function stepTray(p: PlantState, cfg: LineConfig, toolClear: boolean, dt: number): void {
+  const t = p.tray;
+  if (t.changing > 0) {
+    t.changing -= dt;
+    if (t.changing <= 0) {
+      t.changing = 0;
+      p.pensOut += t.count;
+      p.trayQueue = [t.count, ...p.trayQueue].slice(0, 2);
+      t.count = 0;
+      t.discharge = false;
       p.traysOut++;
     }
+  } else if (t.discharge && t.count === 0) {
+    t.discharge = false;
+  } else if (toolClear && (t.count >= cfg.traySize || (t.discharge && t.count > 0))) {
+    t.changing = cfg.trayChange;
   }
 }

@@ -6,7 +6,7 @@
 import { moverById, placeOnMover } from './assembly';
 import type { LineConfig, StationDef } from './config';
 import { nextFailure, repairTime } from './devices';
-import { nestPocket, trayPocket } from './layout';
+import { nestPocket, seatedTip, trayPocket } from './layout';
 import { type RngState, random } from './rng';
 import type { Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
 
@@ -26,6 +26,7 @@ export function createRobot(safeZ: number, nextFault: number): Robot {
     stepStarted: false,
     dwellMech: 0,
     dwellFixed: 0,
+    pressFrom: safeZ,
     phase: 'idle',
     holding: null,
     op: null,
@@ -33,6 +34,7 @@ export function createRobot(safeZ: number, nextFault: number): Robot {
     dropTarget: null,
     slot: null,
     result: null,
+    dropped: false,
     fault: 0,
     nextFault,
   };
@@ -56,12 +58,20 @@ function dropPos(cfg: LineConfig, robot: Robot): Target {
   return { ...trayPocket(cfg, robot.slot ?? 0), z: cfg.layout.z.tray };
 }
 
-function height(cfg: LineConfig, def: StationDef, robot: Robot, to: Extract<RobotStep, { k: 'z' }>['to']): number {
+/** Gripper height for placing this station's parts on a mover, or for picking up the pen on it. */
+function moverHeight(p: PlantState, cfg: LineConfig, def: StationDef, robot: Robot): number {
+  if (robot.job === 'place') return seatedTip(cfg, def.parts!);
+  return seatedTip(cfg, moverById(p, robot.moverId).load?.parts ?? ['body']);
+}
+
+function height(p: PlantState, cfg: LineConfig, def: StationDef, robot: Robot, to: Extract<RobotStep, { k: 'z' }>['to']): number {
   switch (to) {
     case 'safe':
       return cfg.layout.z.safe;
+    case 'approach':
+      return moverHeight(p, cfg, def, robot) + (def.insert ?? 0);
     case 'mover':
-      return cfg.layout.z.mover;
+      return moverHeight(p, cfg, def, robot);
     case 'source':
       return sourcePos(cfg, def, robot).z;
     case 'drop':
@@ -89,12 +99,15 @@ const PROGRAMS: Record<Exclude<RobotJob, 'place'>, RobotStep[]> = {
   drop: [{ k: 'waitDrop' }, { k: 'xy', to: 'drop' }, { k: 'z', to: 'drop' }, { k: 'release', to: 'drop' }, { k: 'z', to: 'safe' }, { k: 'xy', to: 'home' }],
 };
 
-/** Place: down onto the mover, press/insert, let go, back up; the load station then laser-marks. */
+/**
+ * Place: down to just above the mover, push the part home (slowly when the station has a press
+ * time), let go, back up; the load station then laser-marks.
+ */
 function placeProgram(def: StationDef): RobotStep[] {
-  const steps: RobotStep[] = [{ k: 'z', to: 'mover' }];
-  if (def.mech > 0) steps.push({ k: 'dwell', mech: def.mech, fixed: 0, phase: 'press' });
+  const steps: RobotStep[] = [{ k: 'z', to: 'approach' }];
+  steps.push(def.mech > 0 ? { k: 'press', mech: def.mech } : { k: 'z', to: 'mover' });
   steps.push({ k: 'release', to: 'mover' }, { k: 'z', to: 'safe' });
-  if (def.kind === 'load') steps.push({ k: 'dwell', mech: 0, fixed: def.fixed, phase: 'laser' }, { k: 'mark' });
+  if (def.kind === 'load') steps.push({ k: 'dwell', fixed: def.fixed, phase: 'laser' }, { k: 'mark' });
   return steps;
 }
 
@@ -184,7 +197,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       if (!robot.stepStarted) {
         robot.ta = robot.a;
         robot.tr = robot.r;
-        robot.tz = height(cfg, def, robot, step.to);
+        robot.tz = height(p, cfg, def, robot, step.to);
       }
       robot.phase = 'move';
       finished = moveAxes(robot, cfg, p.speed, dt);
@@ -249,19 +262,32 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       finished = timer(robot, cfg.robot.gripTime, dt);
       if (!finished) break;
       if (step.to === 'mover') release(p, cfg, rng, def, robot);
-      else if (robot.holding?.kind === 'pen') drop(p, cfg, robot);
+      else drop(p, robot);
       robot.holding = null;
       break;
 
-    case 'dwell':
+    case 'press': {
       if (!robot.stepStarted) {
         robot.dwellMech = step.mech;
-        robot.dwellFixed = step.fixed;
+        robot.pressFrom = robot.z;
+        robot.ta = robot.a;
+        robot.tr = robot.r;
+        robot.tz = moverHeight(p, cfg, def, robot);
       }
+      robot.phase = 'press';
+      robot.dwellMech = Math.max(0, robot.dwellMech - dt * p.speed);
+      const k = robot.dwellMech / step.mech;
+      robot.z = robot.tz + (robot.pressFrom - robot.tz) * k;
+      robot.vz = robot.dwellMech > 0 ? ((robot.tz - robot.pressFrom) / step.mech) * p.speed : 0;
+      finished = robot.dwellMech <= 0;
+      break;
+    }
+
+    case 'dwell':
+      if (!robot.stepStarted) robot.dwellFixed = step.fixed;
       robot.phase = step.phase;
-      if (robot.dwellMech > 0) robot.dwellMech -= dt * p.speed;
-      else robot.dwellFixed -= dt;
-      finished = robot.dwellMech <= 0 && robot.dwellFixed <= 0;
+      robot.dwellFixed -= dt;
+      finished = robot.dwellFixed <= 0;
       break;
 
     case 'mark': {
@@ -291,9 +317,21 @@ function release(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef,
   robot.result = result ?? { measurement: null };
 }
 
-/** Lets go of a picked pen over its bin or tray pocket. */
-function drop(p: PlantState, cfg: LineConfig, robot: Robot): void {
-  const t = robot.dropTarget!;
-  if (t.kind === 'bin') p.bins[t.bin] = (p.bins[t.bin] ?? 0) + 1;
-  else if (++p.tray.count >= cfg.traySize) p.tray.changing = cfg.trayChange;
+/**
+ * Opens the gripper over the bin or tray pocket. A full tray is changed once the tool is clear.
+ * The PLC is told even when the gripper came up empty (the pen was lost upstream), so it can
+ * close that pen's record.
+ */
+function drop(p: PlantState, robot: Robot): void {
+  if (robot.holding?.kind === 'pen') {
+    const t = robot.dropTarget!;
+    if (t.kind === 'bin') p.bins[t.bin] = (p.bins[t.bin] ?? 0) + 1;
+    else p.tray.count++;
+  }
+  robot.dropped = true;
+}
+
+/** The gripper is up at safe height, clear of nests, trays and movers. */
+export function toolClear(cfg: LineConfig, robot: Robot | null): boolean {
+  return !robot || robot.z >= cfg.layout.z.safe - 1e-6;
 }

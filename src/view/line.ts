@@ -31,7 +31,7 @@ export class LineView {
       return sv;
     });
     this.movers = Array.from({ length: cfg.mover.count }, (_, i) => {
-      const mv = new MoverView(i + 1, models);
+      const mv = new MoverView(i + 1, cfg, models);
       this.group.add(mv.root);
       return mv;
     });
@@ -108,6 +108,14 @@ export class LineView {
     );
     body.receiveShadow = true;
     this.group.add(body);
+  }
+
+  /** Extent of the line itself (belt, movers, stations), without the table. */
+  bounds(): THREE.Box3 {
+    const box = new THREE.Box3();
+    for (const sv of this.stations) box.expandByObject(sv.group);
+    for (const mv of this.movers) box.expandByObject(mv.root);
+    return box;
   }
 
   update(sample: Sample, fb: { moverS(sample: Sample, i: number): number }, dt: number): void {

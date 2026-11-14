@@ -128,17 +128,14 @@ export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
   const moverStats = (mes.movers[out.moverId] ??= { pens: 0, rejects: 0 });
   if (out.good) {
     const tray = s.plc.tray;
+    if (tray.count === 0) tray.start = s.plant.t;
     emit(s, { kind: 'merged', process, target: tray.srId, source: out.pen, sourceType: 'Pen', position: tray.count, logged: to });
     emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Tray Position': tray.count } });
     tray.count++;
     mes.good++;
     moverStats.pens++;
     if (batch) batch.good++;
-    if (tray.count >= cfg.traySize) {
-      emit(s, { kind: 'processed', process, scopedId: tray.srId, itemType: 'Tray', from, to, properties: { Count: tray.count } });
-      tray.srId = ++s.plc.srCounter;
-      tray.count = 0;
-    }
+    if (tray.count >= cfg.traySize) closeTray(s, cfg);
   } else {
     emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
     mes.rejected++;
@@ -147,4 +144,13 @@ export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
     if (batch) batch.rejected++;
   }
   delete mes.identifiers[out.pen];
+}
+
+/** Records the tray at the unload station as finished (full, or partly filled at the end of a batch) and starts a new one. */
+export function closeTray(s: SimState, cfg: LineConfig): void {
+  const tray = s.plc.tray;
+  const def = cfg.stations.find((d) => d.id === cfg.layout.tray.station)!;
+  emit(s, { kind: 'processed', process: processId(cfg, def), scopedId: tray.srId, itemType: 'Tray', from: s.epochMs + tray.start * 1000, to: now(s), properties: { Count: tray.count } });
+  tray.srId = ++s.plc.srCounter;
+  tray.count = 0;
 }

@@ -53,7 +53,7 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     stations,
     feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items], jam: f.jam })),
     nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
-    tray: { ...plant.tray },
+    tray: { count: plant.tray.count, changing: plant.tray.changing, queue: [...plant.trayQueue] },
     batch: plc.batch ? { ...plc.batch } : null,
     batchSettings: { size: plc.batchSize, autoNext: plc.autoNext },
     counters: { good: mes.good, rejected: mes.rejected, traysOut: plant.traysOut, bins: { ...plant.bins } },
