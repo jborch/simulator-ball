@@ -84,6 +84,26 @@ export const LINE = {
     { id: 'springs', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.3 },
     { id: 'housings', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
   ] as FeederDef[],
+  /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
+  faults: {
+    enabled: true,
+    /** Probability that feeding one part jams the bowl. */
+    feederJamPerPart: 1 / 450,
+    feederRepair: [20, 60] as [number, number],
+    /** Mean operating seconds (robot busy) between axis faults, per robot. */
+    robotMtbf: 1800,
+    robotRepair: [30, 90] as [number, number],
+    /** Probability that a placed part doesn't seat and is lost. */
+    misplaceRate: 0.003,
+  },
+  batch: {
+    /** Pens loaded per batch; the line runs out (empties) once this many are loaded. */
+    size: 300,
+    /** Start the next batch automatically after a completed one. */
+    autoNext: true,
+    /** Pause between batches. */
+    pause: 20,
+  },
   /** Cartesian pick-and-place robots: along belt (a), across belt toward the outside (r), height (z). */
   robot: { vH: 2.0, aH: 12, vZ: 1.0, aZ: 12, gripTime: 0.08 },
   /** Device positions in station-local coordinates (a along travel, r outward from belt centre), metres. */

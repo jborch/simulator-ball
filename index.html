@@ -31,6 +31,23 @@
         <div><span>Pens / min</span><b id="k-ppm">0</b></div>
         <div><span>Trays out</span><b id="k-trays">0</b></div>
       </section>
+      <h3>Batch</h3>
+      <section id="batch">
+        <div class="batch-head"><b id="b-name">–</b><span id="b-state"></span></div>
+        <div class="batch-bar"><i id="b-bar"></i></div>
+        <div class="batch-nums"><span id="b-loaded">0 / 0 loaded</span><span id="b-out">0 good · 0 rejected</span></div>
+        <div class="batch-ctl">
+          <label>Size <input id="b-size" type="number" min="1" step="10" value="300" /></label>
+          <button id="b-size-set">Set</button>
+          <button data-cmd="endBatch">End batch</button>
+          <label class="chk"><input id="b-auto" type="checkbox" checked /> Auto next</label>
+        </div>
+      </section>
+      <h3>Faults</h3>
+      <section id="faults">
+        <select id="fault-target"></select>
+        <button id="fault-inject" class="danger">Inject fault</button>
+      </section>
       <h3>Stations</h3>
       <section id="stations"></section>
       <h3>Events</h3>

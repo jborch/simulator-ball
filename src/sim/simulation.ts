@@ -89,11 +89,16 @@ export class Simulation {
           robot: r
             ? { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null }
             : null,
+          fault: r?.fault ?? 0,
+          scrap: plant.scrap[st.id] ?? 0,
         };
       }),
-      feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items] })),
+      feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items], jam: f.jam })),
       nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
       tray: { ...plant.tray },
+      batch: plc.batch
+        ? { ...plc.batch, size: plc.batchSize, autoNext: plc.autoNext }
+        : { name: null, size: plc.batchSize, autoNext: plc.autoNext },
       counters: {
         good: mes.good,
         rejected: mes.rejected,

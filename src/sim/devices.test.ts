@@ -5,6 +5,8 @@ import type { ItemProcessedEvent, SimEvent, StationStatus } from './types';
 
 function sim(mutate?: (c: LineConfig) => void, seed = 4): Simulation {
   const cfg: LineConfig = structuredClone(LINE);
+  cfg.faults.enabled = false;
+  cfg.batch.size = 1_000_000;
   mutate?.(cfg);
   const s = new Simulation({ seed, cfg });
   s.command({ type: 'start' });
@@ -107,19 +109,23 @@ describe('feeders, nest and tray', () => {
 
 test('parts are conserved: every body leaving the feeder is on a mover, in a gripper, in a bin or in a tray', () => {
   const s = sim();
+  const initialOnTrack = s.state.plant.feeders.find((f) => f.id === 'bodies')!.items.length;
   const events: SimEvent[] = [];
   run(s, 900, () => events.push(...s.drainEvents()), 1);
   const p = s.state.plant;
   const bodies = p.feeders.find((f) => f.id === 'bodies')!;
-  const initialOnTrack = Math.floor((LINE.feeders[0].track - LINE.feeders[0].pitch) / LINE.feeders[0].pitch + 1e-9) + 1;
   const leftFeeder = bodies.fed + initialOnTrack - bodies.items.length;
 
   const onMovers = p.movers.filter((m) => m.load).length;
   const inGrippers = p.stations.filter((st) => st.robot?.holding).filter((st) => st.robot!.holding!.kind === 'pen' || st.robot!.holding!.parts.includes('body')).length;
   const inBins = Object.values(p.bins).reduce((a, b) => a + b, 0);
   const packed = p.traysOut * LINE.traySize + p.tray.count;
-  expect(onMovers + inGrippers + inBins + packed).toBe(leftFeeder);
+  const scrappedBodies = p.scrap.ST10 ?? 0;
+  expect(onMovers + inGrippers + inBins + packed + scrappedBodies).toBe(leftFeeder);
 
   const loaded = events.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && e.process.endsWith('ST10'));
-  expect(loaded.length).toBe(leftFeeder - (p.stations[idx('ST10')].robot!.holding ? 1 : 0));
+  // ST10 reports a body when its cycle ends (after laser marking), so one may be placed but not yet reported.
+  const r10 = p.stations[idx('ST10')].robot!;
+  const unreported = (r10.holding ? 1 : 0) + (r10.job === 'place' && !r10.holding ? 1 : 0);
+  expect(loaded.length).toBe(leftFeeder - unreported);
 }, 60_000);

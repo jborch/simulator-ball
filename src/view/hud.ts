@@ -5,6 +5,9 @@ import type { SimEvent } from '../sim/types';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
+/** Commands without arguments, sent by buttons with a data-cmd attribute. */
+type SimpleCommand = 'start' | 'stop' | 'hold' | 'unhold' | 'abort' | 'reset' | 'endBatch';
+
 const STATUS_TEXT: Record<string, string> = {
   waiting: 'Waiting',
   reading: 'Reading',
@@ -12,6 +15,7 @@ const STATUS_TEXT: Record<string, string> = {
   passing: 'Passing',
   stopped: 'Stopped',
   starved: 'Starved (waiting for parts)',
+  fault: 'Fault',
   blocked: 'Blocked (outfeed full)',
 };
 
@@ -28,8 +32,16 @@ export class Hud {
     private readonly send: (c: Command) => void,
   ) {
     for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-cmd]')) {
-      btn.addEventListener('click', () => this.send({ type: btn.dataset.cmd as Exclude<Command['type'], 'speed'> }));
+      btn.addEventListener('click', () => this.send({ type: btn.dataset.cmd as SimpleCommand }));
     }
+    $('#b-size-set').addEventListener('click', () => this.send({ type: 'batchSize', size: Number($<HTMLInputElement>('#b-size').value) }));
+    $<HTMLInputElement>('#b-auto').addEventListener('change', (e) => this.send({ type: 'autoBatch', on: (e.target as HTMLInputElement).checked }));
+    const targets = [
+      ...cfg.stations.filter((d) => d.kind !== 'inspect').map((d) => ({ id: d.id, text: `${d.id} robot: axis fault` })),
+      ...cfg.feeders.map((f) => ({ id: f.id, text: `Feeder ${f.id}: jam` })),
+    ];
+    $('#fault-target').innerHTML = targets.map((t) => `<option value="${t.id}">${t.text}</option>`).join('');
+    $('#fault-inject').addEventListener('click', () => this.send({ type: 'fault', target: $<HTMLSelectElement>('#fault-target').value }));
     const speed = $<HTMLInputElement>('#speed');
     speed.addEventListener('pointerdown', () => (this.speedDragging = true));
     speed.addEventListener('pointerup', () => (this.speedDragging = false));
@@ -77,9 +89,26 @@ export class Hud {
     f.stations.forEach((s) => {
       const el = $(`#st-${s.id}`);
       el.dataset.status = s.status;
-      el.title = `${STATUS_TEXT[s.status]}${s.moverId ? ` · mover ${s.moverId}` : ''}`;
+      const fault = s.fault > 0 ? ` · repair in ${Math.ceil(s.fault)} s` : '';
+      el.title = `${STATUS_TEXT[s.status]}${fault}${s.moverId ? ` · mover ${s.moverId}` : ''}${s.scrap ? ` · ${s.scrap} scrapped` : ''}`;
       (el.querySelector('.bar i') as HTMLElement).style.width = `${Math.round((s.progress ?? 0) * 100)}%`;
     });
+
+    const b = f.batch;
+    if (b.name === null) {
+      $('#b-name').textContent = 'No batch';
+      $('#b-state').textContent = '';
+    } else {
+      $('#b-name').textContent = `Batch ${b.name}`;
+      $('#b-state').textContent = b.state === 'completing' ? 'running out' : b.state;
+      $('#b-state').dataset.state = b.state;
+      $('#b-bar').style.width = `${Math.min(100, (100 * (b.good + b.rejected)) / b.target)}%`;
+      $('#b-loaded').textContent = `${b.loaded} / ${b.target} loaded`;
+      $('#b-out').textContent = `${b.good} good · ${b.rejected} rejected`;
+    }
+    const size = $<HTMLInputElement>('#b-size');
+    if (document.activeElement !== size) size.value = String(b.size);
+    $<HTMLInputElement>('#b-auto').checked = b.autoNext;
 
     this.updateInspector(f);
   }
@@ -128,7 +157,13 @@ export class Hud {
       case 'machine':
         return { time: at(e.logged), text: `Machine → ${e.state}`, cls: 'state' };
       case 'station':
-        return { time: at(e.logged), text: `${short(e.process)}: ${e.message}${e.carrier ? ` (mover ${e.carrier})` : ''}`, cls: 'warn' };
+        return { time: at(e.logged), text: `${short(e.process)}: ${e.message}${e.carrier ? ` (mover ${e.carrier})` : ''}`, cls: e.message.includes('cleared') ? 'ok' : 'warn' };
+      case 'batch':
+        return {
+          time: at(e.logged),
+          text: e.state === 'started' ? `Batch ${e.name} started (${e.target} pens)` : `Batch ${e.name} complete: ${e.good} good, ${e.rejected} rejected`,
+          cls: 'state',
+        };
       default:
         return null;
     }

@@ -2,7 +2,7 @@
 // state machine per station, and writes actuators (gates, cycles, RFID, belt). It never touches
 // mover positions or loads directly; it only knows what the tags and sensors tell it.
 import type { LineConfig, StationDef } from './config';
-import { startJob } from './devices';
+import { repairTime, startJob } from './devices';
 import { makeIdentifier } from './gs1';
 import { type Inputs, copyTag, emptyTag, readInputs } from './plant';
 import type { Command } from './protocol';
@@ -25,32 +25,63 @@ export function createPlc(cfg: LineConfig): PlcState {
       cycleStart: 0,
       reserved: false,
       op: null,
-      stats: { cycles: 0, passes: 0, busy: 0, noReads: 0 },
+      stats: { cycles: 0, passes: 0, busy: 0, noReads: 0, faults: 0, faultTime: 0 },
+      faulted: false,
     })),
     srCounter: 1 + cfg.stations.filter((d) => d.source === 'nest').length,
     nests: Object.fromEntries(cfg.stations.filter((d) => d.source === 'nest').map((d, i) => [d.id, { srId: 2 + i, used: 0 }])),
     tray: { srId: 1, count: 0 },
+    batch: null,
+    batchSize: cfg.batch.size,
+    autoNext: cfg.batch.autoNext,
+    jammed: {},
   };
 }
 
+const ALL: MachineState[] = ['Stopped', 'Starting', 'Execute', 'Completing', 'Complete', 'Stopping', 'Holding', 'Held', 'Aborted'];
+
 /** Machine states in which each command is accepted. */
 export const ACCEPTS: Record<Command['type'], MachineState[]> = {
-  start: ['Stopped'],
-  stop: ['Starting', 'Execute', 'Holding', 'Held'],
-  hold: ['Starting', 'Execute'],
+  start: ['Stopped', 'Complete'],
+  stop: ['Starting', 'Execute', 'Completing', 'Holding', 'Held'],
+  hold: ['Starting', 'Execute', 'Completing'],
   unhold: ['Holding', 'Held'],
-  abort: ['Stopped', 'Starting', 'Execute', 'Stopping', 'Holding', 'Held'],
-  reset: ['Aborted'],
-  speed: ['Stopped', 'Starting', 'Execute', 'Stopping', 'Holding', 'Held', 'Aborted'],
+  abort: ALL.filter((m) => m !== 'Aborted'),
+  reset: ['Aborted', 'Complete'],
+  speed: ALL,
+  endBatch: ['Stopped', 'Starting', 'Execute', 'Holding', 'Held'],
+  batchSize: ALL,
+  autoBatch: ALL,
+  fault: ALL.filter((m) => m !== 'Aborted'),
 };
+
+function commandLabel(cmd: Command): string {
+  switch (cmd.type) {
+    case 'speed':
+      return `speed ${cmd.percent}%`;
+    case 'batchSize':
+      return `batch size ${cmd.size}`;
+    case 'autoBatch':
+      return `auto next batch ${cmd.on ? 'on' : 'off'}`;
+    case 'fault':
+      return `inject fault on ${cmd.target}`;
+    case 'endBatch':
+      return 'end batch';
+    default:
+      return cmd.type;
+  }
+}
 
 /** Applies an operator command (from any client). Returns whether the machine accepted it. */
 export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin: string): boolean {
   const plc = s.plc;
-  const accepted = ACCEPTS[cmd.type].includes(plc.machine);
+  let accepted = ACCEPTS[cmd.type].includes(plc.machine);
   if (accepted) {
     switch (cmd.type) {
       case 'start':
+        if (!plc.batch || plc.batch.state === 'complete') startBatch(s);
+        setMachine(s, 'Starting');
+        break;
       case 'unhold':
         setMachine(s, 'Starting');
         break;
@@ -69,11 +100,49 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
       case 'speed':
         plc.speedTarget = Math.min(1, Math.max(cfg.speedMin, cmd.percent / 100));
         break;
+      case 'endBatch':
+        accepted = plc.batch?.state === 'running';
+        if (accepted) plc.batch!.state = 'completing';
+        break;
+      case 'batchSize':
+        plc.batchSize = Math.max(1, Math.round(cmd.size));
+        break;
+      case 'autoBatch':
+        plc.autoNext = cmd.on;
+        break;
+      case 'fault':
+        accepted = injectFault(s, cfg, cmd.target);
+        break;
     }
   }
-  const label = cmd.type === 'speed' ? `speed ${cmd.percent}%` : cmd.type;
-  emit(s, { kind: 'command', command: label, origin, accepted, logged: now(s) });
+  emit(s, { kind: 'command', command: commandLabel(cmd), origin, accepted, logged: now(s) });
   return accepted;
+}
+
+/** Simulates a fault on a station robot or a feeder, as if it had happened on the real line. */
+function injectFault(s: SimState, cfg: LineConfig, target: string): boolean {
+  const fi = cfg.feeders.findIndex((f) => f.id === target);
+  if (fi >= 0) {
+    s.plant.feeders[fi].jam = repairTime(s.rng, cfg.faults.feederRepair);
+    return true;
+  }
+  const si = cfg.stations.findIndex((d) => d.id === target);
+  const robot = si >= 0 ? s.plant.stations[si].robot : null;
+  if (!robot) return false;
+  robot.fault = repairTime(s.rng, cfg.faults.robotRepair);
+  return true;
+}
+
+function batchName(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
+}
+
+function startBatch(s: SimState): void {
+  const plc = s.plc;
+  plc.batch = { name: batchName(now(s)), target: plc.batchSize, loaded: 0, good: 0, rejected: 0, startedAt: now(s), state: 'running' };
+  emit(s, { kind: 'batch', name: plc.batch.name, state: 'started', target: plc.batch.target, good: 0, rejected: 0, logged: now(s) });
 }
 
 function setMachine(s: SimState, state: MachineState): void {
@@ -94,6 +163,7 @@ function emit(s: SimState, e: SimEvent): void {
 export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   const { plant, plc } = s;
   const io = readInputs(plant, cfg);
+  const batch = plc.batch;
 
   plant.speedTarget = plc.speedTarget;
   plant.estop = plc.machine === 'Aborted';
@@ -107,10 +177,36 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
       break;
     case 'Starting':
       plant.beltRunning = true;
-      if (plant.beltSpeed >= 0.95 * cfg.belt.speed * plant.speed || plant.t - plc.stateSince > 2) setMachine(s, 'Execute');
+      if (plant.beltSpeed >= 0.95 * cfg.belt.speed * plant.speed || plant.t - plc.stateSince > 2) {
+        setMachine(s, batch?.state === 'completing' ? 'Completing' : 'Execute');
+      }
       break;
     case 'Execute':
       plant.beltRunning = true;
+      if (batch && (batch.state === 'completing' || batch.loaded >= batch.target)) {
+        batch.state = 'completing';
+        setMachine(s, 'Completing');
+      }
+      break;
+    case 'Completing': {
+      // Run-out: ST10 has stopped loading; finish every pen still on the line.
+      plant.beltRunning = true;
+      const inFlight = batch ? batch.loaded - batch.good - batch.rejected : 0;
+      if (inFlight <= 0 && allIdle) {
+        if (batch) {
+          batch.state = 'complete';
+          emit(s, { kind: 'batch', name: batch.name, state: 'completed', target: batch.target, good: batch.good, rejected: batch.rejected, logged: now(s) });
+        }
+        setMachine(s, 'Complete');
+      }
+      break;
+    }
+    case 'Complete':
+      plant.beltRunning = false;
+      if (plc.autoNext && plant.t - plc.stateSince >= cfg.batch.pause) {
+        startBatch(s);
+        setMachine(s, 'Starting');
+      }
       break;
     case 'Stopping':
     case 'Holding':
@@ -120,17 +216,44 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
       break;
   }
 
+  scanFaults(s, cfg, dt);
   if (plc.machine === 'Aborted') return;
-  const canStart = plc.machine === 'Starting' || plc.machine === 'Execute';
+  const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   for (let i = 0; i < cfg.stations.length; i++) {
     scanStation(s, cfg, io, i, canStart, dt);
+    const robot = plant.stations[i].robot;
+    if (robot && robot.fault > 0) plc.stations[i].status = 'fault';
     // Pre-pick: a robot with a part source fetches the next part while movers index. While stopping,
     // it still fetches for a mover the station has already committed to, so the cycle can finish.
-    const robot = plant.stations[i].robot;
     const def = cfg.stations[i];
     const needed = canStart || plc.stations[i].step === 'waitRobot';
     if (robot && def.source && needed && robot.job === null && !robot.holding) startJob(robot, cfg, def, 'prepick');
   }
+}
+
+/** Reports fault inputs (robot axis faults, feeder jams) as events when they change. */
+function scanFaults(s: SimState, cfg: LineConfig, dt: number): void {
+  const { plant, plc } = s;
+  cfg.stations.forEach((def, i) => {
+    const robot = plant.stations[i].robot;
+    const st = plc.stations[i];
+    const faulted = !!robot && robot.fault > 0;
+    if (faulted) st.stats.faultTime += dt;
+    if (faulted !== st.faulted) {
+      st.faulted = faulted;
+      if (faulted) st.stats.faults++;
+      emit(s, { kind: 'station', process: devId(cfg, def), message: faulted ? 'Axis fault: operator called' : 'Axis fault cleared', logged: now(s) });
+    }
+  });
+  cfg.feeders.forEach((f, i) => {
+    const jammed = plant.feeders[i].jam > 0;
+    if (jammed !== !!plc.jammed[f.id]) {
+      plc.jammed[f.id] = jammed;
+      const station = cfg.stations.find((d) => d.source === f.id);
+      const process = station ? devId(cfg, station) : `${cfg.id}-${f.id}`;
+      emit(s, { kind: 'station', process, message: jammed ? `Feeder jam (${f.id}): operator called` : `Feeder jam cleared (${f.id})`, logged: now(s) });
+    }
+  });
 }
 
 function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canStart: boolean, dt: number): void {
@@ -298,7 +421,9 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
 
   switch (def.kind) {
     case 'load': {
-      if (tag.status !== 'empty') return pass();
+      const b = s.plc.batch;
+      if (tag.status !== 'empty' || !b || b.state !== 'running' || b.loaded >= b.target) return pass();
+      b.loaded++;
       const srId = ++s.plc.srCounter;
       const mark = makeIdentifier(s.rng, cfg.gs1.gtin, now(s), cfg.gs1.expiryYears);
       s.mes.identifiers[srId] = mark;
@@ -377,7 +502,7 @@ function evaluate(def: StationDef, value: number | null): { passed: boolean; cau
   };
   let cause: string | null = null;
   if (!passed) {
-    cause = value === null ? 'No measurement' : value > lim.upper ? `${lim.cause} (high)` : `${lim.cause} (low)`;
+    cause = value === null ? 'Part missing' : value > lim.upper ? `${lim.cause} (high)` : `${lim.cause} (low)`;
     props['Reject Cause'] = cause;
   }
   return { passed, cause, props };
@@ -471,6 +596,7 @@ function finish(s: SimState, cfg: LineConfig, i: number, result: CycleResult): v
         tray.count++;
         mes.good++;
         stats.pens++;
+        if (s.plc.batch) s.plc.batch.good++;
         if (tray.count >= cfg.traySize) {
           emit(s, { kind: 'processed', process, scopedId: tray.srId, itemType: 'Tray', from, to, properties: { Count: tray.count } });
           tray.srId = ++s.plc.srCounter;
@@ -481,6 +607,7 @@ function finish(s: SimState, cfg: LineConfig, i: number, result: CycleResult): v
         const bin = op.kind === 'reject' || op.kind === 'unload' ? op.bin : '';
         emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Reject Cause': cause, Bin: bin } });
         mes.rejected++;
+        if (s.plc.batch) s.plc.batch.rejected++;
         mes.rejectsByCause[cause] = (mes.rejectsByCause[cause] ?? 0) + 1;
         stats.rejects++;
       }

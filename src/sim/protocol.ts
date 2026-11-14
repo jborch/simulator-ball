@@ -1,7 +1,7 @@
 // Messages between the simulation host (worker) and any client: the local renderer today,
 // remote viewers later. Everything is plain JSON so it can go over any transport.
 import type { PartType } from './config';
-import type { MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
+import type { Batch, MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
 
 export type Command =
   | { type: 'start' }
@@ -10,7 +10,13 @@ export type Command =
   | { type: 'unhold' }
   | { type: 'abort' }
   | { type: 'reset' }
-  | { type: 'speed'; percent: number };
+  | { type: 'speed'; percent: number }
+  /** Ends the current batch early: stop loading and run the line empty. */
+  | { type: 'endBatch' }
+  | { type: 'batchSize'; size: number }
+  | { type: 'autoBatch'; on: boolean }
+  /** Injects a fault on a station robot or feeder (by id) for testing and demos. */
+  | { type: 'fault'; target: string };
 
 export interface MoverFrame {
   id: number;
@@ -42,6 +48,9 @@ export interface StationFrame {
   /** 0..1 through the current cycle, null when not working. */
   progress: number | null;
   robot: RobotFrame | null;
+  /** Seconds until a robot fault is repaired, or 0. */
+  fault: number;
+  scrap: number;
 }
 
 export interface Frame {
@@ -53,9 +62,10 @@ export interface Frame {
   beltSpeed: number;
   movers: MoverFrame[];
   stations: StationFrame[];
-  feeders: { id: string; items: number[] }[];
+  feeders: { id: string; items: number[]; jam: number }[];
   nests: { station: string; slots: number[]; changing: number }[];
   tray: { count: number; changing: number };
+  batch: (Batch & { size: number; autoNext: boolean }) | { name: null; size: number; autoNext: boolean };
   counters: {
     good: number;
     rejected: number;

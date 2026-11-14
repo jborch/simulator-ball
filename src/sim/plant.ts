@@ -4,7 +4,7 @@
 // through sensors (readInputs) and actuator fields (gateClosed, cycle, reader, beltRunning, ...).
 import { applyOp, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
-import { createFeeder, createNest, createRobot, stepFeeder, stepNest, stepRobot, stepTray } from './devices';
+import { createFeeder, createNest, createRobot, nextFailure, stepFeeder, stepNest, stepRobot, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
 import { forward, trackLength } from './track';
 import type { Mover, PlantState, PlantStation, Tag } from './types';
@@ -73,7 +73,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     cycleDone: false,
     result: null,
     reader: { busy: false, kind: 'read', left: 0, moverId: 0, write: null, done: false, ok: false, data: null },
-    robot: d.kind === 'inspect' ? null : createRobot(cfg.layout.z.safe),
+    robot: d.kind === 'inspect' ? null : createRobot(cfg.layout.z.safe, nextFailure(rng, cfg.faults.robotMtbf)),
   }));
   return {
     t: 0,
@@ -87,6 +87,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     gateOrder,
     bins: Object.fromEntries(cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0])),
     feeders: cfg.feeders.map(createFeeder),
+    scrap: {},
     nests: cfg.stations.filter((d) => d.source === 'nest').map((d) => createNest(cfg, d.id)),
     tray: { count: 0, changing: 0 },
     traysOut: 0,
@@ -117,7 +118,7 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
     const robot = p.stations[i].robot;
     if (robot) stepRobot(p, cfg, rng, cfg.stations[i], robot, dt);
   }
-  p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], rng, dt));
+  p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], cfg, rng, dt));
   for (const n of p.nests) stepNest(n, cfg, dt);
   stepTray(p, dt);
 }

@@ -165,6 +165,9 @@ class FeederView {
   readonly group = new THREE.Group();
   private readonly pool: THREE.Object3D[] = [];
   private readonly feederR: number;
+  private readonly bowlMat = M.bowl.clone();
+  private readonly tag: HTMLElement;
+  private readonly name: string;
 
   constructor(
     readonly id: string,
@@ -187,13 +190,15 @@ class FeederView {
     const bowlY = trackY + 0.02;
     const base = cyl(0.07, bowlY - 0.04 - TABLE, M.frame);
     base.position.copy(local(0, (TABLE + bowlY - 0.04) / 2, bowlR));
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.07, 0.08, 32, 1, true), M.bowl);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.07, 0.08, 32, 1, true), this.bowlMat);
     bowl.position.copy(local(0, bowlY, bowlR));
     bowl.castShadow = true;
     this.group.add(base, bowl);
     const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', housing: 'Housings + caps' };
-    const l = label(names[def.part] ?? def.id, 'label feeder');
+    this.name = names[def.part] ?? def.id;
+    const l = label(this.name, 'label feeder');
     l.position.copy(local(0, bowlY + 0.12, bowlR));
+    this.tag = l.element;
     this.group.add(l);
 
     const make = (): THREE.Object3D => {
@@ -215,11 +220,17 @@ class FeederView {
     }
   }
 
-  update(items: number[]): void {
+  update(items: number[], jam: number, t: number): void {
     this.pool.forEach((o, i) => {
       o.visible = i < items.length;
       if (o.visible) o.position.z = -(this.feederR + items[i]);
     });
+    const jammed = jam > 0;
+    this.tag.classList.toggle('jam', jammed);
+    this.tag.textContent = jammed ? `${this.name}: JAM (${Math.ceil(jam)} s)` : this.name;
+    const flash = jammed && Math.floor(t * 3) % 2 === 0;
+    this.bowlMat.emissive.setHex(flash ? 0xc01818 : 0x000000);
+    this.bowlMat.emissiveIntensity = flash ? 0.8 : 0;
   }
 }
 
@@ -355,8 +366,29 @@ class BinView {
   }
 }
 
+/** Parts dropped at a station, lying on the table beside the belt. */
+class ScrapView {
+  readonly group = new THREE.Group();
+  private shown = 0;
+
+  constructor(private readonly part: THREE.Object3D) {}
+
+  setCount(n: number): void {
+    const target = Math.min(n, 15);
+    while (this.shown < target) {
+      const i = this.shown++;
+      const r = (k: number) => (((Math.sin((i + 7) * 91.17 + k * 47.3) * 24634.6345) % 1) + 1) % 1;
+      const o = this.part.clone(true);
+      o.rotation.set(Math.PI / 2, 0, r(1) * Math.PI * 2);
+      o.position.copy(local((r(2) - 0.5) * 0.2, TABLE + 0.008, 0.12 + r(3) * 0.1));
+      this.group.add(o);
+    }
+  }
+}
+
 class StationView {
   readonly group = new THREE.Group();
+  readonly scrap: ScrapView;
   private readonly camera: THREE.Object3D | null = null;
   private readonly cameraRest: number = 0;
   readonly robot: RobotView | null = null;
@@ -395,7 +427,9 @@ class StationView {
       const b = cfg.layout.bins[def.bin];
       this.bin.group.position.copy(local(b.a, TABLE, b.r));
     }
-    for (const part of [this.nest, this.feeder, this.tray, this.bin]) if (part) this.group.add(part.group);
+    const scrapPart = def.source === 'nest' ? models.cartridge : def.source === 'springs' ? models.spring : def.source === 'housings' ? models.housing : models.pen_body;
+    this.scrap = new ScrapView(scrapPart);
+    for (const part of [this.nest, this.feeder, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
     // Stop gate pin just ahead of a resting mover's leading face.
     this.pin = cyl(0.008, 0.03, M.pin, 12);
@@ -448,6 +482,8 @@ class StationView {
       lit.yellow = Math.floor(t * 2) % 2 === 0;
       lit.blue = true;
     }
+    if (b.status === 'fault') lit.red = Math.floor(t * 3) % 2 === 0;
+    this.scrap.setCount(b.scrap);
     for (const c of Object.keys(this.lights) as LightColor[]) {
       const m = this.lights[c].material as THREE.MeshStandardMaterial;
       m.color.setHex(lit[c] ? LIGHT_COLORS[c] : 0x30333a);
@@ -566,10 +602,13 @@ export class LineView {
     this.beltTravel += f.beltSpeed * dt;
     this.beltTex.offset.y = -this.beltTravel / RIB;
 
-    const running = f.machine === 'Execute' || f.machine === 'Starting' || f.machine === 'Stopping' || f.machine === 'Holding';
+    const running = ['Execute', 'Starting', 'Stopping', 'Holding', 'Completing'].includes(f.machine);
     this.stations.forEach((sv, i) => {
       sv.update(sample.a.stations[i], f.stations[i], sample.alpha, running, sample.t);
-      if (sv.feeder) sv.feeder.update(f.feeders.find((x) => x.id === sv.feeder!.id)?.items ?? []);
+      if (sv.feeder) {
+        const fd = f.feeders.find((x) => x.id === sv.feeder!.id);
+        sv.feeder.update(fd?.items ?? [], fd?.jam ?? 0, sample.t);
+      }
       if (sv.nest) {
         const n = f.nests.find((x) => x.station === sv.def.id);
         if (n) sv.nest.update(n.slots, n.changing);

@@ -102,6 +102,14 @@ button.danger:not(:disabled) {
   background: #7a6514;
 }
 
+#machine[data-state='Completing'] {
+  background: #2c6e6a;
+}
+
+#machine[data-state='Complete'] {
+  background: #3d4f7a;
+}
+
 #machine[data-state='Held'] {
   background: #1f4f8a;
 }
@@ -203,6 +211,102 @@ button.danger:not(:disabled) {
 .st[data-status='blocked'] .dot {
   background: var(--red);
   box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.35);
+}
+
+.st[data-status='fault'] .dot {
+  background: var(--red);
+  animation: blink 0.6s steps(2) infinite;
+}
+
+.st[data-status='fault'] b {
+  color: var(--red);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+#batch {
+  background: #22262d;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.batch-head,
+.batch-nums {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.batch-head span,
+.batch-nums {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#b-state[data-state='running'] {
+  color: var(--green);
+}
+
+#b-state[data-state='completing'] {
+  color: var(--yellow);
+}
+
+.batch-bar {
+  height: 6px;
+  margin: 6px 0;
+  background: #2b3038;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.batch-bar i {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+
+.batch-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.batch-ctl input[type='number'] {
+  width: 64px;
+  font: inherit;
+  color: var(--fg);
+  background: #2b3038;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+
+.batch-ctl .chk {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+#faults {
+  display: flex;
+  gap: 6px;
+}
+
+#faults select {
+  flex: 1;
+  font: inherit;
+  color: var(--fg);
+  background: #2b3038;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
 }
 
 .st .bar {
@@ -318,6 +422,13 @@ button.danger:not(:disabled) {
 
 .label.station[data-status='starved'],
 .label.station[data-status='blocked'] {
+  border-left-color: var(--red);
+}
+
+.label.station[data-status='fault'],
+.label.feeder.jam {
+  background: rgba(150, 20, 24, 0.9);
+  color: #fff;
   border-left-color: var(--red);
 }
 

@@ -4,10 +4,19 @@
 // program with velocity- and acceleration-limited axes scaled by machine speed.
 import { applyOp, moverById } from './assembly';
 import type { FeederDef, LineConfig, StationDef } from './config';
-import { type RngState, uniform } from './rng';
+import { type RngState, random, uniform } from './rng';
 import type { Feeder, Nest, Op, PlantState, Robot, RobotJob, RobotStep } from './types';
 
-export function createRobot(z: number): Robot {
+/** Operating seconds until the next random fault, exponentially distributed around the MTBF. */
+export function nextFailure(rng: RngState, mtbf: number): number {
+  return -mtbf * Math.log(1 - random(rng));
+}
+
+export function repairTime(rng: RngState, range: [number, number]): number {
+  return uniform(rng, range[0], range[1]);
+}
+
+export function createRobot(z: number, nextFault: number): Robot {
   return {
     a: 0,
     r: 0,
@@ -31,14 +40,16 @@ export function createRobot(z: number): Robot {
     slot: null,
     done: false,
     result: null,
+    fault: 0,
+    nextFault,
   };
 }
 
 export function createFeeder(def: FeederDef): Feeder {
   // Start with a full track so the line doesn't begin starved.
-  const items: number[] = [];
-  for (let x = 0; x <= def.track - def.pitch; x += def.pitch) items.push(x);
-  return { id: def.id, items, nextIn: def.interval, fed: 0 };
+  const n = Math.floor(def.track / def.pitch + 1e-9);
+  const items = Array.from({ length: n }, (_, i) => i * def.pitch);
+  return { id: def.id, items, nextIn: def.interval, fed: 0, jam: 0 };
 }
 
 export function createNest(cfg: LineConfig, station: string): Nest {
@@ -151,6 +162,24 @@ function feederFor(p: PlantState, def: StationDef): Feeder | undefined {
 
 /** Advances a station robot one plant step. */
 export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, robot: Robot, dt: number): void {
+  // An axis fault freezes the robot until the (simulated) operator has repaired it.
+  if (robot.fault > 0) {
+    robot.phase = 'fault';
+    robot.va = robot.vr = robot.vz = 0;
+    robot.fault -= dt;
+    if (robot.fault <= 0) {
+      robot.fault = 0;
+      robot.nextFault = nextFailure(rng, cfg.faults.robotMtbf);
+    }
+    return;
+  }
+  if (cfg.faults.enabled && robot.job !== null) {
+    robot.nextFault -= dt;
+    if (robot.nextFault <= 0) {
+      robot.fault = repairTime(rng, cfg.faults.robotRepair);
+      return;
+    }
+  }
   const step = robot.steps[0];
   if (!step) {
     robot.phase = 'idle';
@@ -234,7 +263,15 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       robot.dwellFixed -= dt;
       if (robot.dwellFixed <= 0) {
         if (step.to === 'mover') {
-          robot.result = robot.op ? applyOp(p, cfg, rng, def, robot.op, robot.moverId) : null;
+          const m = moverById(p, robot.moverId);
+          const misplaced = cfg.faults.enabled && random(rng) < cfg.faults.misplaceRate;
+          // A part that doesn't seat, or that's placed into an empty fixture, falls off and is scrap.
+          if (misplaced || (robot.op?.kind === 'assemble' && !m.load)) {
+            p.scrap[def.id] = (p.scrap[def.id] ?? 0) + 1;
+            robot.result = { measurement: null };
+          } else {
+            robot.result = robot.op ? applyOp(p, cfg, rng, def, robot.op, robot.moverId) : null;
+          }
         } else if (robot.holding?.kind === 'pen') {
           const t = robot.dropTarget!;
           if (t.kind === 'bin') p.bins[t.bin] = (p.bins[t.bin] ?? 0) + 1;
@@ -278,10 +315,15 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
   }
 }
 
-export function stepFeeder(f: Feeder, def: FeederDef, rng: RngState, dt: number): void {
+export function stepFeeder(f: Feeder, def: FeederDef, cfg: LineConfig, rng: RngState, dt: number): void {
   for (let i = 0; i < f.items.length; i++) {
     const min = i === 0 ? 0 : f.items[i - 1] + def.pitch;
     f.items[i] = Math.max(min, f.items[i] - def.speed * dt);
+  }
+  // A jammed bowl feeds nothing; the track drains until the operator clears it.
+  if (f.jam > 0) {
+    f.jam = Math.max(0, f.jam - dt);
+    return;
   }
   f.nextIn -= dt;
   const last = f.items.at(-1);
@@ -289,6 +331,7 @@ export function stepFeeder(f: Feeder, def: FeederDef, rng: RngState, dt: number)
     f.items.push(def.track);
     f.fed++;
     f.nextIn = def.interval * uniform(rng, 0.6, 1.4);
+    if (cfg.faults.enabled && random(rng) < cfg.faults.feederJamPerPart) f.jam = repairTime(rng, cfg.faults.feederRepair);
   }
 }
 

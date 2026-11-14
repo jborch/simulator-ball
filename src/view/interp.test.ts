@@ -14,6 +14,7 @@ const frame = (t: number, s: number): Frame => ({
   feeders: [],
   nests: [],
   tray: { count: 0, changing: 0 },
+  batch: { name: null, size: 300, autoNext: true },
   counters: { good: 0, rejected: 0, traysOut: 0, trayFill: 0, bins: {} },
 });
 

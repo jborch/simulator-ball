@@ -363,6 +363,15 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 - **Laser marking:** the DataMatrix only exists on the body after the laser dwell, and ST60 reads what was physically marked.
 - **Tests:** axis limits, pre-pick timing, feeder starvation, nest/tray changes, and part conservation (every body that leaves the feeder is accounted for).
 
+## 10c. Faults and batches (built in milestone 6)
+
+- **Feeder jams:** each part fed has a 1/450 chance of jamming the bowl. A jammed bowl stops feeding until it's cleared after 20–60 s. The track drains, then the station starves.
+- **Robot axis faults:** these are based on operating time, with a 30-min mean time between faults per robot (about 7–8 per hour across the line). The robot freezes and the station shows *fault* until it's repaired after 30–90 s. The queue behind it builds.
+- **Misplaced parts:** 0.3 % of placed parts don't seat and end up as scrap on the table. The tag still says the step was done, so a later inspection rejects the pen as **Part missing**. This is a realistic mismatch between what the PLC believes and what is physically there.
+- **Fault injection:** a `fault` command that any client can send to trigger an axis fault on any robot or a jam on any feeder.
+- **Batches:** a batch has a target number of pens *loaded*. When it's reached, the machine goes **Completing**: ST10 stops loading and the line runs empty. It then goes **Complete**, and after a 20 s pause the next batch starts automatically. The batch size and auto-next can be set from the HUD, and a batch can be ended early. Batches are named `yyyyMMddHHmmss` and emit started/completed events (for CATCH.AI periods).
+- With default faults, throughput drops visibly compared with a clean line; the tests check it stays above 60 % of clean.
+
 ## 11. Milestones
 
 1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
@@ -370,7 +379,7 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 3. ✅ **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
 4. ✅ **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
-6. **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.
+6. ✅ **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.
 7. **Reporting**: MES events to the CATCH.AI REST API (details from you).
 8. **HUD**: KPIs (throughput, OEE, reject %), mover inspector, follow camera, timeline.
 9. **Shared viewing**: transport for the existing protocol.

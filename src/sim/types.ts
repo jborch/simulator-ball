@@ -3,7 +3,7 @@
 import type { MoverProfile, PartType, QualityKey, Step } from './config';
 import type { RngState } from './rng';
 
-export type MachineState = 'Stopped' | 'Starting' | 'Execute' | 'Stopping' | 'Holding' | 'Held' | 'Aborted';
+export type MachineState = 'Stopped' | 'Starting' | 'Execute' | 'Completing' | 'Complete' | 'Stopping' | 'Holding' | 'Held' | 'Aborted';
 
 /** Contents of a mover's RFID tag — what the PLC believes. */
 export interface Tag {
@@ -105,7 +105,7 @@ export interface Robot {
   dwellMech: number;
   dwellFixed: number;
   /** What the current step is doing, for display. */
-  phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked';
+  phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked' | 'fault';
   holding: Held | null;
   /** Op applied when placing on a mover (load / assemble). */
   op: Op | null;
@@ -115,6 +115,10 @@ export interface Robot {
   slot: number | null;
   done: boolean;
   result: CycleResult | null;
+  /** Seconds until an axis fault is repaired; 0 when healthy. The robot is frozen meanwhile. */
+  fault: number;
+  /** Operating (busy) seconds left until the next random axis fault. */
+  nextFault: number;
 }
 
 export interface Feeder {
@@ -123,6 +127,8 @@ export interface Feeder {
   items: number[];
   nextIn: number;
   fed: number;
+  /** Seconds until a jam is cleared; 0 when feeding normally. */
+  jam: number;
 }
 
 export interface Nest {
@@ -166,12 +172,14 @@ export interface PlantState {
   bins: Record<string, number>;
   feeders: Feeder[];
   nests: Nest[];
+  /** Parts dropped or lost (didn't seat), by station. */
+  scrap: Record<string, number>;
   tray: TrayState;
   traysOut: number;
 }
 
 export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
-export type StationStatus = 'waiting' | 'reading' | 'working' | 'passing' | 'stopped' | 'starved' | 'blocked';
+export type StationStatus = 'waiting' | 'reading' | 'working' | 'passing' | 'stopped' | 'starved' | 'blocked' | 'fault';
 
 export interface PlcStation {
   id: string;
@@ -187,7 +195,19 @@ export interface PlcStation {
   reserved: boolean;
   /** Operation in progress, kept to build events when the cycle finishes. */
   op: Op | null;
-  stats: { cycles: number; passes: number; busy: number; noReads: number };
+  stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };
+  /** Last seen fault input, to emit events on change. */
+  faulted: boolean;
+}
+
+export interface Batch {
+  name: string;
+  target: number;
+  loaded: number;
+  good: number;
+  rejected: number;
+  startedAt: number;
+  state: 'running' | 'completing' | 'complete';
 }
 
 export interface PlcState {
@@ -199,6 +219,11 @@ export interface PlcState {
   /** Nest currently being de-nested at each nest-fed station (for genealogy). */
   nests: Record<string, { srId: number; used: number }>;
   tray: { srId: number; count: number };
+  batch: Batch | null;
+  batchSize: number;
+  autoNext: boolean;
+  /** Feeder jam state last seen, to emit events on change. */
+  jammed: Record<string, boolean>;
 }
 
 export interface ItemProcessedEvent {
@@ -240,6 +265,16 @@ export interface CommandEvent {
   logged: number;
 }
 
+export interface BatchEvent {
+  kind: 'batch';
+  name: string;
+  state: 'started' | 'completed';
+  target: number;
+  good: number;
+  rejected: number;
+  logged: number;
+}
+
 export interface StationEvent {
   kind: 'station';
   process: string;
@@ -248,7 +283,7 @@ export interface StationEvent {
   logged: number;
 }
 
-export type SimEvent = ItemProcessedEvent | ItemsMergedEvent | MachineEvent | CommandEvent | StationEvent;
+export type SimEvent = ItemProcessedEvent | ItemsMergedEvent | MachineEvent | CommandEvent | StationEvent | BatchEvent;
 
 export interface MesState {
   /** Identifier marked on each pen still on the line, by SR id. */

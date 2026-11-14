@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'vitest';
-import { LINE } from './config';
+import { LINE, type LineConfig } from './config';
 import { gtinWithCheck } from './gs1';
 import { Simulation } from './simulation';
 import { forward, pose, trackLength } from './track';
@@ -7,8 +7,16 @@ import type { ItemProcessedEvent, ItemsMergedEvent, SimEvent } from './types';
 
 const L = trackLength(LINE.track);
 
+/** Steady-state line: no random faults and one batch big enough to never run out. */
+export function steadyConfig(): LineConfig {
+  const cfg: LineConfig = structuredClone(LINE);
+  cfg.faults.enabled = false;
+  cfg.batch.size = 1_000_000;
+  return cfg;
+}
+
 function running(seed = 7): Simulation {
-  const sim = new Simulation({ seed, epochMs: Date.UTC(2026, 10, 14) });
+  const sim = new Simulation({ seed, epochMs: Date.UTC(2026, 10, 14), cfg: steadyConfig() });
   sim.command({ type: 'start' });
   return sim;
 }
