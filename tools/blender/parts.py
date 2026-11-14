@@ -1,7 +1,8 @@
 """Generate first-pass product parts and a preview render.
 
-Run: blender -b -P tools/blender/parts.py -- <out_dir>
-Exports one .glb per asset to <out_dir>/models and a contact sheet PNG to <out_dir>/preview.png.
+Run: blender -b -P tools/blender/parts.py -- <out_dir> [datamatrix.png] [--no-render]
+Exports one .glb per asset to <out_dir>/models and, unless --no-render, preview PNGs to <out_dir>.
+App models:  blender -b -P tools/blender/parts.py -- public --no-render
 Units are metres; pens are ~16 mm diameter, ~150 mm long.
 """
 import math
@@ -12,6 +13,8 @@ import bpy
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+RENDER = "--no-render" not in argv
+argv = [a for a in argv if a != "--no-render"]
 OUT = os.path.abspath(argv[0] if argv else "public")
 # Optional sample DataMatrix image (made by tools/scripts/dm-png.mjs) for the preview; the app paints its own at runtime.
 DM_PNG = argv[1] if len(argv) > 1 else None
@@ -290,6 +293,10 @@ assets = [
 ]
 for root, fn, _ in assets:
     export(root, fn)
+
+if not RENDER:
+    print("DONE (models only)", MODELS)
+    sys.exit(0)
 
 # Lay out in a row for the preview; small parts up front, carriers behind.
 small = assets[:6]

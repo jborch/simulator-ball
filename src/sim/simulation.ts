@@ -68,6 +68,8 @@ export class Simulation {
         v: m.v,
         status: m.tag.status,
         parts: m.load ? [...m.load.parts] : [],
+        srId: m.load?.srId ?? null,
+        mark: m.load?.mark ?? null,
         laps: m.laps,
         lastLap: m.lastLap,
       })),

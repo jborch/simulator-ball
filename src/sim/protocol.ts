@@ -18,6 +18,9 @@ export interface MoverFrame {
   v: number;
   status: Tag['status'];
   parts: PartType[];
+  /** Physical item in the fixture: SR id and the GS1 identifier marked on it. */
+  srId: number | null;
+  mark: string | null;
   laps: number;
   lastLap: number | null;
 }

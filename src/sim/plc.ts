@@ -32,7 +32,8 @@ export function createPlc(cfg: LineConfig): PlcState {
   };
 }
 
-const ACCEPTS: Record<Command['type'], MachineState[]> = {
+/** Machine states in which each command is accepted. */
+export const ACCEPTS: Record<Command['type'], MachineState[]> = {
   start: ['Stopped'],
   stop: ['Starting', 'Execute', 'Holding', 'Held'],
   hold: ['Starting', 'Execute'],

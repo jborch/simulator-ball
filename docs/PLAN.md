@@ -340,7 +340,9 @@ whose length depends on the layout stay **procedural in three.js**.
 | Reject bin, feeders (vibratory bowl, linear track) | Blender | |
 | Conveyor straights/curves, floor, guards | three.js | Parametric |
 
-We approve models from preview renders before wiring them in.
+We approve models from preview renders before wiring them in. The app loads
+`public/models/*.glb`. Regenerate them with
+`blender -b -P tools/blender/parts.py -- public --no-render`.
 Regenerate the renders with:
 
 ```sh
@@ -355,7 +357,7 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 
 1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
 2. ✅ **Headless core in a Web Worker**: plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
-3. **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
+3. ✅ **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
 4. **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
 6. **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.

@@ -1,133 +1,319 @@
+:root {
+  color-scheme: dark;
+  --bg: #1b1e23;
+  --panel: rgba(24, 27, 32, 0.86);
+  --border: #353a43;
+  --fg: #e6e9ee;
+  --muted: #98a0ab;
+  --green: #34c759;
+  --yellow: #ffc400;
+  --red: #ff4d4f;
+  --blue: #4fa3ff;
+  font: 13px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 html,
 body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #1e2127;
-  color: #d8dee9;
-  font-family: system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
 }
 
-#world {
+#view {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  display: block;
 }
 
-#controls {
+.labels {
+  position: absolute;
+  inset: 0;
+}
+
+.panel {
   position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+
+#topbar {
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(46, 52, 64, 0.75);
-  user-select: none;
-  transition: opacity 0.3s;
 }
 
-#controls.hidden {
-  opacity: 0;
+#topbar .sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
 }
 
-#controls button {
+button {
   font: inherit;
-  font-size: 14px;
-  color: #d8dee9;
-  background: #3b4252;
-  border: 1px solid #4c566a;
+  color: var(--fg);
+  background: #2b3038;
+  border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 4px 12px;
+  padding: 4px 10px;
   cursor: pointer;
 }
 
-#controls button:hover {
-  background: #434c5e;
+button:hover:not(:disabled) {
+  background: #363c46;
 }
 
-#controls button.active {
-  background: #5e81ac;
-  border-color: #81a1c1;
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
-#controls .sep {
-  width: 1px;
-  height: 20px;
-  background: #4c566a;
+button.danger:not(:disabled) {
+  background: #6b1f22;
+  border-color: #a3343a;
 }
 
-#clock {
-  position: fixed;
+#machine {
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #3a3f48;
+  min-width: 84px;
+  text-align: center;
+}
+
+#machine[data-state='Execute'] {
+  background: #1f6b35;
+}
+
+#machine[data-state='Starting'],
+#machine[data-state='Stopping'],
+#machine[data-state='Holding'] {
+  background: #7a6514;
+}
+
+#machine[data-state='Held'] {
+  background: #1f4f8a;
+}
+
+#machine[data-state='Aborted'] {
+  background: #8a1f24;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speed b {
+  min-width: 36px;
+}
+
+#speed-actual {
+  color: var(--muted);
+}
+
+#side {
   top: 12px;
   right: 12px;
-  padding: 0.15em 0.4em;
-  border-radius: 0.25em;
-  background: rgba(46, 52, 64, 0.75);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: var(--clock-size, 36px);
+  width: 300px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+#side h3 {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+#kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+#kpis div {
+  background: #22262d;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+#kpis span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+#kpis b {
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  user-select: none;
 }
 
-#clock.hidden {
-  display: none;
+.st {
+  display: grid;
+  grid-template-columns: 10px 44px 1fr 56px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
 }
 
-#clock-info {
-  margin-right: 0.6em;
-  font-size: 0.4em;
-  opacity: 0.7;
-  white-space: pre;
+.st .name {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#clock.unsynced {
-  color: #ebcb8b;
-}
-
-#overlap {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  padding: 0.15em 0.4em;
-  border-radius: 0.25em;
-  background: rgba(46, 52, 64, 0.75);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: var(--clock-size, 36px);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  user-select: none;
-}
-
-#overlap.active {
-  color: #ebcb8b;
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  margin: 0 4px;
+.st .dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  cursor: help;
+  background: #4a4f58;
 }
 
-.dot.off {
-  background: #4c566a;
+.st[data-status='working'] .dot {
+  background: var(--green);
 }
 
-.dot.connecting {
-  background: #ebcb8b;
+.st[data-status='waiting'] .dot {
+  background: var(--yellow);
 }
 
-.dot.ok {
-  background: #a3be8c;
+.st[data-status='reading'] .dot,
+.st[data-status='passing'] .dot {
+  background: var(--blue);
 }
 
-.dot.error {
-  background: #bf616a;
+.st .bar {
+  height: 5px;
+  background: #2b3038;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.st .bar i {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+
+#log div {
+  padding: 3px 0;
+  border-bottom: 1px solid #2a2e35;
+  font-size: 12px;
+}
+
+#log time {
+  color: var(--muted);
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+#log .bad {
+  color: #ff8a8a;
+}
+
+#log .ok {
+  color: #8ee59f;
+}
+
+#log .cmd {
+  color: #9cc8ff;
+}
+
+#log .warn {
+  color: #ffd56b;
+}
+
+#inspector {
+  left: 12px;
+  bottom: 12px;
+  width: 320px;
+  padding: 10px 12px;
+}
+
+#inspector header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+#inspector header button {
+  padding: 0 8px;
+}
+
+#inspector-body > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+#inspector-body span {
+  color: var(--muted);
+}
+
+#inspector-body .mark {
+  display: block;
+  margin-top: 6px;
+}
+
+#inspector-body code {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  word-break: break-all;
+  color: #cfd6df;
+}
+
+.label {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(20, 22, 26, 0.75);
+  color: var(--fg);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.label.station {
+  font-weight: 700;
+  border-left: 3px solid #4a4f58;
+}
+
+.label.station[data-status='working'] {
+  border-left-color: var(--green);
+}
+
+.label.station[data-status='waiting'] {
+  border-left-color: var(--yellow);
+}
+
+.label.station[data-status='reading'],
+.label.station[data-status='passing'] {
+  border-left-color: var(--blue);
+}
+
+.label.bin {
+  background: rgba(110, 24, 28, 0.85);
+}
+
+.label.feeder {
+  color: var(--muted);
 }

@@ -1,123 +1,67 @@
 import './style.css';
-import { CatchAiConnection } from './catchai/connection';
-import { bindStatusDot, installConsoleApi } from './catchai/console';
-import { CatchAiReporter } from './catchai/reporter';
-import { setupControls, type ControlState } from './controls';
-import { CONFIG, validateConfig } from './config';
-import { discPixelCount } from './geometry';
-import { History } from './graph';
-import { render } from './render';
-import { Simulation } from './simulation';
-import { TimeSync, installTimeSyncConsole } from './timesync';
+import * as THREE from 'three';
+import { connectLocal } from './sim/client';
+import { LINE } from './sim/config';
+import { trackLength } from './sim/track';
+import { Hud } from './view/hud';
+import { FrameBuffer } from './view/interp';
+import { LineView } from './view/line';
+import { loadModels } from './view/models';
+import { Stage } from './view/stage';
 
-const configError = validateConfig(CONFIG);
-if (configError) {
-  document.body.textContent = configError;
-  throw new Error(configError);
-}
+const clientName = `browser-${Math.random().toString(36).slice(2, 6)}`;
+const client = connectLocal(clientName);
+const frames = new FrameBuffer(trackLength(LINE.track));
+const hud = new Hud(LINE, (c) => client.send(c));
+const stage = new Stage(document.querySelector('#view')!);
 
-const canvas = document.getElementById('world') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
+client.onFrame = (f) => frames.push(f, performance.now() / 1000);
+client.onEvents = (es) => hud.addEvents(es);
 
-function deviceSize(): { w: number; h: number } {
-  const dpr = window.devicePixelRatio || 1;
-  return { w: Math.round(window.innerWidth * dpr), h: Math.round(window.innerHeight * dpr) };
-}
+const models = await loadModels();
+const line = new LineView(LINE, models);
+stage.scene.add(line.group);
 
-const initial = deviceSize();
-canvas.width = initial.w;
-canvas.height = initial.h;
-
-const sim = new Simulation(initial.w, initial.h);
-const history = new History(initial.w);
-
-const timeSync = new TimeSync();
-installTimeSyncConsole(timeSync);
-timeSync.restore();
-
-const catchAi = new CatchAiConnection();
-sim.events = new CatchAiReporter(catchAi.enqueue, CONFIG.catchAi, () => timeSync.date());
-installConsoleApi(catchAi);
-bindStatusDot(document.getElementById('catchai-status')!, catchAi);
-catchAi.restore();
-const fullDisc = discPixelCount(CONFIG.ball.radius);
-const GRAPH_KEY = 'ui.graphVisible';
-const graphVisible = localStorage.getItem(GRAPH_KEY) !== 'false';
-sim.setGraphVisible(graphVisible);
-const CLOCK_SIZE_KEY = 'ui.clockSize';
-const clockSize = Number(localStorage.getItem(CLOCK_SIZE_KEY)) || CONFIG.clock.sizePx;
-const state: ControlState = {
-  paused: false,
-  speed: CONFIG.speeds[0],
-  pinned: false,
-  graphVisible,
-  clockVisible: true,
-  clockSize,
-};
-const clockEl = document.getElementById('clock')!;
-const clockTime = document.getElementById('clock-time')!;
-const clockInfo = document.getElementById('clock-info')!;
-const overlapEl = document.getElementById('overlap')!;
-let shownOverlap = -1;
-let fpsFrames = 0;
-let fpsSince = performance.now();
-let fps = 0;
-
-function formatInfo(): string {
-  const off = timeSync.status().offsetMs;
-  const offText = off === null ? 'local' : `${off >= 0 ? '+' : ''}${off.toFixed(1)} ms`;
-  return `offset ${offText}  ${fps.toFixed(0)} fps`;
-}
-
-function formatClock(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
-
-setupControls(state, {
-  onReset: () => {
-    sim.reset();
-    history.clear();
-  },
-  onGraphToggle: (visible) => {
-    sim.setGraphVisible(visible);
-    localStorage.setItem(GRAPH_KEY, String(visible));
-  },
-  onClockSize: (size) => localStorage.setItem(CLOCK_SIZE_KEY, String(size)),
+// Click a mover to inspect it; a ring marks the selection.
+const ray = new THREE.Raycaster();
+const ring = new THREE.Mesh(
+  new THREE.RingGeometry(0.085, 0.095, 40),
+  new THREE.MeshBasicMaterial({ color: 0x4fc3ff, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.002;
+ring.visible = false;
+stage.labels.domElement.addEventListener('click', (ev) => {
+  const r = stage.labels.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), stage.camera);
+  const hit = ray.intersectObjects(line.movers.map((m) => m.root), true)[0];
+  let o: THREE.Object3D | null = hit?.object ?? null;
+  while (o && o.userData.moverId === undefined) o = o.parent;
+  hud.selectedMover = (o?.userData.moverId as number | undefined) ?? null;
+  ring.removeFromParent();
+  if (o) o.add(ring);
+  ring.visible = !!o;
 });
 
-window.addEventListener('resize', () => {
-  const { w, h } = deviceSize();
-  canvas.width = w;
-  canvas.height = h;
-  sim.resize(w, h);
-  history.resize(w);
-});
-
-function frame(t: number): void {
-  fpsFrames++;
-  if (t - fpsSince >= 1000) {
-    fps = Math.round((fpsFrames * 1000) / (t - fpsSince));
-    fpsFrames = 0;
-    fpsSince = t;
-    if (state.clockVisible) clockInfo.textContent = formatInfo();
+let last = performance.now() / 1000;
+let lastHud = 0;
+function loop() {
+  const now = performance.now() / 1000;
+  const dt = now - last;
+  last = now;
+  const sample = frames.sample(now);
+  if (sample) {
+    line.update(sample, frames, dt);
+    if (now - lastHud > 0.1) {
+      lastHud = now;
+      hud.update(sample.b);
+    }
   }
-  if (!state.paused) {
-    sim.step(state.speed);
-    history.push(sim.value, state.speed);
-  }
-  render(ctx, sim, history, fullDisc);
-  if (sim.value !== shownOverlap) {
-    shownOverlap = sim.value;
-    overlapEl.textContent = String(shownOverlap);
-    overlapEl.classList.toggle('active', shownOverlap > 0);
-  }
-  if (state.clockVisible) {
-    clockTime.textContent = formatClock(timeSync.date());
-    const ts = timeSync.state;
-    clockEl.classList.toggle('unsynced', ts === 'pending' || ts === 'error');
-  }
-  requestAnimationFrame(frame);
+  if (hud.selectedMover === null) ring.visible = false;
+  stage.render();
+  requestAnimationFrame(loop);
 }
+loop();
 
-requestAnimationFrame(frame);
+// Dev-only handle for poking at the scene from the console (e.g. moving the camera).
+if (import.meta.env.DEV) Object.assign(window, { line: { stage, view: line, client, frames } });

@@ -3,29 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ball Detector Simulator</title>
+    <title>Pen Assembly Line Simulator</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='6' y='1' width='4' height='14' rx='2' fill='%233d6fb6'/%3E%3C/svg%3E" />
   </head>
   <body>
-    <canvas id="world"></canvas>
-    <div id="controls">
-      <button id="pause" title="Space">Pause</button>
+    <div id="view"></div>
+
+    <header id="topbar" class="panel">
+      <span id="machine" data-state="Stopped">Stopped</span>
       <span class="sep"></span>
-      <button data-speed="1" title="1">1×</button>
-      <button data-speed="0.5" title="2">1/2×</button>
-      <button data-speed="0.25" title="3">1/4×</button>
+      <button data-cmd="start">Start</button>
+      <button data-cmd="hold">Hold</button>
+      <button data-cmd="unhold">Unhold</button>
+      <button data-cmd="stop">Stop</button>
+      <button data-cmd="abort" class="danger">E-stop</button>
+      <button data-cmd="reset">Reset</button>
       <span class="sep"></span>
-      <button id="reset" title="R">Reset</button>
-      <span class="sep"></span>
-      <button id="graph" title="G">Graph</button>
-      <button id="clock-btn" title="C">Clock</button>
-      <button id="clock-smaller" title="-">A−</button>
-      <button id="clock-bigger" title="+">A+</button>
-      <button id="pin" title="P">Pin</button>
-      <span class="sep"></span>
-      <span id="catchai-status" class="dot off"></span>
-    </div>
-    <div id="clock"><span id="clock-info"></span><span id="clock-time"></span></div>
-    <div id="overlap">0</div>
+      <label class="speed">Speed <input id="speed" type="range" min="10" max="100" step="5" value="100" /> <b id="speed-val">100%</b></label>
+      <small id="speed-actual"></small>
+    </header>
+
+    <aside id="side" class="panel">
+      <section id="kpis">
+        <div><span>Good</span><b id="k-good">0</b></div>
+        <div><span>Rejected</span><b id="k-rej">0</b></div>
+        <div><span>Reject rate</span><b id="k-rate">–</b></div>
+        <div><span>Pens / min</span><b id="k-ppm">0</b></div>
+        <div><span>Trays out</span><b id="k-trays">0</b></div>
+      </section>
+      <h3>Stations</h3>
+      <section id="stations"></section>
+      <h3>Events</h3>
+      <section id="log"></section>
+    </aside>
+
+    <aside id="inspector" class="panel" hidden>
+      <header><b id="inspector-title"></b><button id="inspector-close" title="Close">×</button></header>
+      <div id="inspector-body"></div>
+    </aside>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
