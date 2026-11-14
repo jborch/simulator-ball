@@ -168,27 +168,42 @@ stateDiagram-v2
     Starved --> Working: part available
 ```
 
-## 5. Timing budget (first guess)
+## 5. Timing (measured in the headless sim)
 
-Belt speed 0.25 m/s, mover pitch 0.15 m, loop ≈ 10 m, target takt ≈ 2.0 s
-(30 pens/min) at 100 % machine speed.
+Belt speed 0.25 m/s, mover length 0.12 m, loop ≈ 9.7 m, at 100 % machine speed.
 
-| Station | Process | Effective |
-| --- | --- | --- |
-| ST10 load | 1.5 s | 1.5 s |
-| ST20 spring | 1.6 s | 1.6 s |
-| ST30 inspect | 0.8 s | 0.8 s |
-| ST40A/B cartridge | 4.0 s | 2.0 s (×2) |
-| ST50 housing | 1.8 s | 1.8 s |
-| ST60 vision | 1.0 s | 1.0 s |
-| ST70 unload | 1.5 s | 1.5 s |
+| Station | Process (scales with speed + fixed) |
+| --- | --- |
+| ST10 laser mark + load | 1.2 + 0.3 s |
+| ST20 spring | 1.6 s |
+| ST30 inspect | 0.3 + 0.5 s |
+| R1 reject (NOK only) | 1.0 s |
+| ST40A/B cartridge | 4.0 s each, 0.25 m apart |
+| ST50 housing + cap (snap) | 1.8 s |
+| ST60 vision + DataMatrix | 0.4 + 0.6 s |
+| ST70 unload | 1.5 s |
 
-Travel and indexing (accelerating/decelerating at the gate) add on top. The
-twin station is the bottleneck by design, so you'll see queues build in front
-of it.
+**Lesson from the first runs: indexing is expensive.** Every stop costs about
+0.9 s on top of the process time:
+- moving up one mover pitch from the queue,
+- accelerating with friction,
+- settling at the gate,
+- reading the RFID tag (40 ms) and writing it back.
+
+So even with no bottleneck at all, the line tops out at about 23 pens/min. The
+original 2 s takt (30/min) wasn't physically possible, which is exactly the
+kind of thing this simulator should expose.
+
+Results from 60 simulated minutes, several seeds:
+
+- **≈ 22 pens/min.** The twin station is the bottleneck, with a queue in front of it.
+- **ST40A/ST40B split ≈ 50/50**, and over 80 % of their cycles overlap in time.
+  - The gap between them matters: at 0.5 m the pair reaches only ~18/min, because passing a mover through A to B takes 2 s.
+  - A single ST40 alone gives ~16/min.
+- **Rejects ≈ 3.7–6 % (≈ 4.8 % average).** ST40B (fragile) visibly raises seating-depth rejects, and worn mover #24 is rejected more often.
 
 **Why 32 movers.** By Little's law, the number of movers needed = throughput ×
-loop time. One lap takes about 57 s: 40 s of travel, 12 s of station dwell and
+loop time. One lap takes about 57 s without queues: 40 s of travel, 12 s of station dwell and
 about 4.5 s of indexing. That gives:
 
 | Movers | Max throughput |
@@ -208,7 +223,7 @@ stays the same across runs. A few movers are deliberately worn:
 
 | Property | Normal range | Effect in the sim | Worn example |
 | --- | --- | --- | --- |
-| Drive-pad friction | μ 0.30–0.35 | Acceleration after a gate opens, so indexing takes longer | #06: μ 0.18, sluggish |
+| Drive-pad friction | μ 0.115–0.125 | Acceleration after a gate opens, so indexing takes longer | #06: μ 0.06, sluggish |
 | Belt slip | 0–2 % | Cruise speed below belt speed, so travel takes longer | #19: 6 % slip |
 | Stop settle time | 80–150 ms | Station waits for "in position" before starting | #11: 350 ms, bounces |
 | Fixture offset | ±0.05 mm | Bias on measurements (spring angle, snap position, vision) | #24: 0.4 mm, more rejects |
@@ -338,8 +353,8 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 
 ## 11. Milestones
 
-1. **Plan & models**: this document plus first Blender part set, reviewed together.
-2. **Headless core in a Web Worker**: plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
+1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
+2. ✅ **Headless core in a Web Worker**: plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
 3. **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
 4. **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
