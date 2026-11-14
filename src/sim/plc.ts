@@ -2,6 +2,7 @@
 // state machine per station, and writes actuators (gates, cycles, RFID, belt). It never touches
 // mover positions or loads directly; it only knows what the tags and sensors tell it.
 import type { LineConfig, StationDef } from './config';
+import { startJob } from './devices';
 import { makeIdentifier } from './gs1';
 import { type Inputs, copyTag, emptyTag, readInputs } from './plant';
 import type { Command } from './protocol';
@@ -26,9 +27,9 @@ export function createPlc(cfg: LineConfig): PlcState {
       op: null,
       stats: { cycles: 0, passes: 0, busy: 0, noReads: 0 },
     })),
-    srCounter: 2,
-    nest: { srId: 1, used: 0 },
-    tray: { srId: 2, count: 0 },
+    srCounter: 1 + cfg.stations.filter((d) => d.source === 'nest').length,
+    nests: Object.fromEntries(cfg.stations.filter((d) => d.source === 'nest').map((d, i) => [d.id, { srId: 2 + i, used: 0 }])),
+    tray: { srId: 1, count: 0 },
   };
 }
 
@@ -96,7 +97,8 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
 
   plant.speedTarget = plc.speedTarget;
   plant.estop = plc.machine === 'Aborted';
-  const allIdle = plc.stations.every((st) => st.step === 'idle');
+  // A station whose mover is only leaving has finished its work (the queue ahead may never move while stopping).
+  const allIdle = plc.stations.every((st) => st.step === 'idle' || st.step === 'leaving');
   switch (plc.machine) {
     case 'Stopped':
     case 'Held':
@@ -120,7 +122,15 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
 
   if (plc.machine === 'Aborted') return;
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute';
-  for (let i = 0; i < cfg.stations.length; i++) scanStation(s, cfg, io, i, canStart, dt);
+  for (let i = 0; i < cfg.stations.length; i++) {
+    scanStation(s, cfg, io, i, canStart, dt);
+    // Pre-pick: a robot with a part source fetches the next part while movers index. While stopping,
+    // it still fetches for a mover the station has already committed to, so the cycle can finish.
+    const robot = plant.stations[i].robot;
+    const def = cfg.stations[i];
+    const needed = canStart || plc.stations[i].step === 'waitRobot';
+    if (robot && def.source && needed && robot.job === null && !robot.holding) startJob(robot, cfg, def, 'prepick');
+  }
 }
 
 function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canStart: boolean, dt: number): void {
@@ -167,16 +177,51 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
       }
       break;
 
-    case 'working':
+    case 'waitRobot': {
+      // The mover is in position; start the robot as soon as it's ready (holding a part, or free).
       st.stats.busy += dt;
-      if (!ps.cycleDone) break;
-      ps.cycleDone = false;
-      st.stats.cycles++;
-      finish(s, cfg, i, ps.result ?? { measurement: null });
+      const robot = ps.robot!;
+      if (def.source) {
+        if (robot.job === null && robot.holding) {
+          startJob(robot, cfg, def, 'place', { op: st.op!, moverId: st.moverId! });
+          st.step = 'working';
+          st.status = 'working';
+        } else {
+          st.status = robot.phase === 'starved' ? 'starved' : 'working';
+        }
+      } else if (robot.job === null && !robot.holding) {
+        startJob(robot, cfg, def, 'pickMover', { moverId: st.moverId! });
+        st.step = 'working';
+        st.status = 'working';
+      } else {
+        st.status = robot.phase === 'blocked' ? 'blocked' : 'working';
+      }
+      break;
+    }
+
+    case 'working': {
+      st.stats.busy += dt;
+      const robot = ps.robot;
+      if (robot) {
+        if (robot.job !== null) break;
+        st.stats.cycles++;
+        finish(s, cfg, i, robot.result ?? { measurement: null });
+        const op = st.op!;
+        if (op.kind === 'reject' || op.kind === 'unload') {
+          const toTray = op.kind === 'unload' && op.good;
+          startJob(robot, cfg, def, 'drop', { dropTarget: toTray ? { kind: 'tray' } : { kind: 'bin', bin: op.bin } });
+        }
+      } else {
+        if (!ps.cycleDone) break;
+        ps.cycleDone = false;
+        st.stats.cycles++;
+        finish(s, cfg, i, ps.result ?? { measurement: null });
+      }
       st.tries = 0;
       startRfid(s, cfg, i, 'write', st.pendingTag);
       st.step = 'write';
       break;
+    }
 
     case 'write':
       if (!r.done) break;
@@ -242,7 +287,7 @@ function release(s: SimState, i: number, passing: boolean): void {
 function partnerFree(s: SimState, cfg: LineConfig, partnerId: string): number | null {
   const pi = cfg.stations.findIndex((d) => d.id === partnerId);
   const p = s.plc.stations[pi];
-  return p.step !== 'working' && !p.reserved ? pi : null;
+  return p.step !== 'working' && p.step !== 'waitRobot' && !p.reserved ? pi : null;
 }
 
 function decide(s: SimState, cfg: LineConfig, i: number): void {
@@ -295,17 +340,22 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
   }
 }
 
+/** Starts work on the mover: robot stations hand over to the robot, inspections trigger the camera. */
 function start(s: SimState, cfg: LineConfig, i: number, op: Op): void {
   const ps = s.plant.stations[i];
   const def = cfg.stations[i];
   const st = s.plc.stations[i];
-  ps.cycle = { op, moverId: st.moverId!, mechLeft: def.mech, fixedLeft: def.fixed };
-  ps.cycleDone = false;
   st.reserved = false;
   st.cycleStart = s.plant.t;
   st.status = 'working';
-  st.step = 'working';
   st.op = op;
+  if (ps.robot) {
+    st.step = 'waitRobot';
+  } else {
+    ps.cycle = { op, moverId: st.moverId!, mechLeft: def.mech, fixedLeft: def.fixed };
+    ps.cycleDone = false;
+    st.step = 'working';
+  }
 }
 
 function devId(cfg: LineConfig, def: StationDef): string {
@@ -356,7 +406,7 @@ function finish(s: SimState, cfg: LineConfig, i: number, result: CycleResult): v
         const partId = ++s.plc.srCounter;
         const partType = part[0].toUpperCase() + part.slice(1);
         if (part === 'cartridge') {
-          const nest = s.plc.nest;
+          const nest = s.plc.nests[def.id];
           if (nest.used >= cfg.nestSize) {
             nest.srId = ++s.plc.srCounter;
             nest.used = 0;

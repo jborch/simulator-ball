@@ -199,6 +199,12 @@ button.danger:not(:disabled) {
   background: var(--blue);
 }
 
+.st[data-status='starved'] .dot,
+.st[data-status='blocked'] .dot {
+  background: var(--red);
+  box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.35);
+}
+
 .st .bar {
   height: 5px;
   background: #2b3038;
@@ -308,6 +314,11 @@ button.danger:not(:disabled) {
 .label.station[data-status='reading'],
 .label.station[data-status='passing'] {
   border-left-color: var(--blue);
+}
+
+.label.station[data-status='starved'],
+.label.station[data-status='blocked'] {
+  border-left-color: var(--red);
 }
 
 .label.bin {

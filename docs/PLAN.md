@@ -353,12 +353,22 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 ![Parts v0](models-preview-v0.png)
 ![Movers with numbers and DataMatrix v0](models-preview-closeup-v0.png)
 
+## 10b. Station mechanics (built in milestone 4)
+
+- **Robots:** three-axis cartesian gantries (along belt, across belt, up/down) with velocity/acceleration limits that scale with machine speed. Like a robot controller, a robot runs jobs the PLC starts (`prepick`, `place`, `pickMover`, `drop`) and reports back when done.
+- **Pre-picking:** loading stations fetch the next part while the mover is still indexing. Feeders sit on stands at near-travel height, so a fetch takes about 1.3 s.
+- **Feeders:** bowl feeders push parts onto linear tracks where they queue up. An empty track **starves** the station: the stack light shows blue, and the HUD shows the station as starved.
+- **Cartridge nests:** each twin station has its own nest of 24, and each pick goes to a specific pocket. When a nest is empty, a nest change takes 4 s. The robot's pre-picked spare covers that, but a slower change starves the station.
+- **Rejects and tray:** R1 and ST70 pick the pen off the mover and drop it in a bin, or place it in a tray pocket. A full tray indexes out in 3 s, during which ST70 is **blocked**.
+- **Laser marking:** the DataMatrix only exists on the body after the laser dwell, and ST60 reads what was physically marked.
+- **Tests:** axis limits, pre-pick timing, feeder starvation, nest/tray changes, and part conservation (every body that leaves the feeder is accounted for).
+
 ## 11. Milestones
 
 1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
 2. ✅ **Headless core in a Web Worker**: plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
 3. ✅ **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
-4. **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
+4. ✅ **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
 6. **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.
 7. **Reporting**: MES events to the CATCH.AI REST API (details from you).

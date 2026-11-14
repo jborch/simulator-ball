@@ -78,19 +78,27 @@ export class Simulation {
         const def = this.cfg.stations[i];
         const total = def.mech + def.fixed;
         const left = c ? Math.max(0, c.mechLeft) + Math.max(0, c.fixedLeft) : 0;
+        const r = plant.stations[i].robot;
+        const held = r?.holding;
         return {
           id: st.id,
           status: st.status,
           gateClosed: plant.stations[i].gateClosed,
           moverId: st.moverId,
           progress: c && total > 0 ? 1 - left / total : null,
+          robot: r
+            ? { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null }
+            : null,
         };
       }),
+      feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items] })),
+      nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
+      tray: { ...plant.tray },
       counters: {
         good: mes.good,
         rejected: mes.rejected,
         traysOut: plant.traysOut,
-        trayFill: plant.trayFill,
+        trayFill: plant.tray.count,
         bins: { ...plant.bins },
       },
     };

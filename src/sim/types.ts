@@ -16,7 +16,7 @@ export interface Tag {
 /** The physical assembly sitting in a mover's fixture — the truth. */
 export interface Load {
   srId: number;
-  /** GS1 element string laser-marked on the body. */
+  /** GS1 element string laser-marked on the body ('' until the laser has marked it). */
   mark: string;
   parts: PartType[];
   quality: Partial<Record<QualityKey, number>>;
@@ -72,6 +72,75 @@ export interface Reader {
   data: Tag | null;
 }
 
+/** What a robot gripper holds. */
+export type Held = { kind: 'part'; parts: PartType[] } | { kind: 'pen'; load: Load };
+
+export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
+
+/** One step of a robot job program. Targets are resolved when the step starts. */
+export type RobotStep =
+  | { k: 'z'; z: number }
+  | { k: 'xy'; to: 'home' | 'source' | 'drop' }
+  | { k: 'waitSource' }
+  | { k: 'waitDrop' }
+  | { k: 'grip'; from: 'source' | 'mover' }
+  | { k: 'release'; to: 'mover' | 'drop' }
+  | { k: 'dwell'; mech: number; fixed: number; phase: 'press' | 'laser' }
+  | { k: 'mark' };
+
+export interface Robot {
+  a: number;
+  r: number;
+  z: number;
+  va: number;
+  vr: number;
+  vz: number;
+  /** Target of the current motion step. */
+  ta: number;
+  tr: number;
+  tz: number;
+  job: RobotJob | null;
+  steps: RobotStep[];
+  stepStarted: boolean;
+  dwellMech: number;
+  dwellFixed: number;
+  /** What the current step is doing, for display. */
+  phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked';
+  holding: Held | null;
+  /** Op applied when placing on a mover (load / assemble). */
+  op: Op | null;
+  moverId: number;
+  dropTarget: { kind: 'bin'; bin: string } | { kind: 'tray' } | null;
+  /** Reserved nest pocket or tray pocket for the current job. */
+  slot: number | null;
+  done: boolean;
+  result: CycleResult | null;
+}
+
+export interface Feeder {
+  id: string;
+  /** Part positions along the track; 0 = at the pick point, increasing back toward the bowl. */
+  items: number[];
+  nextIn: number;
+  fed: number;
+}
+
+export interface Nest {
+  /** Station whose robot de-nests from it. */
+  station: string;
+  /** 0 = empty, 1 = full, 2 = reserved by the robot on its way. */
+  slots: number[];
+  /** Seconds left of a nest change, 0 when a nest is in place. */
+  changing: number;
+  count: number;
+}
+
+export interface TrayState {
+  count: number;
+  /** Seconds left of a tray change, 0 when an empty tray is in place. */
+  changing: number;
+}
+
 export interface PlantStation {
   id: string;
   gateClosed: boolean;
@@ -79,6 +148,7 @@ export interface PlantStation {
   cycleDone: boolean;
   result: CycleResult | null;
   reader: Reader;
+  robot: Robot | null;
 }
 
 export interface PlantState {
@@ -94,12 +164,14 @@ export interface PlantState {
   /** Station indexes sorted by gate position. */
   gateOrder: number[];
   bins: Record<string, number>;
-  trayFill: number;
+  feeders: Feeder[];
+  nests: Nest[];
+  tray: TrayState;
   traysOut: number;
 }
 
-export type StationStep = 'idle' | 'read' | 'retryRead' | 'working' | 'write' | 'retryWrite' | 'leaving';
-export type StationStatus = 'waiting' | 'reading' | 'working' | 'passing' | 'stopped';
+export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
+export type StationStatus = 'waiting' | 'reading' | 'working' | 'passing' | 'stopped' | 'starved' | 'blocked';
 
 export interface PlcStation {
   id: string;
@@ -124,7 +196,8 @@ export interface PlcState {
   speedTarget: number;
   stations: PlcStation[];
   srCounter: number;
-  nest: { srId: number; used: number };
+  /** Nest currently being de-nested at each nest-fed station (for genealogy). */
+  nests: Record<string, { srId: number; used: number }>;
   tray: { srId: number; count: number };
 }
 

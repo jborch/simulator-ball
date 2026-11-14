@@ -1,7 +1,7 @@
 // Messages between the simulation host (worker) and any client: the local renderer today,
 // remote viewers later. Everything is plain JSON so it can go over any transport.
 import type { PartType } from './config';
-import type { MachineState, SimEvent, SimState, StationStatus, Tag } from './types';
+import type { MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
 
 export type Command =
   | { type: 'start' }
@@ -25,6 +25,15 @@ export interface MoverFrame {
   lastLap: number | null;
 }
 
+export interface RobotFrame {
+  a: number;
+  r: number;
+  z: number;
+  phase: Robot['phase'];
+  /** Parts in the gripper (a picked pen shows its parts), or null. */
+  holding: PartType[] | null;
+}
+
 export interface StationFrame {
   id: string;
   status: StationStatus;
@@ -32,6 +41,7 @@ export interface StationFrame {
   moverId: number | null;
   /** 0..1 through the current cycle, null when not working. */
   progress: number | null;
+  robot: RobotFrame | null;
 }
 
 export interface Frame {
@@ -43,6 +53,9 @@ export interface Frame {
   beltSpeed: number;
   movers: MoverFrame[];
   stations: StationFrame[];
+  feeders: { id: string; items: number[] }[];
+  nests: { station: string; slots: number[]; changing: number }[];
+  tray: { count: number; changing: number };
   counters: {
     good: number;
     rejected: number;

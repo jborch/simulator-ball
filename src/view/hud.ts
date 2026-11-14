@@ -11,6 +11,8 @@ const STATUS_TEXT: Record<string, string> = {
   working: 'Working',
   passing: 'Passing',
   stopped: 'Stopped',
+  starved: 'Starved (waiting for parts)',
+  blocked: 'Blocked (outfeed full)',
 };
 
 /** HTML overlay: machine controls, KPIs, station list, event log and mover inspector. */

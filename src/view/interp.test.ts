@@ -11,6 +11,9 @@ const frame = (t: number, s: number): Frame => ({
   beltSpeed: 0.25,
   movers: [{ id: 1, s, v: 0.25, status: 'empty', parts: [], srId: null, mark: null, laps: 0, lastLap: null }],
   stations: [],
+  feeders: [],
+  nests: [],
+  tray: { count: 0, changing: 0 },
   counters: { good: 0, rejected: 0, traysOut: 0, trayFill: 0, bins: {} },
 });
 

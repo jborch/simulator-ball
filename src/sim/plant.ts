@@ -2,10 +2,14 @@
 // gates and behind each other, runs station actuators and RFID readers, and changes the
 // physical assemblies. It knows nothing about control logic; the PLC only talks to it
 // through sensors (readInputs) and actuator fields (gateClosed, cycle, reader, beltRunning, ...).
-import type { LineConfig, MoverProfile, QualityKey, StationDef } from './config';
+import { applyOp, moverById } from './assembly';
+import type { LineConfig, MoverProfile } from './config';
+import { createFeeder, createNest, createRobot, stepFeeder, stepNest, stepRobot, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
 import { forward, trackLength } from './track';
-import type { CycleResult, Mover, Op, PlantState, PlantStation, Tag } from './types';
+import type { Mover, PlantState, PlantStation, Tag } from './types';
+
+export { moverById };
 
 export const emptyTag = (): Tag => ({ srId: null, status: 'empty', done: [], reason: null });
 
@@ -69,6 +73,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     cycleDone: false,
     result: null,
     reader: { busy: false, kind: 'read', left: 0, moverId: 0, write: null, done: false, ok: false, data: null },
+    robot: d.kind === 'inspect' ? null : createRobot(cfg.layout.z.safe),
   }));
   return {
     t: 0,
@@ -81,7 +86,9 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     stations,
     gateOrder,
     bins: Object.fromEntries(cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0])),
-    trayFill: 0,
+    feeders: cfg.feeders.map(createFeeder),
+    nests: cfg.stations.filter((d) => d.source === 'nest').map((d) => createNest(cfg, d.id)),
+    tray: { count: 0, changing: 0 },
     traysOut: 0,
   };
 }
@@ -104,9 +111,15 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   }
 
   moveMovers(p, cfg, L, dt);
-  if (!p.estop) {
-    for (let i = 0; i < p.stations.length; i++) stepStation(p, cfg, rng, i, dt);
+  if (p.estop) return;
+  for (let i = 0; i < p.stations.length; i++) {
+    stepStation(p, cfg, rng, i, dt);
+    const robot = p.stations[i].robot;
+    if (robot) stepRobot(p, cfg, rng, cfg.stations[i], robot, dt);
   }
+  p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], rng, dt));
+  for (const n of p.nests) stepNest(n, cfg, dt);
+  stepTray(p, dt);
 }
 
 function moveMovers(p: PlantState, cfg: LineConfig, L: number, dt: number): void {
@@ -188,64 +201,6 @@ function stepStation(p: PlantState, cfg: LineConfig, rng: RngState, i: number, d
         else if (r.write) m.tag = copyTag(r.write);
       }
     }
-  }
-}
-
-export function moverById(p: PlantState, id: number): Mover {
-  return p.movers[id - 1];
-}
-
-function trueQuality(cfg: LineConfig, rng: RngState, key: QualityKey, m: Mover, fragile: boolean): number {
-  const q = cfg.quality[key];
-  let v = normal(rng, q.mean, q.sd) + m.profile.fixtureOffset * q.perMmOffset;
-  if (fragile && 'fragileShift' in q) v += q.fragileShift;
-  return v;
-}
-
-/** Performs the physical work of a finished cycle and returns what the station's sensors saw. */
-function applyOp(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, op: Op, moverId: number): CycleResult {
-  const m = moverById(p, moverId);
-  switch (op.kind) {
-    case 'load':
-      m.load = { srId: op.srId, mark: op.mark, parts: ['body'], quality: {}, fragile: 0 };
-      return { measurement: null };
-    case 'assemble': {
-      const load = m.load;
-      if (!load) return { measurement: null };
-      for (const part of op.parts) {
-        load.parts.push(part);
-        if (part === 'spring') load.quality.springAngle = trueQuality(cfg, rng, 'springAngle', m, false);
-        if (part === 'cartridge') load.quality.seatDepth = trueQuality(cfg, rng, 'seatDepth', m, op.fragile);
-        if (part === 'housing') load.quality.snapForce = trueQuality(cfg, rng, 'snapForce', m, false);
-      }
-      if (op.fragile) load.fragile++;
-      if (!op.measure) return { measurement: null };
-      const truth = load.quality[op.measure];
-      return { measurement: truth === undefined ? null : truth + normal(rng, 0, def.inspect?.noise ?? 0) };
-    }
-    case 'inspect': {
-      const truth = m.load?.quality[op.measure];
-      const measurement = truth === undefined ? null : truth + normal(rng, 0, op.noise);
-      if (!op.readCode) return { measurement };
-      const unreadable = !m.load || random(rng) < cfg.dataMatrix.readFailRate;
-      return { measurement, code: unreadable ? null : m.load!.mark };
-    }
-    case 'reject':
-      p.bins[op.bin] = (p.bins[op.bin] ?? 0) + 1;
-      m.load = null;
-      return { measurement: null };
-    case 'unload':
-      if (op.good && m.load) {
-        p.trayFill++;
-        if (p.trayFill >= cfg.traySize) {
-          p.trayFill = 0;
-          p.traysOut++;
-        }
-      } else if (m.load) {
-        p.bins[op.bin] = (p.bins[op.bin] ?? 0) + 1;
-      }
-      m.load = null;
-      return { measurement: null };
   }
 }
 
