@@ -3,6 +3,9 @@ import type { LineConfig } from '../sim/config';
 import type { Frame } from '../sim/protocol';
 import { pose, trackLength } from '../sim/track';
 import { BELT_Y, BELT_W, M, RIB, TABLE, box, side, v3 } from './build';
+
+/** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
+const RAIL_R = 0.005;
 import type { Sample } from './interp';
 import type { Models } from './models';
 import { MoverView } from './movers';
@@ -74,8 +77,10 @@ export class LineView {
         idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
         const o = side(p, BELT_W / 2 + 0.012);
         const inn = side(p, -BELT_W / 2 - 0.012);
-        railOut.push(v3(o.x, o.y, BELT_Y + 0.012));
-        railIn.push(v3(inn.x, inn.y, BELT_Y + 0.012));
+        // Low guide rails (top 10 mm above the belt), so a camera at mover height sees the
+        // number labels on the movers' sides over them.
+        railOut.push(v3(o.x, o.y, BELT_Y + RAIL_R));
+        railIn.push(v3(inn.x, inn.y, BELT_Y + RAIL_R));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -88,7 +93,7 @@ export class LineView {
     this.group.add(belt);
 
     for (const pts of [railIn, railOut]) {
-      const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 600, 0.006, 8, true), M.rail);
+      const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 600, RAIL_R, 8, true), M.rail);
       rail.castShadow = true;
       this.group.add(rail);
     }

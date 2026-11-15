@@ -1,8 +1,9 @@
 // Fixed monitoring cameras "installed" on the line. Positions are given in station-local
 // coordinates (a along travel, y up from the belt surface, r outward from the belt; see build.ts),
-// so they stay on their station if the layout changes. The close-ups sit on masts inside the loop
-// and look outward across the belt, so the robot, the part on the mover and its feeder or nest
-// are all in view and the gantry beam (on the far side) doesn't block it.
+// so they stay on their station if the layout changes. The station cameras stand on low masts
+// inside the loop at about mover height and look level across the belt, like inspection cameras:
+// they see each mover's side number label and the pen's DataMatrix, which both face the inside of
+// the loop, with the robots, feeders and nests behind.
 import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { pose } from '../sim/track';
@@ -28,33 +29,33 @@ export const CAMERAS: CameraDef[] = [
     id: 'infeed',
     name: 'Infeed',
     title: 'Infeed · ST10 body load, ST20 spring, ST30 spring inspection',
-    fov: 48,
-    mount: { station: 'ST20', a: -0.05, y: 1.1, r: -0.7 },
-    aim: { station: 'ST20', a: -0.05, y: 0.15, r: 0.15 },
+    fov: 42,
+    mount: { station: 'ST20', a: -0.05, y: 0.17, r: -0.6 },
+    aim: { station: 'ST20', a: -0.05, y: 0.15, r: 0.05 },
   },
   {
     id: 'cartridge',
     name: 'Cartridge',
     title: 'Close-up · ST40A/B cartridge insertion',
-    fov: 40,
-    mount: { station: 'ST40A', a: 0.125, y: 0.62, r: -0.48 },
-    aim: { station: 'ST40A', a: 0.125, y: 0.16, r: 0.17 },
+    fov: 38,
+    mount: { station: 'ST40A', a: 0.125, y: 0.13, r: -0.42 },
+    aim: { station: 'ST40A', a: 0.125, y: 0.13, r: 0.0 },
   },
   {
     id: 'housing',
     name: 'Housing',
     title: 'Close-up · ST50 housing + cap snap',
-    fov: 40,
-    mount: { station: 'ST50', a: -0.05, y: 0.5, r: -0.6 },
-    aim: { station: 'ST50', a: 0.0, y: 0.18, r: 0.15 },
+    fov: 34,
+    mount: { station: 'ST50', a: 0.0, y: 0.11, r: -0.36 },
+    aim: { station: 'ST50', a: 0.0, y: 0.1, r: 0.0 },
   },
   {
     id: 'outfeed',
     name: 'Outfeed',
     title: 'Outfeed · ST60 final vision, ST70 tray packing and rejects',
-    fov: 42,
-    mount: { station: 'ST70', a: -0.5, y: 1.0, r: -0.7 },
-    aim: { station: 'ST70', a: -0.5, y: 0.15, r: 0.18 },
+    fov: 50,
+    mount: { station: 'ST70', a: -0.55, y: 0.17, r: -0.68 },
+    aim: { station: 'ST70', a: -0.55, y: 0.14, r: 0.05 },
   },
 ];
 

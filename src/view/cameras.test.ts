@@ -19,15 +19,21 @@ describe('monitoring cameras', () => {
     }
   });
 
-  test('every camera is mounted above the belt, inside the loop, and looks down at its station', () => {
+  test('every camera stands inside the loop at about mover height and looks level across the belt', () => {
     const inner = LINE.track.radius * 2;
     for (const cam of CAMERAS) {
       const { position, target } = cameraPose(LINE, cam);
-      expect(position.y, cam.id).toBeGreaterThan(BELT_Y + 0.3);
-      expect(target.y, cam.id).toBeLessThan(position.y);
-      // Masts stand between the two straights, clear of the opposite belt.
-      expect(-cam.mount.r, cam.id).toBeLessThan(inner - 0.05);
-      expect(position.distanceTo(target), cam.id).toBeLessThan(1.5);
+      expect(position.y - BELT_Y, cam.id).toBeGreaterThan(0.05);
+      expect(position.y - BELT_Y, cam.id).toBeLessThan(0.25);
+      // Level, or tilted down a little: the side labels must show above the guide rail.
+      const dir = target.clone().sub(position).normalize();
+      const pitch = THREE.MathUtils.radToDeg(Math.asin(dir.y));
+      expect(pitch, cam.id).toBeLessThanOrEqual(0);
+      expect(pitch, cam.id).toBeGreaterThan(-10);
+      // Inside the loop (the side the labels and DataMatrix face), clear of the opposite belt.
+      expect(cam.mount.r, cam.id).toBeLessThan(-0.2);
+      expect(-cam.mount.r, cam.id).toBeLessThan(inner - 0.1);
+      expect(position.distanceTo(target), cam.id).toBeLessThan(1);
     }
   });
 
