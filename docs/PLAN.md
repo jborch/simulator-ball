@@ -5,7 +5,7 @@
 - **Product:** pen injector, same domain as the C# simulator.
 - **Browser-only app**, with no backend. It is designed so that later one browser can run the simulation while others watch and control it, e.g. speed and start/stop (§9).
 - **Real time only.** The HMI has a **machine speed override**, like a real line (§8).
-- **Reporting:** a REST API (CATCH.AI). Details will come when we reach that milestone.
+- **Reporting:** the CATCH.AI REST API (§10d).
 - **Faults and batches:** wanted. The state model is designed for them from day one; implementation comes after the core runs (§8).
 - **Movers:** 32, each numbered, with individual physical differences (§6).
 - **IDs:** every item gets a scoped id (shift register id). The pen body additionally gets a long unique **identifier** (GS1-style serial), laser-marked as a GS1 DataMatrix (§7).
@@ -376,6 +376,40 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 - **Batches:** a batch has a target number of pens *loaded*. When it's reached, the machine goes **Completing**: ST10 stops loading (and stops pre-picking bodies) and the line runs empty. The last, part-filled tray is closed and sent out, so batches never share a tray. Once every robot has finished its job, the machine goes **Complete**, and after a 20 s pause the next batch starts automatically. The batch size and auto-next can be set from the HUD, and a batch can be ended early. Batches are named `yyyyMMddHHmmss` and emit started/completed events (for CATCH.AI periods).
 - With default faults, throughput drops visibly compared with a clean line; the tests check it stays above 60 % of clean.
 
+## 10d. CATCH.AI reporting (built in milestone 7)
+
+The reporter (`src/catchai`) runs in the worker next to the sim, so it keeps sending while the tab
+is hidden. The browser can't call CATCH.AI directly (the server sends no CORS headers), so it goes
+through the dev/preview server: `/catchai/*` is proxied to the server, and the proxy adds the
+`x-api-key` header from `CATCHAI_API_KEY` in `.env.local`. The key never reaches the browser. The
+**CATCH.AI** button in the top bar turns reporting on/off; its tooltip shows counts and errors.
+
+**Setup before any data** (idempotent, on every start):
+
+| What | Ours |
+| --- | --- |
+| Devices | `L07` (line) with children: every station, feeder (`L07-SPRINGS`, …), nest (`L07-ST40A-NEST`) and `L07-ST70-TRAY` |
+| Period type | "Assembly Batch"; each batch is a period on `L07` |
+| Scope | `L07`, tied to the batch period type. The server only takes items inside an open batch period |
+| Processes | Stations: item type Pen, carrier type Mover, `HasResult` where they inspect, source type = part they merge. Feeders: Spring / Housing. Nests: Cartridge from Nest. Tray packing: Tray from Pen |
+| Properties / events | Keys must be `p<n>` / `e<n>` and are shared with other systems on the server, so ours are tagged `Mappings: { L07: name }` and new ones take the next free number |
+| Item view | "L07 Pen genealogy": Spring/Housing/Cap/Cartridge → Pen, Nest → Cartridge, Pen → Tray (one relation per type pair, so the twin ST40s share one) |
+
+**What is sent:**
+
+- `ItemProcessed` whenever an item is at a station: the pen at every station (with its GS1 identifier and mover number as carrier, and `ItemResult` where inspected: Failed 0, Passed 1), each part at its feeder or nest (cartridges with their nest as source item and position), the tray when it leaves.
+- `ItemsMerged` whenever two items are put together: each part into the pen, each good pen into the tray (with its tray position).
+- Device data: inspection values and limits (also under their own names: Spring Angle, Snap Force, Seat Depth), reject cause, code read, tray position/count, mover id, item scoped id; machine state; events for state changes, commands, batches, robot faults, feeder jams and RFID problems.
+- Periods: a batch's period opens at its start and closes at its completion. A period left open by an earlier session is closed when the next one starts.
+
+Server behaviour the reporter relies on (found by probing the demo server):
+
+- Only one item record per (process, timestamp), and one device data row per (device, timestamp). Duplicates are dropped silently, even though the API reports success. The housing and cap placed in the same cycle would collide, so every timestamp is made unique per process/device by moving it on by 1 ms when needed.
+- Scoped ids must be unique within the scope across sessions. Each session reports `sim id + base`, where base is the highest id among the most recent items in the scope.
+- Bulk endpoints (`/api/v2/...`) answer per entry. Refused entries are counted and not retried. Network errors, 5xx and auth errors keep the queue and retry with backoff.
+
+Requests go in order, with batch boundaries as barriers. Within a stretch, items go first, then merges, then device data, in bulk requests of up to 500.
+
 ## 11. Milestones
 
 1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
@@ -384,10 +418,9 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 4. ✅ **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
 6. ✅ **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.
-7. **Reporting**: MES events to the CATCH.AI REST API (details from you).
+7. ✅ **Reporting**: MES events to the CATCH.AI REST API (§10d).
 8. **HUD**: KPIs (throughput, OEE, reject %), mover inspector, follow camera, timeline.
 9. **Shared viewing**: transport for the existing protocol.
 
 ## 12. Open questions
 
-- CATCH.AI REST details, needed at milestone 7.

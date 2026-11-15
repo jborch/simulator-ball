@@ -72,7 +72,7 @@ test("a batch's last, partly filled tray goes out before the batch completes", (
   expect(s.state.plc.tray.count).toBe(0);
   const trays = events.filter((e) => e.kind === 'processed' && e.itemType === 'Tray');
   expect(trays).toHaveLength(1);
-  expect(trays[0].kind === 'processed' && trays[0].properties?.Count).toBe(b.good);
+  expect(trays[0].kind === 'processed' && trays[0].properties?.['Tray Count']).toBe(b.good);
 }, 60_000);
 
 test('once Complete, no robot is moving and none picked parts for pens that will never come', () => {

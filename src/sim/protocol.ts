@@ -1,5 +1,6 @@
 // Messages between the simulation host (worker) and any client: the local renderer today,
 // remote viewers later. Everything is plain JSON so it can go over any transport.
+import type { ReporterStatus } from '../catchai/reporter';
 import type { PartType } from './config';
 import type { Batch, MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
 
@@ -78,10 +79,16 @@ export interface Frame {
 }
 
 /** Client → host. */
-export type ToHost = { type: 'command'; command: Command; origin: string } | { type: 'snapshot' };
+export type ToHost =
+  | { type: 'command'; command: Command; origin: string }
+  | { type: 'snapshot' }
+  /** Turns CATCH.AI reporting on or off. `url` defaults to the dev server's proxy. */
+  | { type: 'catchai'; enabled: boolean; url?: string; apiKey?: string };
 
 /** Host → client. */
 export type ToClient =
   | { type: 'snapshot'; state: SimState }
   | { type: 'frame'; frame: Frame }
-  | { type: 'events'; events: SimEvent[] };
+  | { type: 'events'; events: SimEvent[] }
+  /** Reporting status, about once a second; null when reporting is off. */
+  | { type: 'catchai'; status: ReporterStatus | null };

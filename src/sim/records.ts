@@ -1,7 +1,7 @@
 // Turns a finished station cycle into the new tag contents and MES records (ItemProcessed /
 // ItemsMerged), and keeps counters (good, rejected, batch, tray, nest) up to date.
 import type { LineConfig, StationDef } from './config';
-import { carrierId, emit, now, processId } from './machine';
+import { carrierId, emit, measurementName, now, processId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, SimState, Tag } from './types';
 
@@ -17,6 +17,7 @@ function evaluate(def: StationDef, value: number | null): Evaluation {
   const lim = def.inspect!;
   const passed = value !== null && value >= lim.lower && value <= lim.upper;
   const props: Props = {
+    [measurementName(lim.key)]: value,
     'Inspection Value': value,
     'Inspection Lower Limit': lim.lower,
     'Inspection Upper Limit': lim.upper,
@@ -48,6 +49,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
   const carrier = carrierId(st.moverId!);
   const from = s.epochMs + st.cycleStart * 1000;
   const to = now(s);
+  const identifier = (pen: number) => s.mes.identifiers[pen];
 
   switch (op.kind) {
     case 'load':
@@ -56,6 +58,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
 
     case 'assemble': {
       const pen = tag.srId!;
+      const source = sourceProcessId(cfg, def);
       for (const part of op.parts) {
         const partId = ++s.plc.srCounter;
         const partType = part[0].toUpperCase() + part.slice(1);
@@ -66,9 +69,11 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
             nest.srId = ++s.plc.srCounter;
             nest.used = 0;
           }
-          emit(s, { kind: 'processed', process, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourcePosition: nest.used++ });
+          emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourceType: 'Nest', sourcePosition: nest.used++ });
+        } else {
+          emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to });
         }
-        emit(s, { kind: 'merged', process, target: pen, source: partId, sourceType: partType, position: 0, logged: from });
+        emit(s, { kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
       }
       tag.done.push(def.step!);
       let props: Props = { 'Mover Id': carrier };
@@ -79,7 +84,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
         verdict = ev.passed ? 'Passed' : 'Failed';
         if (!ev.passed) markNok(tag, ev.cause);
       }
-      emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, result: verdict, properties: props });
+      emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: verdict, properties: props });
       return tag;
     }
 
@@ -99,7 +104,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
       }
       tag.done.push(def.step!);
       if (!passed) markNok(tag, cause);
-      emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, result: passed ? 'Passed' : 'Failed', properties: props });
+      emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: passed ? 'Passed' : 'Failed', properties: props });
       return tag;
     }
 
@@ -126,18 +131,19 @@ export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
   const mes = s.mes;
   const batch = s.plc.batch;
   const moverStats = (mes.movers[out.moverId] ??= { pens: 0, rejects: 0 });
+  const identifier = mes.identifiers[out.pen];
   if (out.good) {
     const tray = s.plc.tray;
     if (tray.count === 0) tray.start = s.plant.t;
-    emit(s, { kind: 'merged', process, target: tray.srId, source: out.pen, sourceType: 'Pen', position: tray.count, logged: to });
-    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Tray Position': tray.count } });
+    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, identifier, properties: { 'Mover Id': carrier, 'Tray Position': tray.count } });
+    emit(s, { kind: 'merged', process: trayProcessId(cfg), target: tray.srId, targetType: 'Tray', source: out.pen, sourceType: 'Pen', position: tray.count, logged: to });
     tray.count++;
     mes.good++;
     moverStats.pens++;
     if (batch) batch.good++;
     if (tray.count >= cfg.traySize) closeTray(s, cfg);
   } else {
-    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
+    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, identifier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
     mes.rejected++;
     mes.rejectsByCause[out.cause] = (mes.rejectsByCause[out.cause] ?? 0) + 1;
     moverStats.rejects++;
@@ -149,8 +155,7 @@ export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
 /** Records the tray at the unload station as finished (full, or partly filled at the end of a batch) and starts a new one. */
 export function closeTray(s: SimState, cfg: LineConfig): void {
   const tray = s.plc.tray;
-  const def = cfg.stations.find((d) => d.id === cfg.layout.tray.station)!;
-  emit(s, { kind: 'processed', process: processId(cfg, def), scopedId: tray.srId, itemType: 'Tray', from: s.epochMs + tray.start * 1000, to: now(s), properties: { Count: tray.count } });
+  emit(s, { kind: 'processed', process: trayProcessId(cfg), scopedId: tray.srId, itemType: 'Tray', from: s.epochMs + tray.start * 1000, to: now(s), properties: { 'Tray Count': tray.count } });
   tray.srId = ++s.plc.srCounter;
   tray.count = 0;
 }

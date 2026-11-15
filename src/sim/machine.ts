@@ -16,6 +16,30 @@ export function processId(cfg: LineConfig, def: StationDef): string {
   return `${cfg.id}-${def.id}`;
 }
 
+/**
+ * Process that supplies a station's parts: its bowl feeder (e.g. "L07-SPRINGS") or, for
+ * cartridges, the station's own nest (e.g. "L07-ST40A-NEST"). Parts are reported there before
+ * they are merged into the pen, so every process has one item per cycle.
+ */
+export function sourceProcessId(cfg: LineConfig, def: StationDef): string {
+  return def.source === 'nest' ? `${processId(cfg, def)}-NEST` : feederId(cfg, def.source!);
+}
+
+/** Feeder device id, e.g. "L07-SPRINGS". */
+export function feederId(cfg: LineConfig, id: string): string {
+  return `${cfg.id}-${id.toUpperCase()}`;
+}
+
+/** Tray packing at the unload station: pens are merged into the tray here. */
+export function trayProcessId(cfg: LineConfig): string {
+  return `${cfg.id}-${cfg.layout.tray.station}-TRAY`;
+}
+
+/** Report name of an inspection measurement, e.g. "springAngle" → "Spring Angle". */
+export function measurementName(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+}
+
 /** Mover number as printed on the mover, e.g. "07". */
 export function carrierId(moverId: number): string {
   return String(moverId).padStart(2, '0');

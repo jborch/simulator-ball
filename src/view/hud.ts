@@ -1,5 +1,6 @@
 import type { LineConfig } from '../sim/config';
 import { ACCEPTS } from '../sim/commands';
+import type { ReporterStatus } from '../catchai/reporter';
 import type { Command, Frame } from '../sim/protocol';
 import type { SimEvent } from '../sim/types';
 
@@ -26,6 +27,7 @@ export class Hud {
   private speedDragging = false;
   private speedTimer: number | undefined;
   selectedMover: number | null = null;
+  onToggleReporting?: () => void;
 
   constructor(
     private readonly cfg: LineConfig,
@@ -51,6 +53,7 @@ export class Hud {
       this.speedTimer = window.setTimeout(() => this.send({ type: 'speed', percent: Number(speed.value) }), 80);
     });
     $('#inspector-close').addEventListener('click', () => (this.selectedMover = null));
+    $('#catchai').addEventListener('click', () => this.onToggleReporting?.());
 
     $('#stations').innerHTML = cfg.stations
       .map(
@@ -58,6 +61,23 @@ export class Hud {
           `<div class="st" id="st-${d.id}"><span class="dot"></span><b>${d.id}</b><span class="name">${d.name}</span><span class="bar"><i></i></span></div>`,
       )
       .join('');
+  }
+
+  /** CATCH.AI chip in the top bar: state colour, counts in the tooltip. */
+  reporting(s: Partial<ReporterStatus> | null): void {
+    const el = $('#catchai');
+    el.dataset.state = s?.state ?? 'off';
+    if (!s) {
+      el.title = 'CATCH.AI reporting is off. Click to turn it on.';
+      return;
+    }
+    const lines = [`CATCH.AI: ${s.state === 'ok' ? 'reporting' : s.state}${s.url ? ` to ${s.url} as ${s.line}` : ''}`];
+    if (s.sent) lines.push(`sent: ${s.sent.items} items, ${s.sent.merges} merges, ${s.sent.data} device data`, `queued: ${s.queued}`);
+    if (s.rejected) lines.push(`refused by server: ${s.rejected}`);
+    if (s.dropped) lines.push(`dropped (queue full): ${s.dropped}`);
+    if (s.lastError) lines.push(`last error: ${s.lastError}`);
+    lines.push('Click to turn reporting off.');
+    el.title = lines.join('\n');
   }
 
   update(f: Frame): void {

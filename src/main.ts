@@ -20,6 +20,19 @@ new ResizeObserver(() => stage.setInsetRight(side.offsetWidth + 12)).observe(sid
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
 
+// CATCH.AI reporting runs in the worker. On by default when the dev proxy has an API key;
+// the topbar button turns it on/off and the choice is remembered.
+const REPORTING_KEY = 'catchai.enabled';
+let reporting = (localStorage.getItem(REPORTING_KEY) ?? String(__CATCHAI_PROXY_KEY__)) === 'true';
+client.setReporting(reporting);
+client.onReporting = (s) => hud.reporting(s);
+hud.onToggleReporting = () => {
+  reporting = !reporting;
+  localStorage.setItem(REPORTING_KEY, String(reporting));
+  client.setReporting(reporting);
+  hud.reporting(reporting ? { state: 'connecting' } : null);
+};
+
 const models = await loadModels();
 const line = new LineView(LINE, models);
 stage.scene.add(line.group);

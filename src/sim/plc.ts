@@ -3,7 +3,7 @@
 // never touches mover positions or loads directly; it only knows what tags and sensors tell it.
 import type { LineConfig } from './config';
 import { makeIdentifier } from './gs1';
-import { carrierId, emit, now, processId, setMachine, startBatch } from './machine';
+import { carrierId, emit, feederId, now, processId, setMachine, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
 import { startJob } from './robot';
@@ -155,15 +155,13 @@ function scanFaults(s: SimState, cfg: LineConfig, dt: number): void {
     if (faulted === st.faulted) return;
     st.faulted = faulted;
     if (faulted) st.stats.faults++;
-    emit(s, { kind: 'station', process: processId(cfg, def), message: faulted ? 'Axis fault: operator called' : 'Axis fault cleared', logged: now(s) });
+    emit(s, { kind: 'station', process: processId(cfg, def), code: faulted ? 'axisFault' : 'axisFaultCleared', message: faulted ? 'Axis fault: operator called' : 'Axis fault cleared', logged: now(s) });
   });
   cfg.feeders.forEach((f, i) => {
     const jammed = plant.feeders[i].jam > 0;
     if (jammed === !!plc.jammed[f.id]) return;
     plc.jammed[f.id] = jammed;
-    const station = cfg.stations.find((d) => d.source === f.id);
-    const process = station ? processId(cfg, station) : `${cfg.id}-${f.id}`;
-    emit(s, { kind: 'station', process, message: jammed ? `Feeder jam (${f.id}): operator called` : `Feeder jam cleared (${f.id})`, logged: now(s) });
+    emit(s, { kind: 'station', process: feederId(cfg, f.id), code: jammed ? 'feederJam' : 'feederJamCleared', message: jammed ? `Feeder jam (${f.id}): operator called` : `Feeder jam cleared (${f.id})`, logged: now(s) });
   });
 }
 
@@ -202,7 +200,7 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
         // No read: the mover goes on untouched; downstream stations will see the missing step.
         st.stats.noReads++;
         st.reserved = false;
-        emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID no read', carrier: carrierId(st.moverId!), logged: now(s) });
+        emit(s, { kind: 'station', process: processId(cfg, def), code: 'rfidNoRead', message: 'RFID no read', carrier: carrierId(st.moverId!), logged: now(s) });
         release(s, i, true);
       }
       break;
@@ -260,14 +258,14 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
       if (!r.done) break;
       r.done = false;
       if (r.ok) {
-        if (st.tries >= cfg.rfid.maxTries) emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID write recovered', carrier: carrierId(st.moverId!), logged: now(s) });
+        if (st.tries >= cfg.rfid.maxTries) emit(s, { kind: 'station', process: processId(cfg, def), code: 'rfidWriteRecovered', message: 'RFID write recovered', carrier: carrierId(st.moverId!), logged: now(s) });
         release(s, i, false);
         break;
       }
       // Never release a mover whose tag doesn't match what was done to it: after the normal
       // retries the station holds it in fault and keeps retrying (as an operator would).
       if (++st.tries === cfg.rfid.maxTries) {
-        emit(s, { kind: 'station', process: processId(cfg, def), message: 'RFID write failed: holding mover', carrier: carrierId(st.moverId!), logged: now(s) });
+        emit(s, { kind: 'station', process: processId(cfg, def), code: 'rfidWriteFailed', message: 'RFID write failed: holding mover', carrier: carrierId(st.moverId!), logged: now(s) });
       }
       st.timer = st.tries >= cfg.rfid.maxTries ? cfg.rfid.stuckRetryDelay : cfg.rfid.retryDelay;
       st.step = 'retryWrite';

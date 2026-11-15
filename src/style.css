@@ -439,3 +439,27 @@ button.danger:not(:disabled) {
 .label.feeder {
   color: var(--muted);
 }
+
+/* CATCH.AI reporting chip */
+#catchai {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#catchai::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b717c;
+}
+#catchai[data-state='connecting']::before {
+  background: #e0a526;
+}
+#catchai[data-state='ok']::before {
+  background: #3ccf6a;
+}
+#catchai[data-state='error']::before {
+  background: #e5484d;
+}

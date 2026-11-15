@@ -8,7 +8,7 @@ the reasoning behind it.
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 (reports to CATCH.AI if .env.local has a key)
 npm test           # headless simulation tests
 npm run build      # typecheck + production build
 ```
@@ -61,7 +61,25 @@ npm run build      # typecheck + production build
 | `build.ts`, `stage.ts`, `models.ts`, `textures.ts` | Materials and geometry helpers, renderer/camera/lights, glTF loading, canvas textures (numbers, DataMatrix) |
 | `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector |
 
-`src/catchai` holds the CATCH.AI REST client for the upcoming reporting milestone. It isn't wired in yet.
+### `src/catchai` (reporting)
+
+| File | Responsibility |
+| --- | --- |
+| `catalogue.ts` | The line as CATCH.AI sees it: devices, processes, properties, events, item view |
+| `setup.ts` | Creates what's missing before data is sent; finds our property/event keys and the scoped id base |
+| `mapper.ts` | Sim events → `ItemProcessed` / `ItemsMerged` / device data / batch periods |
+| `reporter.ts` | Queue, ordering, bulk sends, retries; runs in the worker |
+| `api.ts`, `types.ts` | fetch wrapper and the REST contracts |
+
+To report, put the API key in `.env.local` (git-ignored) and run `npm run dev`:
+
+```sh
+CATCHAI_API_KEY=...
+# CATCHAI_URL=https://...   optional, defaults to the demo server
+```
+
+The dev server proxies `/catchai` to CATCH.AI and adds the key, so the browser never sees it.
+The **CATCH.AI** button in the top bar turns reporting on/off. See [docs/PLAN.md §10d](docs/PLAN.md).
 
 ## 3D models
 

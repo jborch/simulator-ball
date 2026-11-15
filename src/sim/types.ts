@@ -266,8 +266,10 @@ export interface ItemProcessedEvent {
   to: number;
   carrier?: string;
   result?: 'Passed' | 'Failed';
+  /** Long unique id marked on the item (the pen's GS1 code). */
   identifier?: string;
   sourceScopedId?: number;
+  sourceType?: string;
   sourcePosition?: number;
   properties?: Record<string, number | string | boolean | null>;
 }
@@ -276,6 +278,7 @@ export interface ItemsMergedEvent {
   kind: 'merged';
   process: string;
   target: number;
+  targetType: string;
   source: number;
   sourceType: string;
   position: number;
@@ -306,9 +309,12 @@ export interface BatchEvent {
   logged: number;
 }
 
+export type StationCode = 'axisFault' | 'axisFaultCleared' | 'feederJam' | 'feederJamCleared' | 'rfidNoRead' | 'rfidWriteFailed' | 'rfidWriteRecovered';
+
 export interface StationEvent {
   kind: 'station';
   process: string;
+  code: StationCode;
   message: string;
   carrier?: string;
   logged: number;
