@@ -32,6 +32,10 @@ client.onReporting = (s) => {
   reporting = s !== null;
   hud.reporting(s);
 };
+hud.onReportingOff = () => {
+  client.setReporting(false);
+  hud.reporting(null);
+};
 hud.onToggleReporting = () => {
   client.setReporting(!reporting);
   hud.reporting(reporting ? null : { state: 'connecting' });

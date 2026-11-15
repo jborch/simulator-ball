@@ -2,6 +2,7 @@ import type { LineConfig } from '../sim/config';
 import { ACCEPTS } from '../sim/commands';
 import type { ReporterStatus } from '../catchai/reporter';
 import type { ConnectionState } from '../sim/client';
+import { describeCatchAi } from './catchaiStatus';
 import type { Command, Frame } from '../sim/protocol';
 import type { SimEvent } from '../sim/types';
 
@@ -29,6 +30,9 @@ export class Hud {
   private speedTimer: number | undefined;
   selectedMover: number | null = null;
   onToggleReporting?: () => void;
+  onReportingOff?: () => void;
+  /** Problem the user dismissed; the alert comes back when the problem changes. */
+  private dismissed: string | null = null;
 
   constructor(
     private readonly cfg: LineConfig,
@@ -55,6 +59,11 @@ export class Hud {
     });
     $('#inspector-close').addEventListener('click', () => (this.selectedMover = null));
     $('#catchai').addEventListener('click', () => this.onToggleReporting?.());
+    $('#catchai-alert [data-act="off"]').addEventListener('click', () => this.onReportingOff?.());
+    $('#catchai-alert [data-act="dismiss"]').addEventListener('click', () => {
+      this.dismissed = $('#catchai-alert').dataset.key ?? null;
+      $('#catchai-alert').hidden = true;
+    });
 
     $('#stations').innerHTML = cfg.stations
       .map(
@@ -64,10 +73,13 @@ export class Hud {
       .join('');
   }
 
-  /** CATCH.AI chip in the top bar: state colour, counts in the tooltip. */
+  /** CATCH.AI chip in the top bar (state colour, short status, counts in the tooltip) and the alert. */
   reporting(s: Partial<ReporterStatus> | null): void {
     const el = $('#catchai');
     el.dataset.state = s?.state ?? 'off';
+    const view = describeCatchAi(s);
+    $('#catchai-state').textContent = view.chip;
+    this.reportingAlert(view.alert);
     if (!s) {
       el.title = 'CATCH.AI reporting is off. Click to turn it on.';
       return;
@@ -79,6 +91,29 @@ export class Hud {
     if (s.lastError) lines.push(`last error: ${s.lastError}`);
     lines.push('Click to turn reporting off.');
     el.title = lines.join('\n');
+  }
+
+  private reportingAlert(a: ReturnType<typeof describeCatchAi>['alert']): void {
+    const box = $('#catchai-alert');
+    if (!a) {
+      box.hidden = true;
+      this.dismissed = null;
+      return;
+    }
+    // Text only: details can contain whatever the remote server answered.
+    box.dataset.kind = a.kind;
+    box.dataset.key = `${a.kind}:${a.title}`;
+    box.querySelector('.title')!.textContent = a.title;
+    box.querySelector('.detail')!.textContent = a.detail;
+    box.querySelector('.hint')!.textContent = a.hint;
+    box.querySelector('.meta')!.replaceChildren(
+      ...a.meta.map((line) => {
+        const d = document.createElement('div');
+        d.textContent = line;
+        return d;
+      }),
+    );
+    box.hidden = this.dismissed === box.dataset.key;
   }
 
   /** Connection to the server. Frames stop while it's down, so show that instead of a stale state. */

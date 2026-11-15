@@ -3,6 +3,7 @@
 // Transport-agnostic: viewers are plain callbacks (see ws.ts for the WebSocket side).
 import { CatchAiApi } from '../catchai/api';
 import { Reporter, type ReporterStatus } from '../catchai/reporter';
+import { catalogue } from '../catchai/catalogue';
 import type { Command, ToClient } from '../sim/protocol';
 import { Simulation } from '../sim/simulation';
 import type { SimEvent } from '../sim/types';
@@ -38,11 +39,14 @@ export class LineHost {
   private readonly opts: Required<Omit<HostOptions, 'seed' | 'catchai' | 'log'>>;
   private readonly log: (msg: string) => void;
   private reporter: Reporter | null = null;
+  /** Reporting was turned on, but the server has no API key: shown as an error, nothing is sent. */
+  private missingKey: number | null = null;
   private pending: SimEvent[] = [];
   private recent: SimEvent[] = [];
   private timers: ReturnType<typeof setInterval>[] = [];
   private last = 0;
   private lastFrame = 0;
+  private loggedProblem: string | null = null;
 
   constructor(private readonly options: HostOptions = {}) {
     this.sim = new Simulation({ seed: options.seed ?? Date.now() & 0x7fffffff, epochMs: Date.now() });
@@ -59,7 +63,9 @@ export class LineHost {
       setInterval(() => this.step(performance.now()), this.opts.stepMs),
       setInterval(() => {
         void this.reporter?.tick();
-        this.broadcast({ type: 'catchai', status: this.reportingStatus() });
+        const status = this.reportingStatus();
+        this.logProblem(status);
+        this.broadcast({ type: 'catchai', status });
       }, 1000),
     );
   }
@@ -116,10 +122,13 @@ export class LineHost {
   /** Turns CATCH.AI reporting on or off for the line (affects every viewer). */
   setReporting(enabled: boolean): void {
     const cfg = this.options.catchai;
-    if (enabled === (this.reporter !== null) || !cfg) return;
+    if (!cfg || enabled === (this.reporter !== null || this.missingKey !== null)) return;
     this.reporter?.stop();
     this.reporter = null;
-    if (enabled) {
+    this.missingKey = null;
+    if (enabled && !cfg.apiKey) {
+      this.missingKey = Date.now();
+    } else if (enabled) {
       const batch = this.sim.state.plc.batch;
       this.reporter = new Reporter(new CatchAiApi(cfg.url, cfg.apiKey), this.sim.cfg, batch && batch.state !== 'complete' ? batch : null);
       void this.reporter.tick();
@@ -129,7 +138,31 @@ export class LineHost {
   }
 
   reportingStatus(): ReporterStatus | null {
+    if (this.missingKey !== null && this.options.catchai) {
+      return {
+        state: 'error',
+        url: this.options.catchai.url,
+        line: catalogue(this.sim.cfg).line,
+        queued: 0,
+        sent: { items: 0, merges: 0, data: 0 },
+        rejected: 0,
+        dropped: 0,
+        lastError: 'CATCHAI_API_KEY is not set on the server',
+        problem: { kind: 'config', status: 0, detail: 'CATCHAI_API_KEY is not set on the server', since: this.missingKey, retryInMs: null },
+        scopedIdBase: null,
+      };
+    }
     return this.reporter?.status() ?? null;
+  }
+
+  /** Logs when reporting starts failing, changes reason, or recovers (not every retry). */
+  private logProblem(status: ReporterStatus | null): void {
+    const p = status?.problem ?? null;
+    const key = p ? `${p.kind}:${p.status}` : null;
+    if (key === this.loggedProblem) return;
+    if (p) this.log(`CATCH.AI problem (${p.kind}): ${p.detail}`);
+    else if (this.loggedProblem && status) this.log('CATCH.AI reachable again');
+    this.loggedProblem = key;
   }
 
   private broadcast(msg: ToClient): void {

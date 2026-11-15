@@ -468,3 +468,52 @@ button.danger:not(:disabled) {
 #catchai[data-state='error']::before {
   background: #e5484d;
 }
+#catchai small {
+  color: var(--muted);
+  font-size: 11px;
+}
+#catchai small:empty {
+  display: none;
+}
+#catchai[data-state='error'] small {
+  color: #ff8a8d;
+}
+
+/* Shown while CATCH.AI reporting isn't getting through */
+#catchai-alert {
+  top: 62px;
+  left: 12px;
+  width: 440px;
+  max-width: calc(100% - 340px);
+  padding: 10px 12px;
+  border-color: #8a1f24;
+  border-left: 4px solid var(--red);
+  font-size: 12px;
+}
+#catchai-alert[data-kind='config'] {
+  border-color: #7a6514;
+  border-left-color: var(--yellow);
+}
+#catchai-alert .title {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+#catchai-alert p {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+#catchai-alert .hint {
+  color: var(--fg);
+}
+#catchai-alert .meta {
+  color: var(--muted);
+}
+#catchai-alert .meta div {
+  margin-top: 2px;
+}
+#catchai-alert .actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}

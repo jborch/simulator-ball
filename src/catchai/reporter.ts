@@ -10,6 +10,25 @@ import type { BulkResult, NamedPeriod } from './types';
 
 export type ReporterState = 'connecting' | 'ok' | 'error';
 
+/**
+ * Why reporting isn't getting through, for the UI:
+ * - `config`: the server has no API key, so nothing is attempted.
+ * - `unreachable`: no answer at all (DNS, refused, timeout, TLS).
+ * - `auth`: the API key was rejected (401/403).
+ * - `server`: CATCH.AI answered with an error it may recover from (5xx, 429, 408).
+ * - `refused`: a request was refused as invalid; retrying the same request won't help.
+ */
+export interface ReporterProblem {
+  kind: 'config' | 'unreachable' | 'auth' | 'server' | 'refused';
+  /** HTTP status, or 0 when there was no answer. */
+  status: number;
+  detail: string;
+  /** Epoch ms when this kind of problem started. */
+  since: number;
+  /** Until the next attempt, or null when nothing will be retried. */
+  retryInMs: number | null;
+}
+
 export interface ReporterStatus {
   state: ReporterState;
   url: string;
@@ -21,6 +40,8 @@ export interface ReporterStatus {
   /** Entries dropped because the queue was full while the server was unreachable. */
   dropped: number;
   lastError: string | null;
+  /** Set while state is 'error'. */
+  problem: ReporterProblem | null;
   scopedIdBase: number | null;
 }
 
@@ -53,6 +74,7 @@ export class Reporter {
   private nextAttempt = 0;
   private state: ReporterState = 'connecting';
   private lastError: string | null = null;
+  private problem: Omit<ReporterProblem, 'retryInMs'> | null = null;
   private readonly sent = { items: 0, merges: 0, data: 0 };
   private rejected = 0;
   private dropped = 0;
@@ -92,6 +114,7 @@ export class Reporter {
       rejected: this.rejected,
       dropped: this.dropped,
       lastError: this.lastError,
+      problem: this.problem && this.state === 'error' ? { ...this.problem, retryInMs: Math.max(0, this.nextAttempt - this.now()) } : null,
       scopedIdBase: this.keys?.scopedIdBase ?? null,
     };
   }
@@ -105,13 +128,19 @@ export class Reporter {
       for (let n = 0; n < maxRequests && this.out.length > 0 && !this.stopped; n++) await this.sendNext();
       this.backoff = 0;
       this.state = 'ok';
+      this.problem = null;
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       if (err instanceof ApiError && !err.transient && this.mapper) {
         // The server refused the request as a whole; retrying won't help. sendNext dropped it.
         this.state = 'ok';
+        this.problem = null;
       } else {
         this.state = 'error';
+        const status = err instanceof ApiError ? err.status : 0;
+        const kind = classify(status);
+        if (this.problem?.kind !== kind) this.problem = { kind, status, detail: this.lastError, since: this.now() };
+        else this.problem = { ...this.problem, status, detail: this.lastError };
         this.backoff = this.backoff ? Math.min(this.backoff * 2, this.opts.retryMaxMs) : this.opts.retryMinMs;
         this.nextAttempt = this.now() + this.backoff;
       }
@@ -217,4 +246,11 @@ export class Reporter {
     this.out = this.out.filter((o) => n <= 0 || o.k === 'batch' || (n--, false));
     this.dropped += over - n;
   }
+}
+
+function classify(status: number): ReporterProblem['kind'] {
+  if (status === 0) return 'unreachable';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 408 || status === 429 || status >= 500) return 'server';
+  return 'refused';
 }
