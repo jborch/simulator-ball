@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { CameraPose } from './cameras';
 
-/** Renderer, camera, orbit controls, lights and floor. */
+/** Renderer, camera, orbit controls and lights. The floor is the line's plate (LineView). */
 export class Stage {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
@@ -67,14 +67,6 @@ export class Stage {
     sun.shadow.bias = -0.0005;
     sun.shadow.radius = 4;
     this.scene.add(sun);
-
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.95 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
-    const grid = new THREE.GridHelper(20, 40, 0x4b525c, 0x434951);
-    grid.position.y = 0.001;
-    this.scene.add(grid);
 
     this.resize = () => {
       const w = container.clientWidth;

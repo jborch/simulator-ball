@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import type { Frame } from '../sim/protocol';
 import { pose, trackLength } from '../sim/track';
-import { BELT_Y, BELT_W, M, RIB, TABLE, box, side, v3 } from './build';
+import { BELT_Y, BELT_W, M, RIB, TABLE, side, v3 } from './build';
 
 /** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
 const RAIL_R = 0.005;
@@ -40,21 +40,16 @@ export class LineView {
     });
   }
 
+  /**
+   * The plate the line stands on, extended to the horizon so it is the floor: everything is
+   * mounted at table height, and the camera never sees anything below it.
+   */
   private buildTable(): void {
-    const { straight: S, radius: R } = this.cfg.track;
-    const w = S + 2 * R + 0.9;
-    const d = 2 * R + 2.0;
-    const top = box(w, 0.05, d, M.table);
-    top.position.y = BELT_Y + TABLE - 0.025;
-    this.group.add(top);
-    const h = BELT_Y + TABLE - 0.05;
-    for (const x of [-w / 2 + 0.06, w / 2 - 0.06, -w / 6, w / 6]) {
-      for (const z of [-d / 2 + 0.06, d / 2 - 0.06]) {
-        const leg = box(0.06, h, 0.06, M.frame);
-        leg.position.set(x, h / 2, z);
-        this.group.add(leg);
-      }
-    }
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), M.table);
+    plate.rotation.x = -Math.PI / 2;
+    plate.position.y = BELT_Y + TABLE;
+    plate.receiveShadow = true;
+    this.group.add(plate);
   }
 
   private buildBelt(): void {
