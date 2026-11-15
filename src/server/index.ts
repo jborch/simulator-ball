@@ -10,6 +10,7 @@
 //   HOST              interface to bind (default 0.0.0.0)
 //   CATCHAI_API_KEY   CATCH.AI API key; when set, reporting starts on
 //   CATCHAI_URL       CATCH.AI server root (default: the demo server)
+//   CATCHAI_AUTH      `none` for a CATCH.AI server with authentication off: report without a key
 //   CLIENT_DIR        built frontend to serve (default dist/client)
 //   LOG_REQUESTS      1 to log every HTTP request
 //
@@ -49,7 +50,8 @@ const log = (msg: string) => console.log(`${new Date().toISOString()} ${msg}`);
 
 const catchaiUrl = env.CATCHAI_URL || DEFAULT_CATCHAI_URL;
 const apiKey = env.CATCHAI_API_KEY || undefined;
-const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, enabled: !!apiKey }, log });
+const noAuth = env.CATCHAI_AUTH === 'none';
+const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth }, log });
 
 const httpOpts: HttpOptions = { log: env.LOG_REQUESTS === '1' ? log : undefined };
 let vite: import('vite').ViteDevServer | null = null;
@@ -110,7 +112,7 @@ async function startCameraStreams(): Promise<void> {
 host.start();
 server.listen(port, hostname, () => {
   log(`${dev ? 'Development' : 'Production'} server on http://${hostname === '0.0.0.0' ? 'localhost' : hostname}:${port}`);
-  log(apiKey ? `CATCH.AI reporting on: ${catchaiUrl}` : 'CATCH.AI reporting off (no CATCHAI_API_KEY)');
+  log(apiKey || noAuth ? `CATCH.AI reporting on: ${catchaiUrl}${apiKey ? '' : ' (no authentication)'}` : 'CATCH.AI reporting off (no CATCHAI_API_KEY)');
   if (streamCameras.length) {
     startCameraStreams().catch((err) => {
       log(`RTSP camera streams not started: ${(err as Error).message}`);

@@ -47,6 +47,7 @@ environment variables always take precedence over the files.
 | `HOST` | `0.0.0.0` | Interface to bind |
 | `CATCHAI_API_KEY` | – | CATCH.AI API key. When set, the server reports to CATCH.AI from startup |
 | `CATCHAI_URL` | demo server | CATCH.AI server root |
+| `CATCHAI_AUTH` | – | Set to `none` for a CATCH.AI server with authentication off: reporting starts without an API key |
 | `CLIENT_DIR` | `dist/client` | Directory of the built frontend |
 | `LOG_REQUESTS` | off | Set to `1` to log every HTTP request. Viewer connects and disconnects are always logged |
 | `RTSP_CAMERAS` | – | Cameras to stream over RTSP: comma-separated ids (`infeed,outfeed`) or `all`. Off when empty |

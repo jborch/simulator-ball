@@ -10,7 +10,8 @@ import type { SimEvent } from '../sim/types';
 
 export interface HostOptions {
   seed?: number;
-  catchai?: { url: string; apiKey?: string; enabled: boolean };
+  /** `noAuth`: the CATCH.AI server has authentication off, so no API key is needed. */
+  catchai?: { url: string; apiKey?: string; noAuth?: boolean; enabled: boolean };
   /** Simulation steps run about this often. */
   stepMs?: number;
   /** Frames (and the events since the last frame) go out this often. */
@@ -126,7 +127,7 @@ export class LineHost {
     this.reporter?.stop();
     this.reporter = null;
     this.missingKey = null;
-    if (enabled && !cfg.apiKey) {
+    if (enabled && !cfg.apiKey && !cfg.noAuth) {
       this.missingKey = Date.now();
     } else if (enabled) {
       const batch = this.sim.state.plc.batch;

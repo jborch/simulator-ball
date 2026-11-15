@@ -74,6 +74,15 @@ describe('reporting problems', () => {
     expect(host.reportingStatus()).toBeNull();
   });
 
+  test('a server with authentication off (CATCHAI_AUTH=none) needs no API key', () => {
+    const host = new LineHost({ catchai: { url: URL, noAuth: true, enabled: true } });
+    const status = host.reportingStatus();
+    expect(status).not.toBeNull();
+    expect(describeCatchAi(status).chip).not.toBe('not configured');
+    host.setReporting(false);
+    expect(host.reportingStatus()).toBeNull();
+  });
+
   test('nothing to show when reporting is off or fine', () => {
     expect(describeCatchAi(null)).toEqual({ chip: '', alert: null });
     expect(describeCatchAi({ state: 'connecting' })).toEqual({ chip: 'connecting…', alert: null });
