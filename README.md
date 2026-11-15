@@ -9,9 +9,63 @@ the reasoning behind it.
 ```sh
 npm install
 npm run dev        # http://localhost:5173 (reports to CATCH.AI if .env.local has a key)
-npm test           # headless simulation tests
-npm run build      # typecheck + production build
+npm test           # headless simulation + server tests
+npm run build      # typecheck + production build into dist/
+npm start          # serve dist/ for production on http://localhost:3000
 ```
+
+## Running in production
+
+The simulation itself runs entirely in the browser (in a Web Worker). In production, a small Node
+server (`server/`, no dependencies) serves the built frontend and forwards CATCH.AI requests. This
+proxy is needed because CATCH.AI sends no CORS headers and the API key must stay on the server.
+It requires Node 22 or later.
+
+```sh
+npm ci                  # dev dependencies are needed for the build
+npm run build           # → dist/
+npm prune --omit=dev    # optional: the server only needs dist/ and server/
+CATCHAI_API_KEY=... PORT=8080 npm start
+```
+
+The server reads its configuration from environment variables. It also loads `.env.production.local`,
+`.env.local`, `.env.production` and `.env` from the project root, most specific file first. Real
+environment variables always take precedence over the files.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `3000` | Port to listen on |
+| `HOST` | `0.0.0.0` | Interface to bind |
+| `CATCHAI_API_KEY` | – | Added as `x-api-key` to proxied requests and never sent to the browser. If set, reporting is on by default |
+| `CATCHAI_URL` | demo server | CATCH.AI server root |
+| `DIST_DIR` | `dist` | Directory of the built frontend |
+| `LOG_REQUESTS` | `1` | Set to `0` to turn off the per-request log lines |
+
+What the server does:
+
+- **Static files** from `dist/`, compressed with brotli or gzip (each compressed file is cached in memory). Hashed files in `/assets` get `immutable` caching. `index.html` and `/models` are revalidated with ETags, so a new deploy shows up right away.
+- **`/catchai/*` → `CATCHAI_URL/*`**, with the API key added. Client cookies and any `x-api-key` sent by the client are dropped.
+- **`/config.json`**: runtime settings for the frontend (`{ "catchaiProxy": true }` when a key is set). The same build therefore works with or without a key. The Vite dev/preview server serves this file too.
+- **`/healthz`** returns `ok` for load-balancer and container health checks.
+- On `SIGTERM`/`SIGINT` it stops taking new connections and lets in-flight requests finish (at most 10 s).
+
+Notes for deploying:
+
+- Anyone who can reach the server can send requests to CATCH.AI with your key through `/catchai`. Don't expose the server publicly without authentication in front of it, such as a reverse proxy, VPN or SSO gateway.
+- Put TLS in a reverse proxy (nginx, Caddy, a cloud load balancer) and forward to `PORT`. No WebSocket or sticky sessions are needed.
+- Run it under a process manager that restarts it on failure, e.g. systemd, a container runtime or pm2. Example systemd unit:
+
+  ```ini
+  [Service]
+  WorkingDirectory=/opt/simulator-ball
+  ExecStart=/usr/bin/node server/index.js
+  Environment=PORT=8080
+  EnvironmentFile=/etc/simulator-ball.env   # CATCHAI_API_KEY=...
+  Restart=on-failure
+  ```
+
+- Each browser tab runs its own simulation and, if reporting is on, reports to CATCH.AI on its own. Keep one tab per line open when reporting.
+- `npm run preview` also serves the build, including the proxy, but it's meant for checking the build locally, not for production.
 
 ## How it fits together
 
@@ -71,6 +125,13 @@ npm run build      # typecheck + production build
 | `reporter.ts` | Queue, ordering, bulk sends, retries; runs in the worker |
 | `api.ts`, `types.ts` | fetch wrapper and the REST contracts |
 
+### `server` (production)
+
+| File | Responsibility |
+| --- | --- |
+| `index.js` | Entry point for `npm start`: reads env / `.env` files, listens, shuts down cleanly |
+| `app.js` | HTTP server: static `dist/`, compression and caching, `/catchai` proxy, `/config.json`, `/healthz` |
+
 To report, put the API key in `.env.local` (git-ignored) and run `npm run dev`:
 
 ```sh
@@ -78,7 +139,8 @@ CATCHAI_API_KEY=...
 # CATCHAI_URL=https://...   optional, defaults to the demo server
 ```
 
-The dev server proxies `/catchai` to CATCH.AI and adds the key, so the browser never sees it.
+The dev server (and the production server, see above) proxies `/catchai` to CATCH.AI and adds
+the key, so the browser never sees it.
 The **CATCH.AI** button in the top bar turns reporting on/off. See [docs/PLAN.md §10d](docs/PLAN.md).
 
 ## 3D models

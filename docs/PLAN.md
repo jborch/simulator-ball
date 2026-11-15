@@ -380,8 +380,8 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 
 The reporter (`src/catchai`) runs in the worker next to the sim, so it keeps sending while the tab
 is hidden. The browser can't call CATCH.AI directly (the server sends no CORS headers), so it goes
-through the dev/preview server: `/catchai/*` is proxied to the server, and the proxy adds the
-`x-api-key` header from `CATCHAI_API_KEY` in `.env.local`. The key never reaches the browser. The
+through our own server (Vite in development, `server/app.js` in production): `/catchai/*` is
+proxied to the server, and the proxy adds the `x-api-key` header from `CATCHAI_API_KEY`. The key never reaches the browser. The
 **CATCH.AI** button in the top bar turns reporting on/off; its tooltip shows counts and errors.
 
 **Setup before any data** (idempotent, on every start):

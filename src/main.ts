@@ -20,10 +20,11 @@ new ResizeObserver(() => stage.setInsetRight(side.offsetWidth + 12)).observe(sid
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
 
-// CATCH.AI reporting runs in the worker. On by default when the dev proxy has an API key;
-// the topbar button turns it on/off and the choice is remembered.
+// CATCH.AI reporting runs in the worker. On by default when the server's /catchai proxy has an
+// API key (it says so in /config.json); the topbar button turns it on/off and the choice is remembered.
 const REPORTING_KEY = 'catchai.enabled';
-let reporting = (localStorage.getItem(REPORTING_KEY) ?? String(__CATCHAI_PROXY_KEY__)) === 'true';
+const stored = localStorage.getItem(REPORTING_KEY);
+let reporting = stored !== null ? stored === 'true' : (await loadRuntimeConfig()).catchaiProxy;
 client.setReporting(reporting);
 client.onReporting = (s) => hud.reporting(s);
 hud.onToggleReporting = () => {
@@ -81,3 +82,14 @@ loop();
 
 // Dev-only handle for poking at the scene from the console (e.g. moving the camera).
 if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames } });
+
+/** Served by the Vite dev/preview server and by server/app.js in production. */
+async function loadRuntimeConfig(): Promise<{ catchaiProxy: boolean }> {
+  try {
+    const res = await fetch('/config.json', { cache: 'no-store' });
+    const data: unknown = res.ok ? await res.json() : null;
+    return { catchaiProxy: typeof data === 'object' && data !== null && (data as { catchaiProxy?: unknown }).catchaiProxy === true };
+  } catch {
+    return { catchaiProxy: false };
+  }
+}
