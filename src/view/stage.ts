@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import type { CameraPose } from './cameras';
 
 /** Renderer, camera, orbit controls, lights and floor. */
 export class Stage {
@@ -12,7 +13,15 @@ export class Stage {
   readonly controls: OrbitControls;
   /** Width (px) covered by a panel on the right; the view centres on the uncovered part. */
   private insetRight = 0;
+  /** Eases toward insetRight, so the view glides when the panels hide or show. */
+  private inset = 0;
+  private size = { w: 1, h: 1 };
+  private lastRender = 0;
   private resize: () => void;
+  /** Called when the user starts orbiting/zooming: the view is no longer a fixed camera. */
+  onUserMove?: () => void;
+  /** Called after the canvas changes size. */
+  onResize?: () => void;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -38,6 +47,7 @@ export class Stage {
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 0.15;
     this.controls.maxDistance = 14;
+    this.controls.addEventListener('start', () => this.onUserMove?.());
 
     // Broad fill plus a softer key light, so shadows don't stripe the work area.
     this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1));
@@ -67,27 +77,49 @@ export class Stage {
     this.resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
+      this.size = { w, h };
       this.renderer.setSize(w, h);
       this.labels.setSize(w, h);
-      // Render the canvas as the right-hand part of a wider virtual view, so its centre sits in
-      // the middle of the uncovered area.
-      const inset = Math.min(this.insetRight, w * 0.4);
-      this.camera.aspect = (w + inset) / h;
-      if (inset > 0) this.camera.setViewOffset(w + inset, h, inset, 0, w, h);
-      else this.camera.clearViewOffset();
-      this.camera.updateProjectionMatrix();
+      this.project();
+      this.onResize?.();
     };
     new ResizeObserver(this.resize).observe(container);
     this.resize();
   }
 
   /**
-   * Moves the camera along its current viewing direction (toward the box centre) to the closest
-   * distance at which the whole box is in view, with a margin, in the area the side panel leaves free.
+   * Renders the canvas as the right-hand part of a wider virtual view, so the centre of the view
+   * sits in the middle of the area the side panel leaves free.
    */
-  fit(box: THREE.Box3): void {
+  private project(): void {
+    const { w, h } = this.size;
+    const inset = Math.min(this.inset, w * 0.4);
+    this.camera.aspect = (w + inset) / h;
+    if (inset > 0.5) this.camera.setViewOffset(w + inset, h, inset, 0, w, h);
+    else this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Cuts to a camera pose, like switching to another camera on a monitoring screen. */
+  view(p: CameraPose): void {
+    this.camera.fov = p.fov;
+    this.camera.position.copy(p.position);
+    this.controls.target.copy(p.target);
+    this.camera.lookAt(p.target);
+    this.project();
+    this.controls.update();
+  }
+
+  /**
+   * The pose looking along `direction` (toward the box centre) from the closest distance at which
+   * the whole box is in view, with a margin, in the area the side panel leaves free.
+   */
+  fitPose(box: THREE.Box3, direction: THREE.Vector3, fov = 45): CameraPose {
+    const saved = { position: this.camera.position.clone(), quaternion: this.camera.quaternion.clone(), fov: this.camera.fov };
+    this.camera.fov = fov;
+    this.project();
     const centre = box.getCenter(new THREE.Vector3());
-    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    const dir = direction.clone().normalize();
     const corners = [0, 1, 2, 3, 4, 5, 6, 7].map(
       (i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z),
     );
@@ -108,17 +140,33 @@ export class Stage {
       if (fits(mid)) hi = mid;
       else lo = mid;
     }
-    fits(hi);
-    this.controls.target.copy(centre);
-    this.controls.update();
+    const position = centre.clone().addScaledVector(dir, hi);
+    this.camera.position.copy(saved.position);
+    this.camera.quaternion.copy(saved.quaternion);
+    this.camera.fov = saved.fov;
+    this.project();
+    return { position, target: centre, fov };
   }
 
-  setInsetRight(px: number): void {
+  setInsetRight(px: number, immediate = false): void {
     this.insetRight = px;
-    this.resize();
+    if (immediate) {
+      this.inset = px;
+      this.project();
+    }
   }
 
   render(): void {
+    const now = performance.now();
+    const dt = Math.min((now - this.lastRender) / 1000, 0.1);
+    this.lastRender = now;
+    if (Math.abs(this.inset - this.insetRight) > 0.5) {
+      this.inset += (this.insetRight - this.inset) * Math.min(1, dt * 8);
+      this.project();
+    } else if (this.inset !== this.insetRight) {
+      this.inset = this.insetRight;
+      this.project();
+    }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);

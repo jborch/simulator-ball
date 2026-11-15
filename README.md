@@ -89,6 +89,31 @@ Notes for deploying:
   Restart=on-failure
   ```
 
+## Cameras and controls
+
+The view has five monitoring cameras. Pick one with the bar at the bottom or with keys **1–5**:
+
+| Key | Camera | Shows |
+| --- | --- | --- |
+| 1 | Overview | The whole line, framed to the window |
+| 2 | Infeed | ST10 body load, ST20 spring, ST30 spring inspection, early-reject bin |
+| 3 | Cartridge | Close-up of the twin ST40A/B robots inserting cartridges from their nests |
+| 4 | Housing | Close-up of ST50 placing and snapping housing + cap |
+| 5 | Outfeed | ST60 final vision, ST70 tray packing and the reject bin |
+
+The fixed cameras are defined in `src/view/cameras.ts`, in each station's own coordinates, so
+they stay on their station if the layout changes. You can still orbit and zoom with the mouse.
+The view then becomes a free view until you pick a camera again.
+
+**Auto-hide** (button or **H**) hides the controls after 3 s without input, and moving the mouse
+brings them back. While they're hidden, the view shows only the camera name and time, like a
+monitoring feed. CATCH.AI alerts stay visible. The chosen camera and the auto-hide setting are
+remembered in the browser.
+
+For a wall display, open `/?cam=cartridge&ui=hidden`. `cam` is a camera id (`overview`,
+`infeed`, `cartridge`, `housing`, `outfeed`). `ui=hidden` starts with the controls hidden and
+auto-hide on.
+
 ## How it fits together
 
 ```
@@ -168,6 +193,7 @@ The browser uses only the config, geometry, protocol types and the command table
 | `movers.ts` | Movers with printed numbers, pen assemblies, parts held by grippers |
 | `build.ts`, `stage.ts`, `models.ts`, `textures.ts` | Materials and geometry helpers, renderer/camera/lights, glTF loading, canvas textures (numbers, DataMatrix) |
 | `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector, connection state |
+| `cameras.ts`, `monitor.ts` | Fixed monitoring cameras; camera selector, keys, auto-hide and camera label |
 
 ### `src/catchai` (reporting, runs on the server)
 

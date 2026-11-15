@@ -7,6 +7,7 @@ import { Hud } from './view/hud';
 import { FrameBuffer } from './view/interp';
 import { LineView } from './view/line';
 import { loadModels } from './view/models';
+import { Monitor } from './view/monitor';
 import { Stage } from './view/stage';
 
 const clientName = `browser-${Math.random().toString(36).slice(2, 6)}`;
@@ -15,7 +16,7 @@ const frames = new FrameBuffer(trackLength(LINE.track));
 const hud = new Hud(LINE, (c) => client.send(c));
 const stage = new Stage(document.querySelector('#view')!);
 const side = document.querySelector<HTMLElement>('#side')!;
-new ResizeObserver(() => stage.setInsetRight(side.offsetWidth + 12)).observe(side);
+stage.setInsetRight(side.offsetWidth + 12, true);
 
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
@@ -44,7 +45,9 @@ hud.onToggleReporting = () => {
 const models = await loadModels();
 const line = new LineView(LINE, models);
 stage.scene.add(line.group);
-stage.fit(line.bounds());
+const bounds = line.bounds();
+const monitor = new Monitor(LINE, stage, () => bounds, () => side.offsetWidth + 12);
+new ResizeObserver(() => monitor.insetChanged()).observe(side);
 
 // Click a mover to inspect it; a ring marks the selection.
 const ray = new THREE.Raycaster();
@@ -88,5 +91,5 @@ function loop() {
 loop();
 
 // Dev-only handle for poking at the scene from the console (e.g. moving the camera).
-if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames } });
+if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames, monitor } });
 
