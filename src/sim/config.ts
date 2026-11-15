@@ -158,7 +158,7 @@ export const LINE = {
       id: 'ST60', name: 'Final vision', kind: 'inspect', s: BOTTOM + 1.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
       inspect: { key: 'seatDepth', lower: -0.3, upper: 0.3, noise: 0.02, unit: 'mm', cause: 'Cartridge seating depth' },
     },
-    { id: 'ST70', name: 'Unload: tray / reject', kind: 'unload', s: BOTTOM + 2.3, mech: 0, fixed: 0, bin: 'BIN2' },
+    { id: 'ST70', name: 'Unload to tray', kind: 'unload', s: BOTTOM + 2.3, mech: 0, fixed: 0, bin: 'BIN2' },
   ] satisfies StationDef[] as StationDef[],
   /** True quality of each assembly step (mean, σ) plus mover fixture and fragile-station effects. */
   quality: {

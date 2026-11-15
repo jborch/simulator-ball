@@ -383,10 +383,10 @@ button in the top bar turns it on/off for the whole line, and its tooltip shows 
 
 | What | Ours |
 | --- | --- |
-| Devices | `L07` (line) with children: every station, feeder (`L07-SPRINGS`, …), nest (`L07-ST40A-NEST`) and `L07-ST70-TRAY` |
+| Devices | `L07` (line) with children: every station, feeder (`L07-SPRINGS`, …), nest (`L07-ST40A-NEST`), `L07-ST70-TRAY` and the ST70 reject bin `L07-ST70-REJECT` |
 | Period type | "Assembly Batch"; each batch is a period on `L07` |
 | Scope | `L07`, tied to the batch period type. The server only takes items inside an open batch period |
-| Processes | Stations: item type Pen, carrier type Mover, `HasResult` where they inspect, source type = part they merge. Feeders: Spring / Housing. Nests: Cartridge from Nest. Tray packing: Tray from Pen |
+| Processes | Stations: item type Pen, carrier type Mover, `HasResult` where they inspect, source type = part they merge. Feeders: Spring / Housing. Nests: Cartridge from Nest. Tray packing: Tray from Pen. ST70 reject bin: Pen on a Mover, so rejects at the outfeed are kept apart from the packed pens on `L07-ST70` |
 | Properties / events | Keys must be `p<n>` / `e<n>` and are shared with other systems on the server, so ours are tagged `Mappings: { L07: name }` and new ones take the next free number |
 | Item view | "L07 Pen genealogy": Spring/Housing/Cap/Cartridge → Pen, Nest → Cartridge, Pen → Tray (one relation per type pair, so the twin ST40s share one) |
 

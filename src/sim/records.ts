@@ -1,7 +1,7 @@
 // Turns a finished station cycle into the new tag contents and MES records (ItemProcessed /
 // ItemsMerged), and keeps counters (good, rejected, batch, tray, nest) up to date.
 import type { LineConfig, StationDef } from './config';
-import { carrierId, emit, measurementName, now, processId, sourceProcessId, trayProcessId } from './machine';
+import { carrierId, emit, measurementName, now, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, SimState, Tag } from './types';
 
@@ -143,7 +143,7 @@ export function recordOutput(s: SimState, cfg: LineConfig, i: number): void {
     if (batch) batch.good++;
     if (tray.count >= cfg.traySize) closeTray(s, cfg);
   } else {
-    emit(s, { kind: 'processed', process, scopedId: out.pen, itemType: 'Pen', from, to, carrier, identifier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
+    emit(s, { kind: 'processed', process: rejectProcessId(cfg, def), scopedId: out.pen, itemType: 'Pen', from, to, carrier, identifier, properties: { 'Mover Id': carrier, 'Reject Cause': out.cause, Bin: out.bin } });
     mes.rejected++;
     mes.rejectsByCause[out.cause] = (mes.rejectsByCause[out.cause] ?? 0) + 1;
     moverStats.rejects++;

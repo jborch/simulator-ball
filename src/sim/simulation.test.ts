@@ -89,10 +89,19 @@ describe('steady production (60 min)', () => {
   }, 120_000);
 
   test('throughput is around 21 pens/min with the twin station as bottleneck', () => {
-    const out = processed(events, 'ST70').filter((e) => e.itemType === 'Pen').length + processed(events, 'R1').length;
+    const out = processed(events, 'ST70').length + processed(events, 'ST70-REJECT').length + processed(events, 'R1').length;
     const perMin = out / minutes;
     expect(perMin).toBeGreaterThan(19);
     expect(perMin).toBeLessThan(24);
+  });
+
+  test('ST70 reports packed pens on its own process and rejects on its reject bin', () => {
+    const packed = processed(events, 'ST70');
+    const binned = processed(events, 'ST70-REJECT');
+    expect(packed.length).toBeGreaterThan(0);
+    expect(binned.length).toBeGreaterThan(0);
+    for (const e of packed) expect(e.properties?.['Tray Position']).toBeDefined();
+    for (const e of [...binned, ...processed(events, 'R1')]) expect(e.properties?.['Reject Cause']).toBeDefined();
   });
 
   test('reject rate is about 5 %', () => {

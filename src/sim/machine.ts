@@ -35,6 +35,15 @@ export function trayProcessId(cfg: LineConfig): string {
   return `${cfg.id}-${cfg.layout.tray.station}-TRAY`;
 }
 
+/**
+ * Where a station reports the pens it drops in its reject bin. A pure reject station (R1) is its
+ * own reject process; the unload station packs good pens and rejects NOK ones, so its rejects go
+ * to a process of their own (e.g. "L07-ST70-REJECT") and don't look like finished output.
+ */
+export function rejectProcessId(cfg: LineConfig, def: StationDef): string {
+  return def.kind === 'unload' ? `${processId(cfg, def)}-REJECT` : processId(cfg, def);
+}
+
 /** Report name of an inspection measurement, e.g. "springAngle" → "Spring Angle". */
 export function measurementName(key: string): string {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());

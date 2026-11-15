@@ -1,7 +1,7 @@
 // What the line looks like in CATCH.AI: devices, processes, properties, events and the batch
 // period type. Derived from the line config so it can't drift from what the sim reports.
 import type { LineConfig, PartType, StationDef } from '../sim/config';
-import { feederId, measurementName, processId, sourceProcessId, trayProcessId } from '../sim/machine';
+import { feederId, measurementName, processId, rejectProcessId, sourceProcessId, trayProcessId } from '../sim/machine';
 import type { StationCode } from '../sim/types';
 import { Severity, type Device, type EventDefinition, type ItemView, type Process, type PropertyDefinition } from './types';
 
@@ -63,6 +63,12 @@ export function catalogue(cfg: LineConfig): Catalogue {
     devices.push(child(id, def.name));
     const merges = def.kind === 'assemble' ? itemType(def.parts![0]) : null;
     process(id, 'Pen', { HasCarrier: true, CarrierType: CARRIER_TYPE, HasResult: !!def.inspect, SourceItemType: merges });
+    // The unload station's rejects are reported apart from the good pens it packs.
+    const reject = rejectProcessId(cfg, def);
+    if (reject !== id) {
+      devices.push(child(reject, `Reject bin (${def.bin})`));
+      process(reject, 'Pen', { HasCarrier: true, CarrierType: CARRIER_TYPE });
+    }
   }
 
   // Part sources. Bodies become the pen itself at ST10, so that feeder reports no items of its own.
