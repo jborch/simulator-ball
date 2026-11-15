@@ -1,5 +1,5 @@
-// Messages between the simulation host (worker) and any client: the local renderer today,
-// remote viewers later. Everything is plain JSON so it can go over any transport.
+// Messages between the simulation host (the Node server, src/server) and its viewers (the
+// browser), sent as JSON text over a WebSocket at /ws.
 import type { ReporterStatus } from '../catchai/reporter';
 import type { PartType } from './config';
 import type { Batch, MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
@@ -82,10 +82,10 @@ export interface Frame {
 export type ToHost =
   | { type: 'command'; command: Command; origin: string }
   | { type: 'snapshot' }
-  /** Turns CATCH.AI reporting on or off. `url` defaults to the dev server's proxy. */
-  | { type: 'catchai'; enabled: boolean; url?: string; apiKey?: string };
+  /** Turns CATCH.AI reporting on or off for the line. */
+  | { type: 'catchai'; enabled: boolean };
 
-/** Host → client. */
+/** Host → client. On connect a viewer gets the current frame, recent events and reporting status. */
 export type ToClient =
   | { type: 'snapshot'; state: SimState }
   | { type: 'frame'; frame: Frame }

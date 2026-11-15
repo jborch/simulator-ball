@@ -1,90 +1,142 @@
 # Pen Assembly Line Simulator
 
-A browser-only 3D simulation of a pharma (pen-injector) assembly line. Movers ride a friction
-belt, stop at gates, and get worked on by pick-and-place robots fed from bowl feeders and
-cartridge nests. Inspections reject about 5 % of pens. Every station reports `ItemProcessed` /
-`ItemsMerged` records with real timings. See [docs/PLAN.md](docs/PLAN.md) for the design and
-the reasoning behind it.
+A 3D simulation of a pharma (pen-injector) assembly line. Movers ride a friction belt, stop at
+gates, and get worked on by pick-and-place robots fed from bowl feeders and cartridge nests.
+Inspections reject about 5 % of pens. Every station reports `ItemProcessed` / `ItemsMerged`
+records with real timings. See [docs/PLAN.md](docs/PLAN.md) for the design and the reasoning
+behind it.
+
+The simulation runs on a Node server and is streamed to browsers over a WebSocket. The browser
+only renders the line in 3D and sends operator commands. Every browser sees the same line, and
+the line keeps running with no browser open.
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173 (reports to CATCH.AI if .env.local has a key)
-npm test           # headless simulation + server tests
-npm run build      # typecheck + production build into dist/
-npm start          # serve dist/ for production on http://localhost:3000
+npm run dev        # http://localhost:5173: server + simulation, frontend with hot reload
+npm test           # headless simulation, streaming and server tests
+npm run build      # typecheck + production build into dist/client and dist/server
+npm start          # run the production build on http://localhost:3000
 ```
+
+`npm run dev` runs the server with [tsx](https://tsx.is) in watch mode, with Vite inside it for
+the frontend. Changes under `src/view` reload the page. Changes to the simulation or the server
+restart the server, which also restarts the simulation. The page reconnects by itself.
 
 ## Running in production
 
-The simulation itself runs entirely in the browser (in a Web Worker). In production, a small Node
-server (`server/`, no dependencies) serves the built frontend and forwards CATCH.AI requests. This
-proxy is needed because CATCH.AI sends no CORS headers and the API key must stay on the server.
-It requires Node 22 or later.
+The server needs Node 22 or later. The build produces two parts:
+
+- `dist/client`: the static frontend.
+- `dist/server/index.js`: the server, bundled into one file. At runtime it needs only the `ws` package from `node_modules`.
 
 ```sh
 npm ci                  # dev dependencies are needed for the build
-npm run build           # → dist/
-npm prune --omit=dev    # optional: the server only needs dist/ and server/
+npm run build
+npm prune --omit=dev    # optional: what's left is dist/ plus the runtime node_modules
 CATCHAI_API_KEY=... PORT=8080 npm start
 ```
 
 The server reads its configuration from environment variables. It also loads `.env.production.local`,
-`.env.local`, `.env.production` and `.env` from the project root, most specific file first. Real
+`.env.local`, `.env.production` and `.env` from the project root, most specific file first.
+In dev it loads the `.env.development*` files instead of the `.env.production*` ones. Real
 environment variables always take precedence over the files.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PORT` | `3000` | Port to listen on |
+| `PORT` | `3000` (`5173` in dev) | Port to listen on |
 | `HOST` | `0.0.0.0` | Interface to bind |
-| `CATCHAI_API_KEY` | – | Added as `x-api-key` to proxied requests and never sent to the browser. If set, reporting is on by default |
+| `CATCHAI_API_KEY` | – | CATCH.AI API key. When set, the server reports to CATCH.AI from startup |
 | `CATCHAI_URL` | demo server | CATCH.AI server root |
-| `DIST_DIR` | `dist` | Directory of the built frontend |
-| `LOG_REQUESTS` | `1` | Set to `0` to turn off the per-request log lines |
+| `CLIENT_DIR` | `dist/client` | Directory of the built frontend |
+| `LOG_REQUESTS` | off | Set to `1` to log every HTTP request. Viewer connects and disconnects are always logged |
 
-What the server does:
+The server listens on one port and handles:
 
-- **Static files** from `dist/`, compressed with brotli or gzip (each compressed file is cached in memory). Hashed files in `/assets` get `immutable` caching. `index.html` and `/models` are revalidated with ETags, so a new deploy shows up right away.
-- **`/catchai/*` → `CATCHAI_URL/*`**, with the API key added. Client cookies and any `x-api-key` sent by the client are dropped.
-- **`/config.json`**: runtime settings for the frontend (`{ "catchaiProxy": true }` when a key is set). The same build therefore works with or without a key. The Vite dev/preview server serves this file too.
-- **`/healthz`** returns `ok` for load-balancer and container health checks.
-- On `SIGTERM`/`SIGINT` it stops taking new connections and lets in-flight requests finish (at most 10 s).
+- **`/ws`**: the WebSocket that viewers connect to (see [protocol](#protocol)).
+- **Static files** from `dist/client`, compressed with brotli or gzip (each compressed file is cached in memory). Hashed files in `/assets` get `immutable` caching. `index.html` and `/models` are revalidated with ETags, so a new deploy shows up right away.
+- **`/healthz`**: returns `ok` for load-balancer health checks.
+- On `SIGTERM`/`SIGINT` it closes the viewer sockets (browsers retry and reconnect once it's back) and exits.
 
 Notes for deploying:
 
-- Anyone who can reach the server can send requests to CATCH.AI with your key through `/catchai`. Don't expose the server publicly without authentication in front of it, such as a reverse proxy, VPN or SSO gateway.
-- Put TLS in a reverse proxy (nginx, Caddy, a cloud load balancer) and forward to `PORT`. No WebSocket or sticky sessions are needed.
-- Run it under a process manager that restarts it on failure, e.g. systemd, a container runtime or pm2. Example systemd unit:
+- **Run one instance per line.** Each server process is one line with its own simulation. Two instances behind a load balancer would be two different lines.
+- **The simulation lives in memory.** A restart starts a fresh simulation: new batch, counters at zero.
+- **Every viewer can control the line**, and whoever can reach the server can run commands. There is no login. Put authentication in front of the server (reverse proxy with auth, VPN or SSO gateway) before exposing it beyond a trusted network.
+- **Put TLS in a reverse proxy** (nginx, Caddy, a cloud load balancer) and forward to `PORT`. The proxy must pass WebSocket upgrades on `/ws`. Over HTTPS the page connects with `wss://`. For nginx:
+
+  ```nginx
+  location /ws {
+      proxy_pass http://127.0.0.1:8080;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_read_timeout 1h;
+  }
+  location / {
+      proxy_pass http://127.0.0.1:8080;
+  }
+  ```
+
+- **Bandwidth:** about 30 frames a second of roughly 6.5 KB JSON each, so under 200 KB/s per viewer before compression. Messages are compressed with `permessage-deflate`. If a viewer falls behind, frames are skipped for it. A viewer more than 16 MB behind is disconnected.
+- **Use a process manager** that restarts the server on failure, such as systemd or pm2. Example systemd unit:
 
   ```ini
   [Service]
   WorkingDirectory=/opt/simulator-ball
-  ExecStart=/usr/bin/node server/index.js
+  ExecStart=/usr/bin/node dist/server/index.js
   Environment=PORT=8080
   EnvironmentFile=/etc/simulator-ball.env   # CATCHAI_API_KEY=...
   Restart=on-failure
   ```
 
-- Each browser tab runs its own simulation and, if reporting is on, reports to CATCH.AI on its own. Keep one tab per line open when reporting.
-- `npm run preview` also serves the build, including the proxy, but it's meant for checking the build locally, not for production.
-
 ## How it fits together
 
 ```
- Web Worker (host)                                          Main thread (any client)
-┌──────────────────────────────────────────────┐  frames  ┌───────────────────────────┐
-│ Plant (truth) ◄─ sensors / actuators ─► PLC  │ ───────► │ FrameBuffer → three.js     │
-│  movers, belt, gates,              machine + │  events  │ view + HUD                 │
-│  robots, cameras, feeders,         stations  │ ───────► │                            │
-│  nests, tray, faults               → MES     │ ◄─────── │ commands (start, speed, …) │
-└──────────────────────────────────────────────┘          └───────────────────────────┘
+ Node server (host, src/server)                     WebSocket /ws      Browser (any number)
+┌──────────────────────────────────────────────┐    frames ~30 Hz    ┌───────────────────────────┐
+│ Plant (truth) ◄─ sensors / actuators ─► PLC  │ ──────────────────► │ FrameBuffer → three.js     │
+│  movers, belt, gates,              machine + │    events, status   │ view + HUD                 │
+│  robots, cameras, feeders,         stations  │ ──────────────────► │                            │
+│  nests, tray, faults               → MES ──► CATCH.AI reporter     │ ◄── commands (start, …)    │
+└──────────────────────────────────────────────┘ ◄────────────────── └───────────────────────────┘
 ```
 
 - **The plant is the only truth.** The PLC changes it only through actuator fields (gates, robot jobs, camera triggers, RFID requests, belt) and reads it only through sensors and RFID tags. The view never changes it.
-- **All state is plain JSON** (`src/sim/types.ts`), and clients only see `Frame`/event/command messages (`src/sim/protocol.ts`). A remote viewer can therefore use the same protocol over a network later.
-- **Fixed time steps:** the plant steps every 1 ms and the PLC scans every 10 ms. The worker drives it in real time.
+- **One line, many viewers.** The server runs a single simulation. A command from any browser is checked against the machine state and applied there. Everyone sees the result in the next frame, so all screens agree.
+- **All state is plain JSON** (`src/sim/types.ts`), and viewers only see `Frame`/event/command messages (`src/sim/protocol.ts`).
+- **Fixed time steps:** the plant steps every 1 ms and the PLC scans every 10 ms. The server drives it in real time.
+- **Smooth rendering:** the browser renders about 150 ms behind the newest frame and interpolates, which hides network jitter.
 - **Reproducible runs:** all randomness comes from one seeded RNG stored in the state.
 
-### `src/sim` (headless, no DOM)
+### Protocol
+
+JSON text messages over `ws(s)://<host>/ws` (types in `src/sim/protocol.ts`):
+
+| Direction | Message | When |
+| --- | --- | --- |
+| server → browser | `frame` | On connect, then about 30 times a second: everything needed to draw the line and the HUD |
+| server → browser | `events` | On connect (the last 200), then whatever happened since the last frame |
+| server → browser | `catchai` | On connect, then every second: reporter status, or `null` when off |
+| server → browser | `snapshot` | Reply to `snapshot`: the full simulation state (for debugging) |
+| browser → server | `command` | Operator commands: start, stop, hold, speed, batch settings, fault injection |
+| browser → server | `catchai` | Turn reporting on or off for the line |
+| browser → server | `snapshot` | Ask for the full state |
+
+The server validates every incoming message (`src/server/validate.ts`) and silently drops
+anything malformed. If the connection drops, the browser shows **Offline** and reconnects with
+backoff.
+
+### `src/server` (Node: the host)
+
+| File | Responsibility |
+| --- | --- |
+| `index.ts` | Entry point: env / `.env` files, dev (Vite middleware) or production (static files), shutdown |
+| `host.ts` | `LineHost`: runs the simulation in real time, streams frames/events to viewers, owns the CATCH.AI reporter |
+| `ws.ts` | WebSocket endpoint `/ws`: viewers, backpressure, pings, incoming messages |
+| `validate.ts` | Checks every message from viewers against the protocol |
+| `http.ts` | Static files (compression, caching), `/healthz`, or Vite's middleware in dev |
+
+### `src/sim` (headless, no DOM, runs on the server)
 
 | File | Responsibility |
 | --- | --- |
@@ -100,48 +152,44 @@ Notes for deploying:
 | `records.ts` | Finished cycle → new tag + MES records + counters |
 | `machine.ts` | Small shared helpers (events, machine state, batches, ids) |
 | `frame.ts` | State → `Frame` for rendering |
-| `worker.ts` / `client.ts` / `protocol.ts` | Real-time host in a Web Worker and the client side of the messages |
+| `protocol.ts` / `client.ts` | The messages, and the browser's WebSocket client (reconnects with backoff) |
 | `layout.ts`, `track.ts`, `tags.ts`, `gs1.ts`, `rng.ts` | Geometry, loop path, tag helpers, GS1 identifiers, seeded RNG |
 
-### `src/view` (three.js)
+The browser uses only the config, geometry, protocol types and the command table from here.
+
+### `src/view` (three.js, browser)
 
 | File | Responsibility |
 | --- | --- |
-| `interp.ts` | Buffers frames, renders ~100 ms in the past and interpolates |
+| `interp.ts` | Buffers frames, renders ~150 ms in the past and interpolates |
 | `line.ts` | Table, belt, movers and stations |
 | `station.ts` | One station: gate pin, stack light, label and its equipment |
 | `devices.ts` | Robot, camera, feeder, nest, tray, bin and scrap views |
 | `movers.ts` | Movers with printed numbers, pen assemblies, parts held by grippers |
 | `build.ts`, `stage.ts`, `models.ts`, `textures.ts` | Materials and geometry helpers, renderer/camera/lights, glTF loading, canvas textures (numbers, DataMatrix) |
-| `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector |
+| `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector, connection state |
 
-### `src/catchai` (reporting)
+### `src/catchai` (reporting, runs on the server)
 
 | File | Responsibility |
 | --- | --- |
 | `catalogue.ts` | The line as CATCH.AI sees it: devices, processes, properties, events, item view |
 | `setup.ts` | Creates what's missing before data is sent; finds our property/event keys and the scoped id base |
 | `mapper.ts` | Sim events → `ItemProcessed` / `ItemsMerged` / device data / batch periods |
-| `reporter.ts` | Queue, ordering, bulk sends, retries; runs in the worker |
+| `reporter.ts` | Queue, ordering, bulk sends, retries |
 | `api.ts`, `types.ts` | fetch wrapper and the REST contracts |
 
-### `server` (production)
-
-| File | Responsibility |
-| --- | --- |
-| `index.js` | Entry point for `npm start`: reads env / `.env` files, listens, shuts down cleanly |
-| `app.js` | HTTP server: static `dist/`, compression and caching, `/catchai` proxy, `/config.json`, `/healthz` |
-
-To report, put the API key in `.env.local` (git-ignored) and run `npm run dev`:
+To report, put the API key in `.env.local` (git-ignored), or set it in the environment:
 
 ```sh
 CATCHAI_API_KEY=...
 # CATCHAI_URL=https://...   optional, defaults to the demo server
 ```
 
-The dev server (and the production server, see above) proxies `/catchai` to CATCH.AI and adds
-the key, so the browser never sees it.
-The **CATCH.AI** button in the top bar turns reporting on/off. See [docs/PLAN.md §10d](docs/PLAN.md).
+The server calls CATCH.AI directly, so the key never reaches a browser. With a key, reporting is
+on from startup. The **CATCH.AI** button in the top bar turns it on/off for the line, so every
+viewer sees the change. The setting resets when the server restarts. See
+[docs/PLAN.md §10d](docs/PLAN.md).
 
 ## 3D models
 

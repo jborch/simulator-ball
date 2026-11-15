@@ -38,7 +38,7 @@ export class Simulation {
     return applyCommand(this.state, this.cfg, cmd, origin);
   }
 
-  /** Advances sim time by `seconds` (real time when driven by the worker). */
+  /** Advances sim time by `seconds` (real time when driven by the server host). */
   advance(seconds: number): void {
     const dt = this.cfg.plantDt;
     this.acc += seconds;

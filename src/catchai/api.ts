@@ -1,5 +1,8 @@
 // Thin fetch wrapper for the CATCH.AI REST API.
 
+/** Used when CATCHAI_URL isn't set. */
+export const DEFAULT_CATCHAI_URL = 'https://catchai-demo-axis-data.northeurope.cloudapp.azure.com';
+
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
 export class ApiError extends Error {
@@ -21,7 +24,7 @@ export class CatchAiApi {
   readonly url: string;
 
   /**
-   * `url` is the server root (or the dev proxy, e.g. "/catchai", which adds the key itself).
+   * `url` is the server root.
    * `apiKey` is sent as x-api-key when given.
    */
   constructor(

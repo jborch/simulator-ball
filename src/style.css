@@ -114,6 +114,11 @@ button.danger:not(:disabled) {
   background: #1f4f8a;
 }
 
+#machine[data-state='Offline'] {
+  background: #5a5f68;
+  color: #c8ccd2;
+}
+
 #machine[data-state='Aborted'] {
   background: #8a1f24;
 }

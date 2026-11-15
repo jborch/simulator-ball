@@ -12,7 +12,7 @@ export interface Sample {
 
 /**
  * Buffers frames from the host and renders slightly in the past, interpolating between the
- * two frames that bracket render time. Works the same for a local worker and a remote host.
+ * two frames that bracket render time. The delay absorbs network jitter between frames.
  */
 export class FrameBuffer {
   private frames: Frame[] = [];
@@ -21,7 +21,7 @@ export class FrameBuffer {
 
   constructor(
     private readonly loopLength: number,
-    private readonly delay = 0.1,
+    private readonly delay = 0.15,
     private readonly keep = 30,
   ) {}
 
@@ -32,6 +32,12 @@ export class FrameBuffer {
     const target = frame.t - localNow;
     if (this.offset === null || target > this.offset) this.offset = target;
     else this.offset += (target - this.offset) * 0.01;
+  }
+
+  /** Forgets all frames, e.g. after reconnecting to a server whose sim time may have restarted. */
+  reset(): void {
+    this.frames = [];
+    this.offset = null;
   }
 
   latest(): Frame | null {

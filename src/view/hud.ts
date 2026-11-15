@@ -1,6 +1,7 @@
 import type { LineConfig } from '../sim/config';
 import { ACCEPTS } from '../sim/commands';
 import type { ReporterStatus } from '../catchai/reporter';
+import type { ConnectionState } from '../sim/client';
 import type { Command, Frame } from '../sim/protocol';
 import type { SimEvent } from '../sim/types';
 
@@ -78,6 +79,19 @@ export class Hud {
     if (s.lastError) lines.push(`last error: ${s.lastError}`);
     lines.push('Click to turn reporting off.');
     el.title = lines.join('\n');
+  }
+
+  /** Connection to the server. Frames stop while it's down, so show that instead of a stale state. */
+  connection(state: ConnectionState): void {
+    if (state === 'open') {
+      // The server sends its recent events again on connect.
+      this.log.length = 0;
+      return;
+    }
+    const machine = $('#machine');
+    machine.textContent = state === 'connecting' ? 'Connecting' : 'Offline';
+    machine.dataset.state = 'Offline';
+    for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-cmd]')) btn.disabled = true;
   }
 
   update(f: Frame): void {

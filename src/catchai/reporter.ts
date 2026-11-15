@@ -1,4 +1,4 @@
-// Sends the line's MES events to CATCH.AI. Runs next to the sim (in the worker) and is driven by
+// Sends the line's MES events to CATCH.AI. Runs next to the sim (on the server) and is driven by
 // tick(): first the setup (devices, processes, properties, events), then the queued data in order.
 import type { LineConfig } from '../sim/config';
 import type { Batch, SimEvent } from '../sim/types';

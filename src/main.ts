@@ -1,6 +1,6 @@
 import './style.css';
 import * as THREE from 'three';
-import { connectLocal } from './sim/client';
+import { connectRemote } from './sim/client';
 import { LINE } from './sim/config';
 import { trackLength } from './sim/track';
 import { Hud } from './view/hud';
@@ -10,7 +10,7 @@ import { loadModels } from './view/models';
 import { Stage } from './view/stage';
 
 const clientName = `browser-${Math.random().toString(36).slice(2, 6)}`;
-const client = connectLocal(clientName);
+const client = connectRemote(clientName);
 const frames = new FrameBuffer(trackLength(LINE.track));
 const hud = new Hud(LINE, (c) => client.send(c));
 const stage = new Stage(document.querySelector('#view')!);
@@ -19,19 +19,22 @@ new ResizeObserver(() => stage.setInsetRight(side.offsetWidth + 12)).observe(sid
 
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
+// A new connection may be to a restarted server (sim time back at 0), so start the buffer over.
+client.onConnection = (state) => {
+  frames.reset();
+  hud.connection(state);
+};
 
-// CATCH.AI reporting runs in the worker. On by default when the server's /catchai proxy has an
-// API key (it says so in /config.json); the topbar button turns it on/off and the choice is remembered.
-const REPORTING_KEY = 'catchai.enabled';
-const stored = localStorage.getItem(REPORTING_KEY);
-let reporting = stored !== null ? stored === 'true' : (await loadRuntimeConfig()).catchaiProxy;
-client.setReporting(reporting);
-client.onReporting = (s) => hud.reporting(s);
+// CATCH.AI reporting runs on the server (on when it has an API key). The topbar button turns it
+// on/off for the line, so every viewer sees the change.
+let reporting = false;
+client.onReporting = (s) => {
+  reporting = s !== null;
+  hud.reporting(s);
+};
 hud.onToggleReporting = () => {
-  reporting = !reporting;
-  localStorage.setItem(REPORTING_KEY, String(reporting));
-  client.setReporting(reporting);
-  hud.reporting(reporting ? { state: 'connecting' } : null);
+  client.setReporting(!reporting);
+  hud.reporting(reporting ? null : { state: 'connecting' });
 };
 
 const models = await loadModels();
@@ -83,13 +86,3 @@ loop();
 // Dev-only handle for poking at the scene from the console (e.g. moving the camera).
 if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames } });
 
-/** Served by the Vite dev/preview server and by server/app.js in production. */
-async function loadRuntimeConfig(): Promise<{ catchaiProxy: boolean }> {
-  try {
-    const res = await fetch('/config.json', { cache: 'no-store' });
-    const data: unknown = res.ok ? await res.json() : null;
-    return { catchaiProxy: typeof data === 'object' && data !== null && (data as { catchaiProxy?: unknown }).catchaiProxy === true };
-  } catch {
-    return { catchaiProxy: false };
-  }
-}

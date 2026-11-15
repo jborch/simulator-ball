@@ -287,42 +287,38 @@ Blocked, Fault, Passing*. That feeds OEE and availability per station.
 **Batches:** a batch has a name, a target quantity, a start, run-out and complete.
 Batches map to the "Assembly Batch" period in CATCH.AI, as in the C# sim.
 
-## 9. Shared viewing — one host, many viewers
+## 9. Shared viewing: one host, many viewers (built)
 
-Not built now, but the core is laid out so that adding it later is easy:
+The simulation runs on the Node server (`src/server`), and every browser is a viewer over a
+WebSocket at `/ws`:
 
 ```mermaid
 flowchart LR
-    subgraph Host["Host browser"]
-        W["Web Worker<br/>plant + PLC + MES<br/>(the only truth)"]
-        R1["Renderer + HUD"]
-        W -- snapshots / events --> R1
-        R1 -- commands --> W
+    subgraph Server["Node server"]
+        S["LineHost<br/>plant + PLC + MES<br/>(the only truth)"]
+        C["CATCH.AI reporter"]
+        S -- events --> C
     end
-    subgraph Viewer["Viewer browser(s)"]
-        R2["Renderer + HUD<br/>(full controls)"]
+    subgraph Viewers["Browsers (any number)"]
+        R["Renderer + HUD<br/>(full controls)"]
     end
-    W -. same messages over network .-> R2
-    R2 -. commands .-> W
+    S -- frames / events / status over WebSocket --> R
+    R -- commands --> S
 ```
 
-Rules we follow from day one:
+Rules:
 
-1. **The sim runs in a Web Worker**, even when there is only one browser. Hidden tabs stop `requestAnimationFrame` and heavily throttle main-thread timers, which would stop a "real-time" line whenever the host tab is in the background. A worker keeps it running. It also forces a clean message boundary.
+1. **The sim runs on the server.** It first ran in a Web Worker in the browser, so hidden tabs wouldn't stop it. The worker also forced a clean message boundary. Moving it to the server kept that boundary and the protocol as they were, and the line now runs without any browser open.
 2. **All simulation state is plain serializable data**: no three.js objects and no closures in the state.
-3. **One protocol:**
-   - `snapshot`: full state when a client joins.
-   - `frame`: positions and states at about 30 Hz.
-   - `event`: item processed or merged, faults, state changes.
-   - `command`: start, stop, speed, hold.
+3. **One protocol** (`src/sim/protocol.ts`), as JSON text frames:
+   - On connect: the current `frame`, the last 200 events and the reporter status. A frame holds everything a viewer needs to draw, so there's no separate join snapshot. `snapshot` (the full state) is still there on request for debugging.
+   - `frame`: positions and states at about 30 Hz, with the `events` since the previous frame just before it.
+   - `command`: start, stop, speed, hold, batch settings, fault injection.
 
-   The local renderer uses exactly the same messages a remote viewer would.
-4. **The renderer interpolates** between frames, with about 100 ms of delay. That makes motion smooth locally and over a network alike.
-5. **Every client can control the line**, viewers included: start/stop, hold, speed and future features. A command is a request to the host, and only the host applies it. The host checks it against the current machine state (e.g. no Start while Aborted) and puts the result in the state everyone receives. No client changes its own copy, so all screens always agree. Each command carries its origin (client id/name) and goes into an operator log, like an HMI audit trail. New features only need a new command type and a handler in the worker.
-6. **Transport later:** a few options, decided when we get there.
-   - BroadcastChannel: free, for tabs on the same PC.
-   - WebRTC DataChannel: peer-to-peer, but needs a tiny signaling step.
-   - A minimal WebSocket relay.
+   Each message is serialized once for all viewers. Frames can be dropped: a viewer whose socket is backed up skips frames instead of falling further behind.
+4. **The renderer interpolates** between frames, with about 150 ms of delay to absorb network jitter. After a reconnect it drops its buffer, because the server may have restarted with sim time back at 0.
+5. **Every viewer can control the line.** A command is a request to the host, and only the host applies it. The host checks it against the current machine state (e.g. no Start while Aborted) and puts the result in the state everyone receives. No client changes its own copy, so all screens always agree. Each command carries its origin (client name) and goes into an operator log, like an HMI audit trail. The server validates every incoming message and drops anything that doesn't match the protocol.
+6. **One server process is one line.** The state lives in memory, and a restart starts a fresh line.
 
 ## 10. 3D models (Blender → glTF)
 
@@ -378,11 +374,10 @@ blender -b -P tools/blender/parts.py -- /tmp/pv /tmp/pv/dm.png
 
 ## 10d. CATCH.AI reporting (built in milestone 7)
 
-The reporter (`src/catchai`) runs in the worker next to the sim, so it keeps sending while the tab
-is hidden. The browser can't call CATCH.AI directly (the server sends no CORS headers), so it goes
-through our own server (Vite in development, `server/app.js` in production): `/catchai/*` is
-proxied to the server, and the proxy adds the `x-api-key` header from `CATCHAI_API_KEY`. The key never reaches the browser. The
-**CATCH.AI** button in the top bar turns reporting on/off; its tooltip shows counts and errors.
+The reporter (`src/catchai`) runs on the server next to the sim and calls CATCH.AI directly with
+`CATCHAI_API_KEY`. The key never reaches a browser, and there are no CORS issues. (When the sim ran
+in the browser, this needed a proxy.) With a key, reporting is on from startup. The **CATCH.AI**
+button in the top bar turns it on/off for the whole line, and its tooltip shows counts and errors.
 
 **Setup before any data** (idempotent, on every start):
 
@@ -413,14 +408,14 @@ Requests go in order, with batch boundaries as barriers. Within a stretch, items
 ## 11. Milestones
 
 1. ✅ **Plan & models**: this document plus first Blender part set, reviewed together.
-2. ✅ **Headless core in a Web Worker**: plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
+2. ✅ **Headless core** (first in a Web Worker, now on the server): plant (belt, 32 movers, gates), PLC with machine states, ST10 → ST70 as timed stations, SR ids, speed override, and the snapshot/frame protocol. Tests for accumulation, throughput and mover differences.
 3. ✅ **3D view**: orbit camera, procedural loop, movers with numbers, interpolation from frames.
 4. ✅ **Real stations**: robots, feeders, de-nesting, laser marking and DataMatrix, tray packing, reject bins.
 5. **Twin station + quality**: ST40A/B pairing, fragile drift, mover profiles, snap curve, ~5 % rejects.
 6. ✅ **Faults and batches**: MTBF/MTTR faults, starved/blocked, batch run-out.
 7. ✅ **Reporting**: MES events to the CATCH.AI REST API (§10d).
 8. **HUD**: KPIs (throughput, OEE, reject %), mover inspector, follow camera, timeline.
-9. **Shared viewing**: transport for the existing protocol.
+9. ✅ **Shared viewing**: simulation on a Node server, streamed to every browser over WebSocket (§9).
 
 ## 12. Open questions
 
