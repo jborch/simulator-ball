@@ -27,7 +27,7 @@ restart the server, which also restarts the simulation. The page reconnects by i
 The server needs Node 22 or later. The build produces two parts:
 
 - `dist/client`: the static frontend.
-- `dist/server/index.js`: the server, bundled into one file. At runtime it needs only the `ws` package from `node_modules`.
+- `dist/server/index.js`: the server, bundled into one file. At runtime it needs the `ws` package from `node_modules`, plus `puppeteer` and `ffmpeg-static` if it streams cameras over RTSP (see [RTSP camera streams](#rtsp-camera-streams)).
 
 ```sh
 npm ci                  # dev dependencies are needed for the build
@@ -49,6 +49,12 @@ environment variables always take precedence over the files.
 | `CATCHAI_URL` | demo server | CATCH.AI server root |
 | `CLIENT_DIR` | `dist/client` | Directory of the built frontend |
 | `LOG_REQUESTS` | off | Set to `1` to log every HTTP request. Viewer connects and disconnects are always logged |
+| `RTSP_CAMERAS` | – | Cameras to stream over RTSP: comma-separated ids (`infeed,outfeed`) or `all`. Off when empty |
+| `RTSP_PORT` | `18554` | RTSP port of the bundled MediaMTX (RTP/RTCP over UDP use the next two ports: `18556`, `18557`) |
+| `RTSP_PUBLISH_URL` | – | Publish to an existing RTSP server instead (e.g. the VMS's MediaMTX): `rtsp://[user:pass@]host:8554/simulator`. The camera id is appended |
+| `RTSP_TIMESTAMP` | off | Set to `1` to burn the wall-clock time (ISO 8601, UTC, ms) into the picture, for debugging |
+| `RTSP_CHROME_ARGS` | – | Extra Chrome flags, space-separated (e.g. to choose the GPU backend) |
+| `MEDIAMTX_PATH` / `FFMPEG_PATH` | bundled | Use these binaries instead of the bundled ones |
 
 The server listens on one port and handles:
 
@@ -114,6 +120,28 @@ For a wall display, open `/?cam=cartridge&ui=hidden`. `cam` is a camera id (`ove
 `infeed`, `cartridge`, `housing`, `outfeed`). `ui=hidden` starts with the controls hidden and
 auto-hide on.
 
+## RTSP camera streams
+
+The server can publish the camera views as RTSP streams for a VMS: H.264 (Main), 1280×720,
+25 fps, a keyframe every 2 s, no B-frames, about 4 Mbit/s. The end-to-end delay is about 0.3 s.
+
+```sh
+RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
+```
+
+```
+ headless Chrome                         ffmpeg                    MediaMTX
+ /?cam=infeed&capture=1  ──WebM chunks──▶ libx264 720p25 ──RTSP──▶ :18554/infeed ──▶ VMS
+ (canvas → MediaRecorder)
+```
+
+- **Everything is installed by `npm install`:** Puppeteer downloads Chrome into `.cache/puppeteer`, `ffmpeg-static` brings ffmpeg, and a postinstall script downloads MediaMTX (pinned, checksum-verified) into `vendor/mediamtx`. To fetch MediaMTX again, run `npm run fetch:mediamtx`. To skip it, set `MEDIAMTX_SKIP_DOWNLOAD=1`.
+- **Each camera is one page** in a shared headless Chrome. The page (`/?cam=<id>&capture=1`, `src/view/capture.ts`) renders on a fixed 25 fps clock and records its canvas with MediaRecorder. The server pipes the recording into ffmpeg, which re-encodes it and publishes it to MediaMTX. Open that URL in a normal browser to see exactly what the stream shows.
+- **The bundled MediaMTX serves only RTSP**, on ports that don't clash with a stock MediaMTX (8554/8000/8001), so it can run next to the VMS's MediaMTX. All its other protocols are off. Only this machine may publish, and anyone may read. Open TCP `18554` (and UDP `18556`–`18557` for RTP over UDP) in the firewall. To use the VMS's MediaMTX instead, set `RTSP_PUBLISH_URL`. The bundled one then doesn't start.
+- **Supervised:** if Chrome, a page, ffmpeg or MediaMTX dies, or a camera sends no video for 20 s, that part is restarted with a backoff (1 s, doubling, at most 30 s).
+- **GPU:** the log shows which GPU Chrome renders with (`camera infeed: WebGL renderer: …`). If it says SwiftShader, llvmpipe or *Microsoft Basic Render Driver*, Chrome has fallen back to software rendering, and the stream will stutter. On Windows this can happen when the server runs as a service (session 0). Run it in a logged-in session instead (for example, a Task Scheduler task at logon), or try `RTSP_CHROME_ARGS=--use-angle=d3d11`.
+- **Cost (Apple M4):** about 30 % of one CPU core per camera across Chrome, ffmpeg and MediaMTX.
+
 ## How it fits together
 
 ```
@@ -160,6 +188,8 @@ backoff.
 | `ws.ts` | WebSocket endpoint `/ws`: viewers, backpressure, pings, incoming messages |
 | `validate.ts` | Checks every message from viewers against the protocol |
 | `http.ts` | Static files (compression, caching), `/healthz`, or Vite's middleware in dev |
+| `cameras.ts` | RTSP camera streams: headless Chrome page and ffmpeg per camera, supervised |
+| `mediamtx.ts` | The bundled MediaMTX: config, start, restart |
 
 ### `src/sim` (headless, no DOM, runs on the server)
 
@@ -194,6 +224,7 @@ The browser uses only the config, geometry, protocol types and the command table
 | `build.ts`, `stage.ts`, `models.ts`, `textures.ts` | Materials and geometry helpers, renderer/camera/lights, glTF loading, canvas textures (numbers, DataMatrix) |
 | `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector, connection state |
 | `cameras.ts`, `monitor.ts` | Fixed monitoring cameras; camera selector, keys, auto-hide and camera label |
+| `capture.ts` | Capture mode for the RTSP streams: fixed-rate rendering, optional timestamp, MediaRecorder |
 
 ### `src/catchai` (reporting, runs on the server)
 

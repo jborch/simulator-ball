@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { connectRemote } from './sim/client';
 import { LINE } from './sim/config';
 import { trackLength } from './sim/track';
+import { CaptureFeed, captureParams } from './view/capture';
 import { Hud } from './view/hud';
 import { FrameBuffer } from './view/interp';
 import { LineView } from './view/line';
@@ -10,13 +11,19 @@ import { loadModels } from './view/models';
 import { Monitor } from './view/monitor';
 import { Stage } from './view/stage';
 
-const clientName = `browser-${Math.random().toString(36).slice(2, 6)}`;
+// `?capture=1`: opened by the server's headless Chrome to stream one camera over RTSP.
+const capture = captureParams();
+if (capture) document.body.classList.add('capture');
+const clientName = capture ? `camera-${new URLSearchParams(location.search).get('cam') ?? 'overview'}` : `browser-${Math.random().toString(36).slice(2, 6)}`;
 const client = connectRemote(clientName);
 const frames = new FrameBuffer(trackLength(LINE.track));
 const hud = new Hud(LINE, (c) => client.send(c));
 const stage = new Stage(document.querySelector('#view')!);
 const side = document.querySelector<HTMLElement>('#side')!;
-stage.setInsetRight(side.offsetWidth + 12, true);
+// The capture feed is the bare camera view: no panels to make room for, no DOM labels.
+const sideInset = () => (capture ? 0 : side.offsetWidth + 12);
+stage.showLabels = !capture;
+stage.setInsetRight(sideInset(), true);
 
 client.onFrame = (f) => frames.push(f, performance.now() / 1000);
 client.onEvents = (es) => hud.addEvents(es);
@@ -46,7 +53,7 @@ const models = await loadModels();
 const line = new LineView(LINE, models);
 stage.scene.add(line.group);
 const bounds = line.bounds();
-const monitor = new Monitor(LINE, stage, () => bounds, () => side.offsetWidth + 12);
+const monitor = new Monitor(LINE, stage, () => bounds, sideInset);
 new ResizeObserver(() => monitor.insetChanged()).observe(side);
 
 // Click a mover to inspect it; a ring marks the selection.
@@ -86,9 +93,14 @@ function loop() {
   }
   if (hud.selectedMover === null) ring.visible = false;
   stage.render();
-  requestAnimationFrame(loop);
+  feed?.frame();
+  if (!capture) requestAnimationFrame(loop);
 }
-loop();
+// A capture feed renders on its own steady clock (each render is one video frame); a screen
+// renders with the display.
+const feed = capture ? new CaptureFeed(stage.renderer.domElement, capture) : null;
+if (capture) setInterval(loop, 1000 / capture.fps);
+else loop();
 
 // Dev-only handle for poking at the scene from the console (e.g. moving the camera).
 if (import.meta.env.DEV) Object.assign(window, { THREE, line: { stage, view: line, client, frames, monitor } });

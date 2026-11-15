@@ -18,6 +18,8 @@ export class Stage {
   private size = { w: 1, h: 1 };
   private lastRender = 0;
   private resize: () => void;
+  /** Draw the DOM labels (off for a capture feed, which only records the canvas). */
+  showLabels = true;
   /** Called when the user starts orbiting/zooming: the view is no longer a fixed camera. */
   onUserMove?: () => void;
   /** Called after the canvas changes size. */
@@ -169,6 +171,6 @@ export class Stage {
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
-    this.labels.render(this.scene, this.camera);
+    if (this.showLabels) this.labels.render(this.scene, this.camera);
   }
 }

@@ -3,3 +3,5 @@ dist
 inspiration/
 *.local
 .env
+.cache/
+vendor/

@@ -599,3 +599,12 @@ body.ui-hidden #view {
 body.ui-hidden #osd {
   opacity: 1;
 }
+
+/* Capture feed (?capture=1, the server's RTSP camera streams): only the 3D view */
+body.capture > :not(#view),
+body.capture .labels {
+  display: none !important;
+}
+body.capture #view {
+  cursor: none;
+}
