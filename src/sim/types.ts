@@ -40,16 +40,19 @@ export interface Mover {
   lastLap: number | null;
 }
 
+/** What one robot does when it places its parts on the mover. */
+export type PlaceOp =
+  | { kind: 'load'; srId: number; mark: string }
+  | { kind: 'assemble'; parts: PartType[]; fragile: boolean; measure: QualityKey | null };
+
 /** What a station does to the mover in front of it, decided by the PLC. */
 export type Op =
-  | { kind: 'load'; srId: number; mark: string }
-  | { kind: 'assemble'; parts: PartType[]; fragile: boolean; measure: QualityKey | null }
+  /** One place op per placing robot, in the order the robots work. */
+  | { kind: 'place'; places: PlaceOp[] }
   | { kind: 'inspect'; measure: QualityKey; noise: number; readCode: boolean }
   | { kind: 'reject'; bin: string }
   | { kind: 'unload'; good: boolean; bin: string };
 
-/** Ops a robot carries out by placing parts on the mover. */
-export type PlaceOp = Extract<Op, { kind: 'load' | 'assemble' }>;
 export type InspectOp = Extract<Op, { kind: 'inspect' }>;
 
 export interface CycleResult {
@@ -84,16 +87,19 @@ export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
 
 /** One step of a robot job program. Targets are resolved when the step starts. */
 export type RobotStep =
-  | { k: 'z'; to: 'safe' | 'approach' | 'mover' | 'source' | 'drop' }
-  | { k: 'xy'; to: 'home' | 'source' | 'drop' }
+  /** 'lift': just clear of the part it let go of. */
+  | { k: 'z'; to: 'safe' | 'approach' | 'mover' | 'source' | 'drop' | 'lift' }
+  /** Back home and up to safe height in one blended move. */
+  | { k: 'leave' }
+  | { k: 'xy'; to: 'home' | 'mover' | 'source' | 'drop' }
   | { k: 'waitSource' }
   | { k: 'waitDrop' }
   | { k: 'grip'; from: 'source' | 'mover' }
   | { k: 'release'; to: 'mover' | 'drop' }
   /** Pushes the part home from the approach height to the mover in `mech` seconds (scaled by speed). */
   | { k: 'press'; mech: number }
-  | { k: 'dwell'; fixed: number; phase: 'laser' }
-  | { k: 'mark' };
+  /** Starts the station's laser marker on the body just placed (it marks while the robot moves on). */
+  | { k: 'mark'; seconds: number };
 
 export interface Robot {
   a: number;
@@ -110,11 +116,12 @@ export interface Robot {
   steps: RobotStep[];
   stepStarted: boolean;
   dwellMech: number;
+  /** Time left of a grip or release. */
   dwellFixed: number;
   /** Height the current press stroke started from. */
   pressFrom: number;
   /** What the current step is doing, for display. */
-  phase: 'idle' | 'move' | 'grip' | 'press' | 'laser' | 'starved' | 'blocked' | 'fault';
+  phase: 'idle' | 'move' | 'grip' | 'press' | 'starved' | 'blocked' | 'fault';
   holding: Held | null;
   /** Op applied when placing on a mover. */
   op: PlaceOp | null;
@@ -160,12 +167,15 @@ export interface TrayState {
   discharge: boolean;
 }
 
-/** A station's physical equipment: stop gate, RFID reader and either a robot or a camera. */
+/** A station's physical equipment: stop gate, RFID reader and either robots or a camera. */
 export interface PlantStation {
   id: string;
   gateClosed: boolean;
   reader: Reader;
-  robot: Robot | null;
+  /** One per robot in the station's definition, same order. */
+  robots: Robot[];
+  /** Laser marker at work on a body, if the station has one. Exposure time doesn't scale with speed. */
+  laser: { left: number; moverId: number; mark: string } | null;
   camera: Camera | null;
 }
 
@@ -194,7 +204,7 @@ export interface PlantState {
   trayQueue: number[];
 }
 
-export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
+export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitGroup' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
 export type StationStatus = 'waiting' | 'reading' | 'working' | 'passing' | 'stopped' | 'starved' | 'blocked' | 'fault';
 
 export interface PlcStation {
@@ -207,13 +217,17 @@ export interface PlcStation {
   tag: Tag | null;
   pendingTag: Tag | null;
   cycleStart: number;
-  /** A twin partner upstream has passed a mover to this station. */
-  reserved: boolean;
+  /** Mover that an upstream member of this station's N-up group has passed on to work here. */
+  reserved: number | null;
   /** Operation in progress, kept to build events when the cycle finishes. */
   op: Op | null;
+  /** Place ops: index of the robot whose turn it is. */
+  job: number;
+  /** What the station measured during the cycle (a camera, or the robot that measures). */
+  result: CycleResult | null;
   stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };
-  /** Last seen fault input, to emit events on change. */
-  faulted: boolean;
+  /** Last seen fault input of each robot (by robot id), to emit events on change. */
+  faulted: Record<string, boolean>;
   /** A pen picked off a mover that hasn't been dropped in its tray or bin yet; recorded when it has. */
   output: PendingOutput | null;
 }

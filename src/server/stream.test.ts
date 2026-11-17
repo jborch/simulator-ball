@@ -91,7 +91,7 @@ describe('parseToHost', () => {
   it('accepts valid messages and normalises the origin', () => {
     expect(parseToHost('{"type":"command","command":{"type":"hold"},"origin":"  me "}')).toEqual({ type: 'command', command: { type: 'hold' }, origin: 'me' });
     expect(parseToHost('{"type":"command","command":{"type":"start"}}')).toEqual({ type: 'command', command: { type: 'start' }, origin: 'viewer' });
-    expect(parseToHost('{"type":"command","command":{"type":"fault","target":"ST10"}}')?.type).toBe('command');
+    expect(parseToHost('{"type":"command","command":{"type":"fault","target":"EM11-BODY"}}')?.type).toBe('command');
     expect(parseToHost('{"type":"catchai","enabled":false}')).toEqual({ type: 'catchai', enabled: false });
     expect(parseToHost('{"type":"snapshot"}')).toEqual({ type: 'snapshot' });
   });

@@ -16,7 +16,7 @@ export type Command =
   | { type: 'endBatch' }
   | { type: 'batchSize'; size: number }
   | { type: 'autoBatch'; on: boolean }
-  /** Injects a fault on a station robot or feeder (by id) for testing and demos. */
+  /** Injects a fault on a robot or feeder (by id) for testing and demos. */
   | { type: 'fault'; target: string };
 
 export interface MoverFrame {
@@ -48,8 +48,11 @@ export interface StationFrame {
   moverId: number | null;
   /** 0..1 through the current cycle, null when not working. */
   progress: number | null;
-  robot: RobotFrame | null;
-  /** Seconds until a robot fault is repaired, or 0. */
+  /** The station's robots, in the order of its definition. */
+  robots: RobotFrame[];
+  /** The station's laser marker is firing. */
+  laser: boolean;
+  /** Seconds until the last robot fault is repaired, or 0. */
   fault: number;
   scrap: number;
 }

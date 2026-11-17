@@ -1,7 +1,7 @@
 // Turns a finished station cycle into the new tag contents and MES records (ItemProcessed /
 // ItemsMerged), and keeps counters (good, rejected, batch, tray, nest) up to date.
 import type { LineConfig, StationDef } from './config';
-import { carrierId, emit, measurementName, now, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
+import { carrierId, emit, measurementName, now, placers, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, SimState, Tag } from './types';
 
@@ -52,30 +52,36 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
   const identifier = (pen: number) => s.mes.identifiers[pen];
 
   switch (op.kind) {
-    case 'load':
-      emit(s, { kind: 'processed', process, scopedId: op.srId, itemType: 'Pen', from, to, carrier, identifier: op.mark, properties: { 'Mover Id': carrier } });
-      return { srId: op.srId, status: 'ok', done: ['body'], reason: null };
-
-    case 'assemble': {
-      const pen = tag.srId!;
-      const source = sourceProcessId(cfg, def);
-      for (const part of op.parts) {
-        const partId = ++s.plc.srCounter;
-        const partType = part[0].toUpperCase() + part.slice(1);
-        if (part === 'cartridge') {
-          // Cartridges are unpacked from the station's nest (1 nest → N cartridges).
-          const nest = s.plc.nests[def.id];
-          if (nest.used >= cfg.nestSize) {
-            nest.srId = ++s.plc.srCounter;
-            nest.used = 0;
-          }
-          emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourceType: 'Nest', sourcePosition: nest.used++ });
+    case 'place': {
+      let tag = copyTag(st.tag!);
+      const robots = placers(def);
+      op.places.forEach((place, k) => {
+        if (place.kind === 'load') {
+          // A new pen: its SR id and identifier go on the tag.
+          tag = { srId: place.srId, status: 'ok', done: [], reason: null };
         } else {
-          emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to });
+          const pen = tag.srId!;
+          const source = sourceProcessId(cfg, def, robots[k]);
+          for (const part of place.parts) {
+            const partId = ++s.plc.srCounter;
+            const partType = part[0].toUpperCase() + part.slice(1);
+            if (part === 'cartridge') {
+              // Cartridges are unpacked from the station's nest (1 nest → N cartridges).
+              const nest = s.plc.nests[def.id];
+              if (nest.used >= cfg.nestSize) {
+                nest.srId = ++s.plc.srCounter;
+                nest.used = 0;
+              }
+              emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourceType: 'Nest', sourcePosition: nest.used++ });
+            } else {
+              emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to });
+            }
+            emit(s, { kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
+          }
         }
-        emit(s, { kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
-      }
-      tag.done.push(def.step!);
+        if (robots[k].step) tag.done.push(robots[k].step!);
+      });
+      const pen = tag.srId!;
       let props: Props = { 'Mover Id': carrier };
       let verdict: 'Passed' | 'Failed' | undefined;
       if (def.inspect) {

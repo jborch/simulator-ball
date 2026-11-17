@@ -23,7 +23,7 @@ function run(seconds: number, mutate?: (c: LineConfig) => void): { cfg: LineConf
   for (let t = 0; t < seconds; t += 0.5) {
     sim.advance(0.5);
     if (Math.abs(t - 100) < 0.25) {
-      sim.command({ type: 'fault', target: 'ST20' });
+      sim.command({ type: 'fault', target: 'EM11-SPRING' });
       sim.command({ type: 'fault', target: 'springs' });
     }
     events.push(...sim.drainEvents());
@@ -171,8 +171,8 @@ describe('CATCH.AI mapping', () => {
     for (const p of pens) byPen.set(p.ScopedId, (byPen.get(p.ScopedId) ?? new Set()).add(p.ItemIdentifier!));
     for (const ids of byPen.values()) expect(ids.size).toBe(1);
     // Inspections report a result, using the server's codes (Failed 0, Passed 1).
-    const st30 = items.filter((i) => i.Process === `${cfg.id}-ST30`);
-    expect(new Set(st30.map((i) => i.ItemResult))).toEqual(new Set([0, 1]));
+    const em12 = items.filter((i) => i.Process === `${cfg.id}-UN01-EM12`);
+    expect(new Set(em12.map((i) => i.ItemResult))).toEqual(new Set([0, 1]));
 
     const key = (process: string, t: string) => `${process}@${t}`;
     const itemTimes = [...items.map((i) => key(i.Process, i.From)), ...merges.map((x) => key(x.Process, x.Logged))];
@@ -212,7 +212,11 @@ describe('Reporter', () => {
     expect(st.queued).toBe(0);
     expect(st.rejected).toBe(0);
     expect(server.devices[0].DeviceId).toBe(cfg.id);
-    expect(server.devices.slice(1).every((d) => d.ParentDeviceId === cfg.id)).toBe(true);
+    // Line → units → equipment; every parent is created before its children.
+    const units = server.devices.filter((d) => d.ParentDeviceId === cfg.id).map((d) => d.DeviceId);
+    expect(units).toEqual(cfg.units.map((u) => `${cfg.id}-${u.id}`));
+    server.devices.slice(1).forEach((d, i) => expect(server.devices.slice(0, i + 1).map((x) => x.DeviceId)).toContain(d.ParentDeviceId));
+    expect(server.devices.slice(1 + units.length).every((d) => units.includes(d.ParentDeviceId!))).toBe(true);
     expect(server.scopes).toEqual([{ Identifier: cfg.id, DeviceId: cfg.id, PeriodTypeId: 1 }]);
     // The genealogy view covers every merge the line reports.
     const rel = new Set(server.itemViews[0].Relations.map((r) => JSON.stringify(r)));

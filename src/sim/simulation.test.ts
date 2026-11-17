@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LINE } from './config';
 import { gtinWithCheck } from './gs1';
+import { processId, stationById } from './machine';
 import { Simulation } from './simulation';
 import { steadyConfig } from './testing';
 import { forward, pose, trackLength } from './track';
@@ -23,8 +24,14 @@ function collect(sim: Simulation, seconds: number, into: SimEvent[] = []): SimEv
   return into;
 }
 
+/** Process id of a station, optionally with a suffix: 'EM60-REJECT' → 'L07-UN03-EM60-REJECT'. */
+const pid = (id: string) => {
+  const [station, ...rest] = id.split('-');
+  return [processId(LINE, stationById(LINE, station)), ...rest].join('-');
+};
+
 const processed = (es: SimEvent[], process?: string) =>
-  es.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && (!process || e.process === `${LINE.id}-${process}`));
+  es.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && (!process || e.process === pid(process)));
 
 describe('track', () => {
   test('pose is continuous across segment boundaries', () => {
@@ -83,21 +90,21 @@ describe('steady production (60 min)', () => {
     sim.drainEvents();
     events = collect(sim, minutes * 60);
     const { good, rejected, rejectsByCause } = sim.state.mes;
-    const a = processed(events, 'ST40A').filter((e) => e.itemType === 'Pen').length;
-    const b = processed(events, 'ST40B').filter((e) => e.itemType === 'Pen').length;
-    console.log(`60 min: ${good} good, ${rejected} rejected (${((100 * rejected) / (good + rejected)).toFixed(2)} %), ST40A ${a} / ST40B ${b}`, rejectsByCause);
+    const a = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen').length;
+    const b = processed(events, 'EM41B').filter((e) => e.itemType === 'Pen').length;
+    console.log(`60 min: ${good} good, ${rejected} rejected (${((100 * rejected) / (good + rejected)).toFixed(2)} %), EM41A ${a} / EM41B ${b}`, rejectsByCause);
   }, 120_000);
 
   test('throughput is around 21 pens/min with the twin station as bottleneck', () => {
-    const out = processed(events, 'ST70').length + processed(events, 'ST70-REJECT').length + processed(events, 'R1').length;
+    const out = processed(events, 'EM60').length + processed(events, 'EM60-REJECT').length + processed(events, 'R1').length;
     const perMin = out / minutes;
     expect(perMin).toBeGreaterThan(19);
     expect(perMin).toBeLessThan(24);
   });
 
-  test('ST70 reports packed pens on its own process and rejects on its reject bin', () => {
-    const packed = processed(events, 'ST70');
-    const binned = processed(events, 'ST70-REJECT');
+  test('EM60 reports packed pens on its own process and rejects on its reject bin', () => {
+    const packed = processed(events, 'EM60');
+    const binned = processed(events, 'EM60-REJECT');
     expect(packed.length).toBeGreaterThan(0);
     expect(binned.length).toBeGreaterThan(0);
     for (const e of packed) expect(e.properties?.['Tray Position']).toBeDefined();
@@ -112,8 +119,8 @@ describe('steady production (60 min)', () => {
   });
 
   test('twin stations share the work and process at the same time', () => {
-    const a = processed(events, 'ST40A').filter((e) => e.itemType === 'Pen');
-    const b = processed(events, 'ST40B').filter((e) => e.itemType === 'Pen');
+    const a = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen');
+    const b = processed(events, 'EM41B').filter((e) => e.itemType === 'Pen');
     const share = a.length / (a.length + b.length);
     expect(share).toBeGreaterThan(0.35);
     expect(share).toBeLessThan(0.65);
@@ -121,9 +128,9 @@ describe('steady production (60 min)', () => {
     expect(overlapping.length / a.length).toBeGreaterThan(0.8);
   });
 
-  test('fragile ST40B pushes seating-depth rejects up', () => {
-    const viaB = new Set(processed(events, 'ST40B').map((e) => e.scopedId));
-    const final = processed(events, 'ST60');
+  test('fragile EM41B pushes seating-depth rejects up', () => {
+    const viaB = new Set(processed(events, 'EM41B').map((e) => e.scopedId));
+    const final = processed(events, 'EM50');
     const rate = (xs: ItemProcessedEvent[]) => xs.filter((e) => e.result === 'Failed').length / xs.length;
     expect(rate(final.filter((e) => viaB.has(e.scopedId)))).toBeGreaterThan(rate(final.filter((e) => !viaB.has(e.scopedId))));
   });
@@ -138,12 +145,12 @@ describe('steady production (60 min)', () => {
 
   test('each good pen has full genealogy: spring, cartridge (from a nest), housing, cap and a tray', () => {
     const merged = events.filter((e): e is ItemsMergedEvent => e.kind === 'merged');
-    const goods = processed(events, 'ST70').filter((e) => e.itemType === 'Pen' && e.properties?.['Tray Position'] !== undefined);
+    const goods = processed(events, 'EM60').filter((e) => e.itemType === 'Pen' && e.properties?.['Tray Position'] !== undefined);
     const byTarget = new Map<number, string[]>();
     for (const e of merged) byTarget.set(e.target, [...(byTarget.get(e.target) ?? []), e.sourceType]);
     const trayed = new Set(merged.filter((e) => e.sourceType === 'Pen').map((e) => e.source));
     // Pens loaded before the collection window started miss early merges; check those fully inside it.
-    const loaded = new Set(processed(events, 'ST10').map((e) => e.scopedId));
+    const loaded = new Set(processed(events, 'EM11').map((e) => e.scopedId));
     const inside = goods.filter((g) => loaded.has(g.scopedId));
     expect(inside.length).toBeGreaterThan(500);
     for (const g of inside) {
@@ -154,18 +161,18 @@ describe('steady production (60 min)', () => {
     expect(cartridges.every((c) => c.sourceScopedId !== undefined && c.sourcePosition! < LINE.nestSize)).toBe(true);
   });
 
-  test('ST10 marks a GS1 identifier and ST60 reads it back', () => {
-    const marks = new Map(processed(events, 'ST10').map((e) => [e.scopedId, e.identifier]));
+  test('EM11 marks a GS1 identifier and EM50 reads it back', () => {
+    const marks = new Map(processed(events, 'EM11').map((e) => [e.scopedId, e.identifier]));
     const gtin = gtinWithCheck(LINE.gs1.gtin);
     for (const id of marks.values()) expect(id).toMatch(new RegExp(`^\\(01\\)${gtin}\\(17\\)\\d{6}\\(10\\)B\\d{6}\\(21\\)[0-9A-Z]{12}$`));
-    const reads = processed(events, 'ST60').filter((e) => marks.has(e.scopedId) && e.properties?.['Code Read']);
+    const reads = processed(events, 'EM50').filter((e) => marks.has(e.scopedId) && e.properties?.['Code Read']);
     expect(reads.length).toBeGreaterThan(500);
     for (const r of reads) expect(r.properties!['Code Read']).toBe(marks.get(r.scopedId));
   });
 
   test('event timestamps follow sim time and cycles take real time', () => {
-    const st40 = processed(events, 'ST40A').filter((e) => e.itemType === 'Pen');
-    for (const e of st40) expect(e.to - e.from).toBeGreaterThanOrEqual(LINE.stations.find((s) => s.id === 'ST40A')!.mech * 1000 - 1);
+    const em41 = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen');
+    for (const e of em41) expect(e.to - e.from).toBeGreaterThanOrEqual(stationById(LINE, 'EM41A').robots![0].mech * 1000 - 1);
   });
 });
 
@@ -212,9 +219,9 @@ describe('machine control', () => {
     expect(sim.command({ type: 'abort' })).toBe(true);
     sim.advance(0.02);
     expect(sim.state.plant.beltSpeed).toBe(0);
-    const frozen = JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robot?.steps));
+    const frozen = JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robots.map((r) => r.steps)));
     sim.advance(5);
-    expect(JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robot?.steps))).toBe(frozen);
+    expect(JSON.stringify(sim.state.plant.stations.map((s) => s.camera?.cycle ?? s.robots.map((r) => r.steps)))).toBe(frozen);
     expect(sim.command({ type: 'start' })).toBe(false);
     expect(sim.command({ type: 'reset' })).toBe(true);
     expect(sim.state.plc.machine).toBe('Stopped');

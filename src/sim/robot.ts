@@ -4,21 +4,21 @@
 // axes scaled by machine speed. All physical effects (parts leaving feeders, landing on movers,
 // falling into bins) happen here, at grip and release.
 import { moverById, placeOnMover } from './assembly';
-import type { LineConfig, StationDef } from './config';
+import type { LineConfig, RobotDef, StationDef } from './config';
 import { nextFailure, repairTime } from './devices';
 import { nestPocket, seatedTip, trayPocket } from './layout';
 import { type RngState, random } from './rng';
 import type { Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
 
-export function createRobot(safeZ: number, nextFault: number): Robot {
+export function createRobot(safeZ: number, home: number, nextFault: number): Robot {
   return {
-    a: 0,
+    a: home,
     r: 0,
     z: safeZ,
     va: 0,
     vr: 0,
     vz: 0,
-    ta: 0,
+    ta: home,
     tr: 0,
     tz: safeZ,
     job: null,
@@ -46,10 +46,14 @@ interface Target {
   z: number;
 }
 
-function sourcePos(cfg: LineConfig, def: StationDef, robot: Robot): Target {
-  if (def.source === 'nest') return { ...nestPocket(cfg, robot.slot ?? 0), z: cfg.layout.z.nest };
-  const feeder = cfg.feeders.find((f) => f.id === def.source)!;
-  return { a: 0, r: cfg.layout.feederR, z: feeder.pickZ };
+/** A robot's part source sits at its home along the belt. */
+function sourcePos(cfg: LineConfig, rdef: RobotDef, robot: Robot): Target {
+  if (rdef.source === 'nest') {
+    const p = nestPocket(cfg, robot.slot ?? 0);
+    return { a: rdef.home + p.a, r: p.r, z: cfg.layout.z.nest };
+  }
+  const feeder = cfg.feeders.find((f) => f.id === rdef.source)!;
+  return { a: rdef.home, r: cfg.layout.feederR, z: feeder.pickZ };
 }
 
 function dropPos(cfg: LineConfig, robot: Robot): Target {
@@ -59,23 +63,25 @@ function dropPos(cfg: LineConfig, robot: Robot): Target {
 }
 
 /** Gripper height for placing this station's parts on a mover, or for picking up the pen on it. */
-function moverHeight(p: PlantState, cfg: LineConfig, def: StationDef, robot: Robot): number {
-  if (robot.job === 'place') return seatedTip(cfg, def.parts!);
+function moverHeight(p: PlantState, cfg: LineConfig, rdef: RobotDef, robot: Robot): number {
+  if (robot.job === 'place') return seatedTip(cfg, rdef.parts!);
   return seatedTip(cfg, moverById(p, robot.moverId).load?.parts ?? ['body']);
 }
 
-function height(p: PlantState, cfg: LineConfig, def: StationDef, robot: Robot, to: Extract<RobotStep, { k: 'z' }>['to']): number {
+function height(p: PlantState, cfg: LineConfig, rdef: RobotDef, robot: Robot, to: Extract<RobotStep, { k: 'z' }>['to']): number {
   switch (to) {
     case 'safe':
       return cfg.layout.z.safe;
     case 'approach':
-      return moverHeight(p, cfg, def, robot) + (def.insert ?? 0);
+      return moverHeight(p, cfg, rdef, robot) + (rdef.insert ?? 0);
     case 'mover':
-      return moverHeight(p, cfg, def, robot);
+      return moverHeight(p, cfg, rdef, robot);
     case 'source':
-      return sourcePos(cfg, def, robot).z;
+      return sourcePos(cfg, rdef, robot).z;
     case 'drop':
       return dropPos(cfg, robot).z;
+    case 'lift':
+      return robot.z + cfg.robot.lift;
   }
 }
 
@@ -95,25 +101,27 @@ const PROGRAMS: Record<Exclude<RobotJob, 'place'>, RobotStep[]> = {
     { k: 'z', to: 'safe' },
     { k: 'xy', to: 'home' },
   ],
-  pickMover: [{ k: 'xy', to: 'home' }, { k: 'z', to: 'mover' }, { k: 'grip', from: 'mover' }, { k: 'z', to: 'safe' }],
+  pickMover: [{ k: 'xy', to: 'mover' }, { k: 'z', to: 'mover' }, { k: 'grip', from: 'mover' }, { k: 'z', to: 'safe' }],
   drop: [{ k: 'waitDrop' }, { k: 'xy', to: 'drop' }, { k: 'z', to: 'drop' }, { k: 'release', to: 'drop' }, { k: 'z', to: 'safe' }, { k: 'xy', to: 'home' }],
 };
 
 /**
- * Place: down to just above the mover, push the part home (slowly when the station has a press
- * time), let go, back up; the load station then laser-marks.
+ * Place: over the mover, down to just above it, push the part home (slowly when the robot has a
+ * press time), let go, lift clear (starting the laser marker on a loaded body), then climb back
+ * home in one blended move.
  */
-function placeProgram(def: StationDef): RobotStep[] {
-  const steps: RobotStep[] = [{ k: 'z', to: 'approach' }];
-  steps.push(def.mech > 0 ? { k: 'press', mech: def.mech } : { k: 'z', to: 'mover' });
-  steps.push({ k: 'release', to: 'mover' }, { k: 'z', to: 'safe' });
-  if (def.kind === 'load') steps.push({ k: 'dwell', fixed: def.fixed, phase: 'laser' }, { k: 'mark' });
+function placeProgram(rdef: RobotDef): RobotStep[] {
+  const steps: RobotStep[] = [{ k: 'xy', to: 'mover' }, { k: 'z', to: 'approach' }];
+  steps.push(rdef.mech > 0 ? { k: 'press', mech: rdef.mech } : { k: 'z', to: 'mover' });
+  steps.push({ k: 'release', to: 'mover' }, { k: 'z', to: 'lift' });
+  if (rdef.laser) steps.push({ k: 'mark', seconds: rdef.laser });
+  steps.push({ k: 'leave' });
   return steps;
 }
 
-export function startJob(robot: Robot, def: StationDef, job: RobotJob, args: JobArgs = {}): void {
+export function startJob(robot: Robot, rdef: RobotDef, job: RobotJob, args: JobArgs = {}): void {
   robot.job = job;
-  robot.steps = job === 'place' ? placeProgram(def) : [...PROGRAMS[job]];
+  robot.steps = job === 'place' ? placeProgram(rdef) : [...PROGRAMS[job]];
   robot.stepStarted = false;
   robot.result = null;
   if (args.op) robot.op = args.op;
@@ -153,8 +161,8 @@ function nestFor(p: PlantState, def: StationDef): Nest {
   return p.nests.find((n) => n.station === def.id)!;
 }
 
-function feederFor(p: PlantState, def: StationDef): Feeder {
-  return p.feeders.find((f) => f.id === def.source)!;
+function feederFor(p: PlantState, rdef: RobotDef): Feeder {
+  return p.feeders.find((f) => f.id === rdef.source)!;
 }
 
 /** Counts down a timed step (grip/release); true when it's over. */
@@ -165,7 +173,7 @@ function timer(robot: Robot, seconds: number, dt: number): boolean {
 }
 
 /** Advances a station robot one plant step. */
-export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, robot: Robot, dt: number): void {
+export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, rdef: RobotDef, robot: Robot, dt: number): void {
   // An axis fault freezes the robot until the (simulated) operator has repaired it.
   if (robot.fault > 0) {
     robot.phase = 'fault';
@@ -197,7 +205,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       if (!robot.stepStarted) {
         robot.ta = robot.a;
         robot.tr = robot.r;
-        robot.tz = height(p, cfg, def, robot, step.to);
+        robot.tz = height(p, cfg, rdef, robot, step.to);
       }
       robot.phase = 'move';
       finished = moveAxes(robot, cfg, p.speed, dt);
@@ -205,7 +213,8 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
 
     case 'xy':
       if (!robot.stepStarted) {
-        const t = step.to === 'home' ? { a: 0, r: 0 } : step.to === 'source' ? sourcePos(cfg, def, robot) : dropPos(cfg, robot);
+        const t =
+          step.to === 'home' ? { a: rdef.home, r: 0 } : step.to === 'mover' ? { a: 0, r: 0 } : step.to === 'source' ? sourcePos(cfg, rdef, robot) : dropPos(cfg, robot);
         robot.ta = t.a;
         robot.tr = t.r;
         robot.tz = robot.z;
@@ -214,8 +223,18 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       finished = moveAxes(robot, cfg, p.speed, dt);
       break;
 
+    case 'leave':
+      if (!robot.stepStarted) {
+        robot.ta = rdef.home;
+        robot.tr = 0;
+        robot.tz = cfg.layout.z.safe;
+      }
+      robot.phase = 'move';
+      finished = moveAxes(robot, cfg, p.speed, dt);
+      break;
+
     case 'waitSource':
-      if (def.source === 'nest') {
+      if (rdef.source === 'nest') {
         const nest = nestFor(p, def);
         const slot = nest.changing > 0 ? -1 : nest.slots.indexOf(1);
         if (slot >= 0) {
@@ -224,7 +243,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
           finished = true;
         }
       } else {
-        const f = feederFor(p, def);
+        const f = feederFor(p, rdef);
         finished = f.items.length > 0 && f.items[0] === 0;
       }
       robot.phase = finished ? 'move' : 'starved';
@@ -248,12 +267,12 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         const m = moverById(p, robot.moverId);
         robot.holding = m.load ? { kind: 'pen', load: m.load } : null;
         m.load = null;
-      } else if (def.source === 'nest') {
+      } else if (rdef.source === 'nest') {
         nestFor(p, def).slots[robot.slot!] = 0;
         robot.holding = { kind: 'part', parts: ['cartridge'] };
       } else {
-        feederFor(p, def).items.shift();
-        robot.holding = { kind: 'part', parts: [...(def.parts ?? [])] };
+        feederFor(p, rdef).items.shift();
+        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])] };
       }
       break;
 
@@ -272,7 +291,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         robot.pressFrom = robot.z;
         robot.ta = robot.a;
         robot.tr = robot.r;
-        robot.tz = moverHeight(p, cfg, def, robot);
+        robot.tz = moverHeight(p, cfg, rdef, robot);
       }
       robot.phase = 'press';
       robot.dwellMech = Math.max(0, robot.dwellMech - dt * p.speed);
@@ -283,16 +302,9 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       break;
     }
 
-    case 'dwell':
-      if (!robot.stepStarted) robot.dwellFixed = step.fixed;
-      robot.phase = step.phase;
-      robot.dwellFixed -= dt;
-      finished = robot.dwellFixed <= 0;
-      break;
-
     case 'mark': {
-      const load = moverById(p, robot.moverId).load;
-      if (load && robot.op?.kind === 'load') load.mark = robot.op.mark;
+      const ps = p.stations.find((x) => x.id === def.id)!;
+      if (robot.op?.kind === 'load') ps.laser = { left: step.seconds, moverId: robot.moverId, mark: robot.op.mark };
       finished = true;
       break;
     }
@@ -329,6 +341,14 @@ function drop(p: PlantState, robot: Robot): void {
     else p.tray.count++;
   }
   robot.dropped = true;
+}
+
+/**
+ * The robot is done with the mover: idle, or only travelling back home at safe height. The next
+ * robot of the station may move in then (the arms come from opposite sides).
+ */
+export function leftMover(robot: Robot): boolean {
+  return robot.job === null || (robot.job === 'place' && robot.steps.every((st) => st.k === 'leave'));
 }
 
 /** The gripper is up at safe height, clear of nests, trays and movers. */

@@ -15,33 +15,58 @@ export interface Limits {
   cause: string;
 }
 
-export interface StationDef {
+export interface UnitDef {
+  /** Unit id as in the original line, e.g. "UN01". */
   id: string;
   name: string;
+}
+
+/**
+ * A pick-and-place robot of a station. A station can have several; they work on the mover one
+ * after the other, in the order listed, each on its own arm of the station's gantry.
+ */
+export interface RobotDef {
+  /** Unique on the line: fault injection target and fault events. */
+  id: string;
+  /** Where the arm waits along the belt (station-local a); its part source sits there too. */
+  home: number;
+  /** Where it picks parts: a feeder id or the station's cartridge nest. Pickers (reject, unload) have none. */
+  source?: string;
+  parts?: PartType[];
+  /** Step written to the mover tag once this robot has placed its parts ('body' loads a new pen). */
+  step?: Step;
+  /**
+   * How far above its seated position the part is brought before it is pushed home. The push
+   * takes `mech` seconds at 100 % speed (fast z move when mech is 0); robot travel comes on top.
+   */
+  insert?: number;
+  mech: number;
+  /** Laser-marks the placed body for this many seconds (doesn't scale with speed). */
+  laser?: number;
+}
+
+export interface StationDef {
+  /** Station id as in the original line (e.g. "EM12"), plus R1/R2 for our reject stations. */
+  id: string;
+  name: string;
+  unit: string;
   kind: StationKind;
   /** Stop gate position along the loop (mover centre stops here). */
   s: number;
-  /**
-   * Process time at 100 % speed that scales with machine speed. For robot stations this is the
-   * press/insert dwell with the part held down on the mover; robot travel comes on top.
-   */
+  /** Camera stations: process time at 100 % speed that scales with machine speed. */
   mech: number;
-  /** Process time that doesn't scale (camera exposure, laser marking). */
+  /** Camera stations: process time that doesn't scale (exposure). */
   fixed: number;
-  /** Where the station's robot picks parts: a feeder id or the shared cartridge nest. */
-  source?: string;
-  /** Step written to the mover tag when this station completes. */
+  robots?: RobotDef[];
+  /** Camera stations: step written to the mover tag when the inspection completes. */
   step?: Step;
   requires?: Step[];
-  parts?: PartType[];
   inspect?: Limits;
   /**
-   * Robot stations: how far above its seated position the part is brought before it is pushed
-   * home. The push takes `mech` seconds (fast z move when mech is 0).
+   * N-up group on one belt: the members (in loop order) take consecutive movers and work at the
+   * same time. A member passes a mover on to the furthest free member downstream.
    */
-  insert?: number;
-  /** Downstream partner of a same-belt twin station; this station passes movers to it when it's free. */
-  twin?: string;
+  group?: string;
   /** Degrades the assembly it touches (like EM14B in the C# sim). */
   fragile?: boolean;
   /** Also verifies the DataMatrix identifier against tracking. */
@@ -56,6 +81,12 @@ const BOTTOM = STRAIGHT + Math.PI * RADIUS;
 export const LINE = {
   id: 'L07',
   name: 'Pen assembly line',
+  /** Units of the original line; every station, feeder and nest belongs to one. */
+  units: [
+    { id: 'UN01', name: 'Spring and spring base' },
+    { id: 'UN02', name: 'Housing and final assembly' },
+    { id: 'UN03', name: 'Tray packing' },
+  ] satisfies UnitDef[] as UnitDef[],
   track: { straight: STRAIGHT, radius: RADIUS },
   belt: {
     /** Nominal belt speed at 100 % machine speed. */
@@ -100,9 +131,9 @@ export const LINE = {
   trayChange: 3,
   /** Bowl feeders push parts onto a linear track toward the robot's pick point. */
   feeders: [
-    { id: 'bodies', part: 'body', interval: 1.0, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
-    { id: 'springs', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.22 },
-    { id: 'housings', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
+    { id: 'bodies', unit: 'UN01', part: 'body', interval: 1.0, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
+    { id: 'springs', unit: 'UN01', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.22 },
+    { id: 'housings', unit: 'UN02', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
   ] as FeederDef[],
   /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
   faults: {
@@ -125,13 +156,13 @@ export const LINE = {
     pause: 20,
   },
   /** Cartesian pick-and-place robots: along belt (a), across belt toward the outside (r), height (z). */
-  robot: { vH: 2.0, aH: 12, vZ: 1.0, aZ: 12, gripTime: 0.08 },
+  robot: { vH: 2.0, aH: 12, vZ: 1.0, aZ: 12, gripTime: 0.08, lift: 0.02 },
   /** Device positions in station-local coordinates (a along travel, r outward from belt centre), metres. */
   layout: {
     feederR: 0.32,
     /** Each nest-fed station has its own nest, in station-local coordinates. */
     nest: { a: 0, r: 0.34, cols: 6, rows: 4, pitch: 0.016 },
-    tray: { station: 'ST70', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
+    tray: { station: 'EM60', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
     bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 } } as Record<string, { a: number; r: number }>,
     /**
      * Gripper tip heights above the belt surface. The gripper holds a part (or a pen) by its top,
@@ -141,24 +172,36 @@ export const LINE = {
   },
   gs1: { gtin: '0571234500001', expiryYears: 3 },
   stations: [
-    { id: 'ST10', name: 'Laser mark + load body', kind: 'load', s: 0.35, mech: 0, fixed: 0.3, step: 'body', parts: ['body'], source: 'bodies', insert: 0.03 },
-    { id: 'ST20', name: 'Mount spring', kind: 'assemble', s: 0.85, mech: 0.3, fixed: 0, step: 'spring', requires: ['body'], parts: ['spring'], source: 'springs', insert: 0.11 },
     {
-      id: 'ST30', name: 'Spring inspection', kind: 'inspect', s: 1.35, mech: 0.3, fixed: 0.5, step: 'springInsp', requires: ['spring'],
+      id: 'EM11', name: 'Load body + mount spring', unit: 'UN01', kind: 'load', s: 0.6, mech: 0, fixed: 0,
+      robots: [
+        { id: 'EM11-BODY', home: -0.15, source: 'bodies', parts: ['body'], step: 'body', insert: 0.03, mech: 0, laser: 0.3 },
+        { id: 'EM11-SPRING', home: 0.15, source: 'springs', parts: ['spring'], step: 'spring', insert: 0.11, mech: 0.3 },
+      ],
+    },
+    {
+      id: 'EM12', name: 'Measure spring angle', unit: 'UN01', kind: 'inspect', s: 1.35, mech: 0.3, fixed: 0.5, step: 'springInsp', requires: ['spring'],
       inspect: { key: 'springAngle', lower: 35, upper: 55, noise: 0.4, unit: 'deg', cause: 'Spring angle out of tolerance' },
     },
-    { id: 'R1', name: 'Early reject', kind: 'reject', s: 1.85, mech: 0, fixed: 0, bin: 'BIN1' },
-    { id: 'ST40A', name: 'Insert cartridge A', kind: 'assemble', s: 2.45, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', insert: 0.065, twin: 'ST40B' },
-    { id: 'ST40B', name: 'Insert cartridge B', kind: 'assemble', s: 2.7, mech: 3.0, fixed: 0, step: 'cartridge', requires: ['springInsp'], parts: ['cartridge'], source: 'nest', insert: 0.065, fragile: true },
+    { id: 'R1', name: 'Early reject', unit: 'UN01', kind: 'reject', s: 1.85, mech: 0, fixed: 0, bin: 'BIN1', robots: [{ id: 'R1', home: 0, mech: 0 }] },
     {
-      id: 'ST50', name: 'Mount housing + cap', kind: 'assemble', s: BOTTOM + 0.6, mech: 0.6, fixed: 0, step: 'housing', requires: ['cartridge'], parts: ['housing', 'cap'], source: 'housings', insert: 0.11,
+      id: 'EM41A', name: 'Insert cartridge A', unit: 'UN02', kind: 'assemble', s: 2.45, mech: 0, fixed: 0, requires: ['springInsp'], group: 'EM41',
+      robots: [{ id: 'EM41A', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
+    },
+    {
+      id: 'EM41B', name: 'Insert cartridge B', unit: 'UN02', kind: 'assemble', s: 2.7, mech: 0, fixed: 0, requires: ['springInsp'], group: 'EM41', fragile: true,
+      robots: [{ id: 'EM41B', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
+    },
+    {
+      id: 'EM40', name: 'Mount housing + cap', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.6, mech: 0, fixed: 0, requires: ['cartridge'],
+      robots: [{ id: 'EM40', home: 0, source: 'housings', parts: ['housing', 'cap'], step: 'housing', insert: 0.11, mech: 0.6 }],
       inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window' },
     },
     {
-      id: 'ST60', name: 'Final vision', kind: 'inspect', s: BOTTOM + 1.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
+      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 1.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
       inspect: { key: 'seatDepth', lower: -0.3, upper: 0.3, noise: 0.02, unit: 'mm', cause: 'Cartridge seating depth' },
     },
-    { id: 'ST70', name: 'Unload to tray', kind: 'unload', s: BOTTOM + 2.3, mech: 0, fixed: 0, bin: 'BIN2' },
+    { id: 'EM60', name: 'Pen to tray', unit: 'UN03', kind: 'unload', s: BOTTOM + 2.3, mech: 0, fixed: 0, bin: 'BIN2', robots: [{ id: 'EM60', home: 0, mech: 0 }] },
   ] satisfies StationDef[] as StationDef[],
   /** True quality of each assembly step (mean, σ) plus mover fixture and fragile-station effects. */
   quality: {
@@ -206,6 +249,7 @@ export interface MoverProfile {
 
 export interface FeederDef {
   id: string;
+  unit: string;
   part: PartType;
   /** Mean seconds between parts leaving the bowl (jittered ±40 %). */
   interval: number;

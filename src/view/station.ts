@@ -13,7 +13,7 @@ export class StationView {
   readonly scrap: ScrapView;
   private readonly inspection: InspectionView | null = null;
   readonly robot: RobotView | null = null;
-  readonly feeder: FeederView | null = null;
+  readonly feeders: FeederView[] = [];
   readonly nest: NestView | null = null;
   readonly tray: TrayView | null = null;
   readonly bin: BinView | null = null;
@@ -37,12 +37,22 @@ export class StationView {
     } else {
       const reach = StationView.reach(cfg, def);
       const beamR = StationView.beamR(cfg, def, reach);
-      this.robot = new RobotView(reach, beamR, StationView.lowestTip(cfg, def), cfg, models, def.kind === 'load');
+      const robots = def.robots ?? [];
+      this.robot = new RobotView(reach, beamR, StationView.lowestTip(cfg, def), cfg, models, robots.length, robots.some((r) => r.laser));
       this.group.add(this.robot.group);
       lightAt = { a: reach.aMin - 0.01, r: beamR, y: RAIL_Y + 0.02 };
     }
-    if (def.source === 'nest') this.nest = new NestView(cfg, models);
-    else if (def.source) this.feeder = new FeederView(def.source, def.parts ?? [], cfg, models);
+    // Each robot's part source sits at its home along the belt.
+    for (const r of def.robots ?? []) {
+      if (r.source === 'nest') {
+        this.nest = new NestView(cfg, models);
+        this.nest.group.position.x = r.home;
+      } else if (r.source) {
+        const feeder = new FeederView(r.source, r.parts ?? [], cfg, models);
+        feeder.group.position.x = r.home;
+        this.feeders.push(feeder);
+      }
+    }
     if (def.kind === 'unload') this.tray = new TrayView(cfg, models);
     if (def.bin) {
       // Early rejects are part-built pens; the unload station only rejects finished ones.
@@ -52,9 +62,11 @@ export class StationView {
       const b = cfg.layout.bins[def.bin];
       this.bin.group.position.copy(local(b.a, TABLE, b.r));
     }
-    const scrapPart = def.source === 'nest' ? models.cartridge : def.source === 'springs' ? models.spring : def.source === 'housings' ? models.housing : models.pen_body;
+    // What a robot drops when a part doesn't seat: the last part it places.
+    const source = def.robots?.filter((r) => r.source).at(-1)?.source;
+    const scrapPart = source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'housings' ? models.housing : models.pen_body;
     this.scrap = new ScrapView(scrapPart);
-    for (const part of [this.nest, this.feeder, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
+    for (const part of [this.nest, ...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
     // Stop gate pin just ahead of a resting mover's leading face.
     this.pin = cyl(0.008, 0.03, M.pin, 12);
@@ -87,9 +99,11 @@ export class StationView {
   private static lowestTip(cfg: LineConfig, def: StationDef): number {
     const z = cfg.layout.z;
     const tips = [z.safe];
-    if (def.parts) tips.push(seatedTip(cfg, def.parts));
-    if (def.source === 'nest') tips.push(z.nest);
-    else if (def.source) tips.push(cfg.feeders.find((f) => f.id === def.source)!.pickZ);
+    for (const r of def.robots ?? []) {
+      if (r.parts) tips.push(seatedTip(cfg, r.parts));
+      if (r.source === 'nest') tips.push(z.nest);
+      else if (r.source) tips.push(cfg.feeders.find((f) => f.id === r.source)!.pickZ);
+    }
     if (def.kind === 'reject' || def.kind === 'unload') tips.push(seatedTip(cfg, ['body']));
     if (def.bin) tips.push(z.bin);
     if (def.kind === 'unload') tips.push(z.tray);
@@ -107,8 +121,11 @@ export class StationView {
   /** Gantry extent covering every point the robot visits, plus margin. */
   private static reach(cfg: LineConfig, def: StationDef): Reach {
     const pts: { a: number; r: number }[] = [{ a: 0, r: 0 }];
-    if (def.source === 'nest') for (let i = 0; i < cfg.nestSize; i++) pts.push(nestPocket(cfg, i));
-    else if (def.source) pts.push({ a: 0, r: cfg.layout.feederR });
+    for (const r of def.robots ?? []) {
+      pts.push({ a: r.home, r: 0 });
+      if (r.source === 'nest') for (let i = 0; i < cfg.nestSize; i++) pts.push({ ...nestPocket(cfg, i), a: r.home + nestPocket(cfg, i).a });
+      else if (r.source) pts.push({ a: r.home, r: cfg.layout.feederR });
+    }
     if (def.bin) pts.push(cfg.layout.bins[def.bin]);
     if (def.kind === 'unload') for (let i = 0; i < cfg.traySize; i++) pts.push(trayPocket(cfg, i));
     const as = pts.map((p) => p.a);
@@ -122,9 +139,9 @@ export class StationView {
    */
   update(fa: Frame, fb: Frame, alpha: number, index: number, t: number): void {
     const f = fa.stations[index];
-    if (this.feeder) {
-      const fd = fa.feeders.find((x) => x.id === this.feeder!.id);
-      this.feeder.update(fd?.items ?? [], fd?.jam ?? 0, t);
+    for (const feeder of this.feeders) {
+      const fd = fa.feeders.find((x) => x.id === feeder.id);
+      feeder.update(fd?.items ?? [], fd?.jam ?? 0, t);
     }
     const nest = this.nest && fa.nests.find((x) => x.station === this.def.id);
     if (nest) this.nest!.update(nest.slots, nest.changing);
@@ -133,10 +150,9 @@ export class StationView {
     this.scrap.setCount(f.scrap);
 
     this.inspection?.update(f.progress !== null, t);
-    const ra = f.robot;
-    const rb = fb.stations[index].robot;
-    if (this.robot && ra && rb) {
-      this.robot.update({ ...ra, a: lerp(ra.a, rb.a, alpha), r: lerp(ra.r, rb.r, alpha), z: lerp(ra.z, rb.z, alpha) });
+    const rb = fb.stations[index].robots;
+    if (this.robot && f.robots.length === rb.length) {
+      this.robot.update(f.robots.map((ra, k) => ({ ...ra, a: lerp(ra.a, rb[k].a, alpha), r: lerp(ra.r, rb[k].r, alpha), z: lerp(ra.z, rb[k].z, alpha) })), f.laser);
     }
     this.pin.position.y = f.gateClosed ? 0.01 : -0.02;
     this.setLights(f.status, ['Execute', 'Starting', 'Stopping', 'Holding', 'Completing'].includes(fa.machine), t);

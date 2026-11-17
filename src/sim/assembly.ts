@@ -22,7 +22,7 @@ function trueQuality(cfg: LineConfig, rng: RngState, key: QualityKey, m: Mover, 
 export function placeOnMover(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, op: PlaceOp, moverId: number): CycleResult | null {
   const m = moverById(p, moverId);
   if (op.kind === 'load') {
-    // The laser marks the body after it is placed (see the robot's 'mark' step).
+    // The laser marks the body after it is placed (see the station's laser in plant.ts).
     m.load = { srId: op.srId, mark: '', parts: ['body'], quality: {}, fragile: 0 };
     return { measurement: null };
   }

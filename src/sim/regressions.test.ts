@@ -24,8 +24,8 @@ function until(s: Simulation, done: () => boolean, limit = 120, step = 0.005): b
 
 test('a station whose tag write keeps failing holds the mover in fault until the write succeeds', () => {
   const s = sim();
-  const st = s.state.plc.stations[idx('ST10')];
-  // Wait for ST10 to start loading a body, then make that mover's tag unwritable.
+  const st = s.state.plc.stations[idx('EM11')];
+  // Wait for EM11 to start loading a body, then make that mover's tag unwritable.
   expect(until(s, () => st.step === 'waitRobot' || st.step === 'working')).toBe(true);
   const mover = s.state.plant.movers[st.moverId! - 1];
   const reliable = mover.profile.rfidOk;
@@ -35,7 +35,7 @@ test('a station whose tag write keeps failing holds the mover in fault until the
   s.advance(10);
   expect(st.status).toBe('fault');
   expect(st.moverId).toBe(mover.id);
-  expect(s.state.plant.stations[idx('ST10')].gateClosed).toBe(true);
+  expect(s.state.plant.stations[idx('EM11')].gateClosed).toBe(true);
   expect(mover.load).not.toBeNull();
   expect(mover.tag.status).toBe('empty');
 
@@ -49,7 +49,7 @@ test('a station whose tag write keeps failing holds the mover in fault until the
 
 test('after an E-stop, Reset leaves the equipment frozen until Start', () => {
   const s = sim();
-  const robot = s.state.plant.stations[idx('ST20')].robot!;
+  const robot = s.state.plant.stations[idx('EM11')].robots[1];
   expect(until(s, () => robot.job === 'place' && robot.vz !== 0)).toBe(true);
   s.command({ type: 'abort' });
   s.advance(0.02);
@@ -79,7 +79,7 @@ test('a batch completes only after its last pen is physically in the tray or bin
         const b = s.state.plc.batch!;
         expect(packed).toBe(b.good);
         expect(binned).toBe(b.rejected);
-        expect(p.stations.every((st) => !st.robot?.holding || st.robot.holding.kind === 'part')).toBe(true);
+        expect(p.stations.every((st) => st.robots.every((r) => !r.holding || r.holding.kind === 'part'))).toBe(true);
         checked = true;
         return true;
       },

@@ -1,7 +1,7 @@
 // What the line looks like in CATCH.AI: devices, processes, properties, events and the batch
 // period type. Derived from the line config so it can't drift from what the sim reports.
 import type { LineConfig, PartType, StationDef } from '../sim/config';
-import { feederId, measurementName, processId, rejectProcessId, sourceProcessId, trayProcessId } from '../sim/machine';
+import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, sourceProcessId, stationById, trayProcessId, unitId } from '../sim/machine';
 import type { StationCode } from '../sim/types';
 import { Severity, type Device, type EventDefinition, type ItemView, type Process, type PropertyDefinition } from './types';
 
@@ -51,8 +51,10 @@ const FEEDER_NAMES: Record<string, string> = { body: 'Body', spring: 'Spring', h
 
 export function catalogue(cfg: LineConfig): Catalogue {
   const line = cfg.id;
-  const child = (DeviceId: string, Name: string): Device => ({ DeviceId, Name: `${DeviceId} ${Name}`, ParentDeviceId: line });
-  const devices: Device[] = [{ DeviceId: line, Name: `${line} Pen injector assembly line`, Description: 'Simulated pen-injector assembly line (three.js line simulator)' }];
+  const devices: Device[] = [{ DeviceId: line, Name: deviceName(line, 'Pen injector assembly line'), Description: 'Simulated pen-injector assembly line (three.js line simulator)' }];
+  // Line → units → equipment, as in the original line. Parents come before their children.
+  for (const u of cfg.units) devices.push({ DeviceId: unitId(cfg, u.id), Name: deviceName(unitId(cfg, u.id), u.name), ParentDeviceId: line });
+  const child = (unit: string, DeviceId: string, Name: string): Device => ({ DeviceId, Name: deviceName(DeviceId, Name), ParentDeviceId: unitId(cfg, unit) });
   const processes: Process[] = [];
   const process = (DeviceId: string, ItemType: string, extra: Partial<Process> = {}) =>
     processes.push({ Scope: line, DeviceId, ItemType, HasResult: false, HasCarrier: false, CarrierType: null, SourceItemType: null, ...extra });
@@ -60,30 +62,33 @@ export function catalogue(cfg: LineConfig): Catalogue {
   // Stations on the mover loop: one pen per cycle, on a mover.
   for (const def of cfg.stations) {
     const id = processId(cfg, def);
-    devices.push(child(id, def.name));
-    const merges = def.kind === 'assemble' ? itemType(def.parts![0]) : null;
-    process(id, 'Pen', { HasCarrier: true, CarrierType: CARRIER_TYPE, HasResult: !!def.inspect, SourceItemType: merges });
+    devices.push(child(def.unit, id, def.name));
+    // The part merged into the pen (a load station's body becomes the pen itself).
+    const merged = placers(def).find((r) => r.step !== 'body')?.parts?.[0];
+    process(id, 'Pen', { HasCarrier: true, CarrierType: CARRIER_TYPE, HasResult: !!def.inspect, SourceItemType: merged ? itemType(merged) : null });
     // The unload station's rejects are reported apart from the good pens it packs.
     const reject = rejectProcessId(cfg, def);
     if (reject !== id) {
-      devices.push(child(reject, `Reject bin (${def.bin})`));
+      devices.push(child(def.unit, reject, `Reject bin (${def.bin})`));
       process(reject, 'Pen', { HasCarrier: true, CarrierType: CARRIER_TYPE });
     }
   }
 
-  // Part sources. Bodies become the pen itself at ST10, so that feeder reports no items of its own.
+  // Part sources. Bodies become the pen itself at the load station, so that feeder reports no items of its own.
   for (const f of cfg.feeders) {
     const id = feederId(cfg, f.id);
-    devices.push(child(id, `${FEEDER_NAMES[f.part] ?? itemType(f.part)} bowl feeder`));
-    const user = cfg.stations.find((d) => d.source === f.id);
-    if (user && f.part !== 'body') process(sourceProcessId(cfg, user), itemType(f.part));
+    devices.push(child(f.unit, id, `${FEEDER_NAMES[f.part] ?? itemType(f.part)} bowl feeder`));
+    if (f.part !== 'body' && cfg.stations.some((d) => d.robots?.some((r) => r.source === f.id))) process(id, itemType(f.part));
   }
-  for (const def of cfg.stations.filter((d) => d.source === 'nest')) {
-    const id = sourceProcessId(cfg, def);
-    devices.push(child(id, `Cartridge nest (${def.id})`));
+  for (const def of cfg.stations) {
+    const robot = def.robots?.find((r) => r.source === 'nest');
+    if (!robot) continue;
+    const id = sourceProcessId(cfg, def, robot);
+    devices.push(child(def.unit, id, `Cartridge nest (${def.id})`));
     process(id, 'Cartridge', { SourceItemType: 'Nest' });
   }
-  devices.push(child(trayProcessId(cfg), 'Tray packing'));
+  const trayStation = stationById(cfg, cfg.layout.tray.station);
+  devices.push(child(trayStation.unit, trayProcessId(cfg), 'Tray packing'));
   process(trayProcessId(cfg), 'Tray', { SourceItemType: 'Pen' });
 
   const properties: PropertySpec[] = [
@@ -119,9 +124,12 @@ export function catalogue(cfg: LineConfig): Catalogue {
     if (!pairs.has(k)) pairs.set(k, { SourceItemType, TargetItemType, processes: new Set() });
     pairs.get(k)!.processes.add(process);
   };
-  for (const def of cfg.stations.filter((d) => d.kind === 'assemble')) {
-    for (const part of def.parts!) relate(itemType(part), 'Pen', processId(cfg, def));
-    if (def.source === 'nest') relate('Nest', 'Cartridge', sourceProcessId(cfg, def));
+  for (const def of cfg.stations) {
+    for (const r of placers(def)) {
+      if (r.step === 'body') continue;
+      for (const part of r.parts ?? []) relate(itemType(part), 'Pen', processId(cfg, def));
+      if (r.source === 'nest') relate('Nest', 'Cartridge', sourceProcessId(cfg, def, r));
+    }
   }
   relate('Pen', 'Tray', trayProcessId(cfg));
   const relations: ItemView['Relations'] = [...pairs.values()].map(({ processes, ...r }) =>

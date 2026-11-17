@@ -103,10 +103,10 @@ The view has five monitoring cameras. Pick one with the bar at the bottom or wit
 | Key | Camera | Shows |
 | --- | --- | --- |
 | 1 | Overview | The whole line, framed to the window |
-| 2 | Infeed | ST10 body load, ST20 spring, ST30 spring inspection, early-reject bin |
-| 3 | Cartridge | Close-up of the twin ST40A/B robots inserting cartridges from their nests |
-| 4 | Housing | Close-up of ST50 placing and snapping housing + cap |
-| 5 | Outfeed | ST60 final vision, ST70 tray packing and the reject bin |
+| 2 | Infeed | EM11 body load + spring (two arms on one gantry), EM12 spring angle, early-reject bin |
+| 3 | Cartridge | Close-up of the twin EM41A/B robots inserting cartridges from their nests |
+| 4 | Housing | Close-up of EM40 placing and snapping housing + cap |
+| 5 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
 
 The fixed cameras are defined in `src/view/cameras.ts`, in each station's own coordinates, so
 they stay on their station if the layout changes. You can still orbit and zoom with the mouse.

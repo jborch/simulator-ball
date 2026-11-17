@@ -65,7 +65,8 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     id: d.id,
     gateClosed: true,
     reader: { busy: false, kind: 'read', left: 0, moverId: 0, write: null, done: false, ok: false, data: null },
-    robot: d.kind === 'inspect' ? null : createRobot(cfg.layout.z.safe, nextFailure(rng, cfg.faults.robotMtbf)),
+    robots: (d.robots ?? []).map((r) => createRobot(cfg.layout.z.safe, r.home, nextFailure(rng, cfg.faults.robotMtbf))),
+    laser: null,
     camera: d.kind === 'inspect' ? { cycle: null, done: false, result: null } : null,
   }));
   return {
@@ -81,7 +82,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     bins: Object.fromEntries(cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0])),
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
-    nests: cfg.stations.filter((d) => d.source === 'nest').map((d) => createNest(cfg, d.id)),
+    nests: cfg.stations.filter((d) => d.robots?.some((r) => r.source === 'nest')).map((d) => createNest(cfg, d.id)),
     tray: { count: 0, changing: 0, discharge: false },
     traysOut: 0,
     pensOut: 0,
@@ -111,12 +112,24 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   p.stations.forEach((ps, i) => {
     stepReader(p, rng, ps, dt);
     if (ps.camera) stepCamera(p, cfg, rng, ps, dt);
-    if (ps.robot) stepRobot(p, cfg, rng, cfg.stations[i], ps.robot, dt);
+    const def = cfg.stations[i];
+    if (ps.laser) stepLaser(p, ps, dt);
+    ps.robots.forEach((r, k) => stepRobot(p, cfg, rng, def, def.robots![k], r, dt));
   });
   p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], cfg, rng, dt));
-  const robotOf = (id: string) => p.stations.find((s) => s.id === id)?.robot ?? null;
-  for (const n of p.nests) stepNest(n, cfg, toolClear(cfg, robotOf(n.station)), dt);
-  stepTray(p, cfg, toolClear(cfg, robotOf(cfg.layout.tray.station)), dt);
+  const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
+  for (const n of p.nests) stepNest(n, cfg, clear(n.station), dt);
+  stepTray(p, cfg, clear(cfg.layout.tray.station), dt);
+}
+
+/** The laser marks the body on the mover; the code exists once the exposure is over. */
+function stepLaser(p: PlantState, ps: PlantStation, dt: number): void {
+  const l = ps.laser!;
+  l.left -= dt;
+  if (l.left > 0) return;
+  const load = moverById(p, l.moverId).load;
+  if (load) load.mark = l.mark;
+  ps.laser = null;
 }
 
 function moveMovers(p: PlantState, cfg: LineConfig, L: number, dt: number): void {

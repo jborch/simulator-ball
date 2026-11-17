@@ -27,10 +27,9 @@ describe('robots', () => {
     let maxH = 0;
     let maxZ = 0;
     run(s, 120, () => {
-      for (const st of s.state.plant.stations) {
-        if (!st.robot) continue;
-        maxH = Math.max(maxH, Math.abs(st.robot.va) / s.state.plant.speed, Math.abs(st.robot.vr) / s.state.plant.speed);
-        maxZ = Math.max(maxZ, Math.abs(st.robot.vz) / s.state.plant.speed);
+      for (const r of s.state.plant.stations.flatMap((st) => st.robots)) {
+        maxH = Math.max(maxH, Math.abs(r.va) / s.state.plant.speed, Math.abs(r.vr) / s.state.plant.speed);
+        maxZ = Math.max(maxZ, Math.abs(r.vz) / s.state.plant.speed);
       }
     }, 0.01);
     expect(maxH).toBeLessThanOrEqual(LINE.robot.vH + 1e-9);
@@ -38,21 +37,24 @@ describe('robots', () => {
     expect(maxH).toBeGreaterThan(LINE.robot.vH * 0.3);
   }, 30_000);
 
-  test('loading stations pre-pick: the robot holds a part before the mover arrives', () => {
+  test('loading stations pre-pick: each robot holds its part when its turn on the mover comes', () => {
     const s = sim();
-    let held = 0;
-    let arrivals = 0;
-    let prev = 'idle';
+    const i = idx('EM11');
+    let turns = 0;
+    let ready = 0;
+    let last = '';
     run(s, 300, () => {
-      const step = s.state.plc.stations[idx('ST20')].step;
-      if (prev === 'idle' && step !== 'idle') {
-        arrivals++;
-        if (s.state.plant.stations[idx('ST20')].robot!.holding) held++;
-      }
-      prev = step;
+      const st = s.state.plc.stations[i];
+      if (st.step !== 'waitRobot') return;
+      // A turn starts when the station first waits for robot `job` on this mover.
+      const key = `${st.moverId}/${st.job}`;
+      if (key === last) return;
+      last = key;
+      turns++;
+      if (s.state.plant.stations[i].robots[st.job].holding) ready++;
     }, 0.01);
-    expect(arrivals).toBeGreaterThan(80);
-    expect(held / arrivals).toBeGreaterThan(0.95);
+    expect(turns).toBeGreaterThan(160);
+    expect(ready / turns).toBeGreaterThan(0.95);
   }, 30_000);
 });
 
@@ -63,7 +65,7 @@ describe('feeders, nest and tray', () => {
       const seen = new Set<StationStatus>();
       s.advance(120);
       const before = s.state.mes.good + s.state.mes.rejected;
-      run(s, 300, () => seen.add(s.state.plc.stations[idx('ST10')].status));
+      run(s, 300, () => seen.add(s.state.plc.stations[idx('EM11')].status));
       return { perMin: (s.state.mes.good + s.state.mes.rejected - before) / 5, starved: seen.has('starved') };
     };
     const normal = rate(1.0);
@@ -80,12 +82,12 @@ describe('feeders, nest and tray', () => {
     let wasChanging = false;
     let starvedDuringChange = false;
     run(s, 600, () => {
-      const n = s.state.plant.nests.find((x) => x.station === 'ST40A')!;
+      const n = s.state.plant.nests.find((x) => x.station === 'EM41A')!;
       if (n.changing > 0 && !wasChanging) changes++;
       wasChanging = n.changing > 0;
-      if (wasChanging && s.state.plc.stations[idx('ST40A')].status === 'starved') starvedDuringChange = true;
+      if (wasChanging && s.state.plc.stations[idx('EM41A')].status === 'starved') starvedDuringChange = true;
     });
-    const cartridges = s.state.plc.stations[idx('ST40A')].stats.cycles;
+    const cartridges = s.state.plc.stations[idx('EM41A')].stats.cycles;
     // The robot may hold one pre-picked cartridge not yet inserted.
     expect(changes).toBeGreaterThanOrEqual(Math.floor(cartridges / LINE.nestSize));
     expect(changes).toBeLessThanOrEqual(Math.floor((cartridges + 1) / LINE.nestSize));
@@ -116,15 +118,18 @@ test('parts are conserved: every body leaving the feeder is on a mover, in a gri
   const leftFeeder = bodies.fed + initialOnTrack - bodies.items.length;
 
   const onMovers = p.movers.filter((m) => m.load).length;
-  const inGrippers = p.stations.filter((st) => st.robot?.holding).filter((st) => st.robot!.holding!.kind === 'pen' || st.robot!.holding!.parts.includes('body')).length;
+  const inGrippers = p.stations.flatMap((st) => st.robots).filter((r) => r.holding && (r.holding.kind === 'pen' || r.holding.parts.includes('body'))).length;
   const inBins = Object.values(p.bins).reduce((a, b) => a + b, 0);
   const packed = p.pensOut + p.tray.count;
-  const scrappedBodies = p.scrap.ST10 ?? 0;
+  // EM11's spring robot also scraps there, but only springs: with no misplaced parts nothing is scrapped.
+  const scrappedBodies = p.scrap.EM11 ?? 0;
   expect(onMovers + inGrippers + inBins + packed + scrappedBodies).toBe(leftFeeder);
 
-  const loaded = events.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && e.process.endsWith('ST10'));
-  // ST10 reports a body when its cycle ends (after laser marking), so one may be placed but not yet reported.
-  const r10 = p.stations[idx('ST10')].robot!;
-  const unreported = (r10.holding ? 1 : 0) + (r10.job === 'place' && !r10.holding ? 1 : 0);
+  const loaded = events.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && e.process.endsWith('EM11'));
+  // EM11 reports a pen when its cycle ends (spring mounted, laser done), so one may be placed but not yet reported.
+  const em11 = s.state.plc.stations[idx('EM11')];
+  const inCycle = em11.step === 'waitRobot' || em11.step === 'working';
+  const placedUnreported = inCycle && (em11.job > 0 || (em11.step === 'working' && !p.stations[idx('EM11')].robots[0].holding)) ? 1 : 0;
+  const unreported = (p.stations[idx('EM11')].robots[0].holding ? 1 : 0) + placedUnreported;
   expect(loaded.length).toBe(leftFeeder - unreported);
 }, 60_000);

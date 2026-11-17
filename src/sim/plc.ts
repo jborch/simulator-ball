@@ -1,17 +1,17 @@
 // The PLC program. Each scan it samples plant sensors, runs the machine state machine and one
 // state machine per station, and writes actuators (gates, robot jobs, camera, RFID, belt). It
 // never touches mover positions or loads directly; it only knows what tags and sensors tell it.
-import type { LineConfig } from './config';
+import type { LineConfig, RobotDef, StationDef } from './config';
 import { makeIdentifier } from './gs1';
-import { carrierId, emit, feederId, now, processId, setMachine, startBatch } from './machine';
+import { carrierId, emit, feederId, now, placers, processId, setMachine, stationSteps, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
-import { startJob } from './robot';
+import { leftMover, startJob } from './robot';
 import { copyTag } from './tags';
 import type { Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
 
 export function createPlc(cfg: LineConfig): PlcState {
-  const nestStations = cfg.stations.filter((d) => d.source === 'nest');
+  const nestStations = cfg.stations.filter((d) => d.robots?.some((r) => r.source === 'nest'));
   return {
     machine: 'Stopped',
     stateSince: 0,
@@ -26,10 +26,12 @@ export function createPlc(cfg: LineConfig): PlcState {
       tag: null,
       pendingTag: null,
       cycleStart: 0,
-      reserved: false,
+      reserved: null,
       op: null,
+      job: 0,
+      result: null,
       stats: { cycles: 0, passes: 0, busy: 0, noReads: 0, faults: 0, faultTime: 0 },
-      faulted: false,
+      faulted: {},
       output: null,
     })),
     // SR ids 1.. are taken by the first tray and the first nest of each nest-fed station.
@@ -57,22 +59,27 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
-    const robot = plant.stations[i].robot;
+    const robots = plant.stations[i].robots;
     // A picked pen counts as output once the robot has let go of it over the tray or bin.
-    if (robot?.dropped) {
-      robot.dropped = false;
+    if (robots[0]?.dropped) {
+      robots[0].dropped = false;
       if (plc.stations[i].output) recordOutput(s, cfg, i);
     }
     scanStation(s, cfg, io, i, canStart, dt);
-    if (!robot) return;
-    if (robot.fault > 0) plc.stations[i].status = 'fault';
+    if (robots.some((r) => r.fault > 0)) plc.stations[i].status = 'fault';
     // Pre-pick: a robot with a part source fetches the next part while movers index, as long as
     // more parts will be needed. While stopping it only fetches for a mover it's committed to.
-    if (!def.source) return;
     const running = plc.machine === 'Starting' || plc.machine === 'Execute' || (plc.machine === 'Completing' && def.kind !== 'load');
-    const needed = running || plc.stations[i].step === 'waitRobot';
-    if (needed && robot.job === null && !robot.holding) startJob(robot, def, 'prepick');
-    else if (!needed && waitingForPart(robot)) cancelJob(robot);
+    const st = plc.stations[i];
+    const inCycle = (st.step === 'waitRobot' || st.step === 'working') && st.op?.kind === 'place';
+    robots.forEach((robot, k) => {
+      const rdef = def.robots![k];
+      if (!rdef.source) return;
+      // Beyond that, only a robot whose turn on the current mover is still to come.
+      const needed = running || (inCycle && placers(def).indexOf(rdef) >= st.job);
+      if (needed && robot.job === null && !robot.holding) startJob(robot, rdef, 'prepick');
+      else if (!needed && waitingForPart(robot)) cancelJob(robot);
+    });
   });
 }
 
@@ -96,7 +103,7 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
   // stopped.
   const allIdle =
     plc.stations.every((st) => st.step === 'idle' || st.step === 'leaving') &&
-    plant.stations.every((ps) => !ps.robot || ps.robot.job === null || waitingForPart(ps.robot)) &&
+    plant.stations.every((ps) => ps.robots.every((r) => r.job === null || waitingForPart(r))) &&
     plant.tray.changing === 0 &&
     plant.nests.every((n) => n.changing === 0);
   plant.beltRunning = !['Stopped', 'Held', 'Aborted', 'Complete'].includes(plc.machine);
@@ -114,7 +121,7 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
       }
       break;
     case 'Completing': {
-      // Run-out: ST10 has stopped loading; finish every pen still on the line.
+      // Run-out: the load station has stopped loading; finish every pen still on the line.
       const inFlight = batch ? batch.loaded - batch.good - batch.rejected : 0;
       if (inFlight > 0 || !allIdle) break;
       // The batch's last tray goes out even if it isn't full, so batches never share a tray.
@@ -150,12 +157,18 @@ function scanFaults(s: SimState, cfg: LineConfig, dt: number): void {
   const { plant, plc } = s;
   cfg.stations.forEach((def, i) => {
     const st = plc.stations[i];
-    const faulted = (plant.stations[i].robot?.fault ?? 0) > 0;
-    if (faulted) st.stats.faultTime += dt;
-    if (faulted === st.faulted) return;
-    st.faulted = faulted;
-    if (faulted) st.stats.faults++;
-    emit(s, { kind: 'station', process: processId(cfg, def), code: faulted ? 'axisFault' : 'axisFaultCleared', message: faulted ? 'Axis fault: operator called' : 'Axis fault cleared', logged: now(s) });
+    const robots = plant.stations[i].robots;
+    if (robots.some((r) => r.fault > 0)) st.stats.faultTime += dt;
+    robots.forEach((robot, k) => {
+      const id = def.robots![k].id;
+      const faulted = robot.fault > 0;
+      if (faulted === !!st.faulted[id]) return;
+      st.faulted[id] = faulted;
+      if (faulted) st.stats.faults++;
+      // Single-robot stations share their id with the robot, so only name the robot where it helps.
+      const which = id === def.id ? '' : ` (${id})`;
+      emit(s, { kind: 'station', process: processId(cfg, def), code: faulted ? 'axisFault' : 'axisFaultCleared', message: faulted ? `Axis fault${which}: operator called` : `Axis fault cleared${which}`, logged: now(s) });
+    });
   });
   cfg.feeders.forEach((f, i) => {
     const jammed = plant.feeders[i].jam > 0;
@@ -199,10 +212,16 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
       } else {
         // No read: the mover goes on untouched; downstream stations will see the missing step.
         st.stats.noReads++;
-        st.reserved = false;
+        if (st.reserved === st.moverId) st.reserved = null;
         emit(s, { kind: 'station', process: processId(cfg, def), code: 'rfidNoRead', message: 'RFID no read', carrier: carrierId(st.moverId!), logged: now(s) });
         release(s, i, true);
       }
+      break;
+
+    case 'waitGroup':
+      // Holding the mover until the group's members downstream are done (see decide).
+      st.status = 'waiting';
+      decide(s, cfg, i);
       break;
 
     case 'retryRead':
@@ -214,14 +233,16 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
       break;
 
     case 'waitRobot': {
-      // The mover is in position; start the robot as soon as it's ready: holding a part to place,
-      // or empty-handed to pick the pen off the mover.
+      // The mover is in position; start the robot whose turn it is as soon as it's ready: holding
+      // a part to place, or empty-handed to pick the pen off the mover.
       st.stats.busy += dt;
-      const robot = ps.robot!;
-      const ready = robot.job === null && (def.source ? !!robot.holding : !robot.holding);
+      const op = st.op!;
+      const rdef = op.kind === 'place' ? placers(def)[st.job] : def.robots![0];
+      const robot = ps.robots[def.robots!.indexOf(rdef)];
+      const ready = robot.job === null && (rdef.source ? !!robot.holding : !robot.holding);
       if (ready) {
-        if (def.source) startJob(robot, def, 'place', { op: st.op as PlaceOp, moverId: st.moverId! });
-        else startJob(robot, def, 'pickMover', { moverId: st.moverId! });
+        if (op.kind === 'place') startJob(robot, rdef, 'place', { op: op.places[st.job], moverId: st.moverId! });
+        else startJob(robot, rdef, 'pickMover', { moverId: st.moverId! });
         st.step = 'working';
         st.status = 'working';
       } else {
@@ -232,23 +253,38 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
 
     case 'working': {
       st.stats.busy += dt;
-      let result;
-      if (ps.robot) {
-        if (ps.robot.job !== null) break;
-        result = ps.robot.result;
-      } else {
-        const cam = ps.camera!;
+      const op = st.op!;
+      if (ps.camera) {
+        const cam = ps.camera;
         if (!cam.done) break;
         cam.done = false;
-        result = cam.result;
+        st.result = cam.result;
+      } else {
+        const rdef = op.kind === 'place' ? placers(def)[st.job] : def.robots![0];
+        const robot = ps.robots[def.robots!.indexOf(rdef)];
+        if (op.kind === 'place') {
+          // A placing robot is done once it heads home; the next one takes its turn on the same mover.
+          if (st.job < op.places.length) {
+            if (!leftMover(robot)) break;
+            const place = op.places[st.job];
+            if (place.kind === 'assemble' && place.measure) st.result = robot.result;
+            if (++st.job < op.places.length) {
+              st.step = 'waitRobot';
+              break;
+            }
+          }
+          // The mover stays until the laser has finished marking.
+          if (ps.laser) break;
+        } else if (robot.job !== null) {
+          break;
+        }
       }
       st.stats.cycles++;
-      const op = st.op!;
-      const tag = recordCycle(s, cfg, i, result ?? { measurement: null });
-      if (ps.robot && (op.kind === 'reject' || op.kind === 'unload')) {
+      const tag = recordCycle(s, cfg, i, st.result ?? { measurement: null });
+      if (op.kind === 'reject' || op.kind === 'unload') {
         // The pen is in the gripper; drop it while the mover moves on.
         const toTray = op.kind === 'unload' && op.good;
-        startJob(ps.robot, def, 'drop', { dropTarget: toTray ? { kind: 'tray' } : { kind: 'bin', bin: op.bin } });
+        startJob(ps.robots[0], def.robots![0], 'drop', { dropTarget: toTray ? { kind: 'tray' } : { kind: 'bin', bin: op.bin } });
       }
       writeTag(s, cfg, i, tag);
       break;
@@ -322,14 +358,56 @@ function release(s: SimState, i: number, passing: boolean): void {
 }
 
 /**
- * A twin partner can take a mover that needs work if it isn't working or faulted and hasn't
+ * A group member can take a mover that needs work if it isn't working or faulted and hasn't
  * already been promised one. Movers already processed upstream only pass through it, so they don't block.
  */
-function partnerFree(s: SimState, cfg: LineConfig, partnerId: string): number | null {
-  const pi = cfg.stations.findIndex((d) => d.id === partnerId);
-  const p = s.plc.stations[pi];
-  const faulted = (s.plant.stations[pi].robot?.fault ?? 0) > 0 || p.status === 'fault';
-  return p.step !== 'working' && p.step !== 'waitRobot' && !p.reserved && !faulted ? pi : null;
+function memberFree(s: SimState, i: number): boolean {
+  const p = s.plc.stations[i];
+  const faulted = s.plant.stations[i].robots.some((r) => r.fault > 0) || p.status === 'fault';
+  return p.step !== 'working' && p.step !== 'waitRobot' && p.reserved === null && !faulted;
+}
+
+/**
+ * N-up group: where the mover at member i should be worked on, or null to hold it at the gate for
+ * now. Its own reservation keeps it here; a reservation further down sends it on; otherwise it
+ * goes to the furthest member it can reach through free members (the next mover then takes the
+ * one before it). If a member that is still working is in the way, the mover waits for it rather
+ * than taking a member short of it: that member would block the path for a whole cycle and the
+ * group would drift out of step. Waiting keeps the members filling and finishing together, like a
+ * multi-up station.
+ */
+function groupTarget(s: SimState, cfg: LineConfig, i: number): number | null {
+  const def = cfg.stations[i];
+  const moverId = s.plc.stations[i].moverId;
+  if (s.plc.stations[i].reserved === moverId) return i;
+  const members = cfg.stations
+    .map((_, j) => j)
+    .filter((j) => cfg.stations[j].group === def.group)
+    .sort((a, b) => cfg.stations[a].s - cfg.stations[b].s);
+  const below = members.slice(members.indexOf(i) + 1);
+  const promised = below.find((j) => s.plc.stations[j].reserved === moverId);
+  if (promised !== undefined) return promised;
+  let target = i;
+  const blocker = below.find((j) => !memberFree(s, j));
+  for (const j of below) {
+    if (j === blocker) break;
+    target = j;
+  }
+  // A member that is working will be free again soon; one promised to another mover won't be
+  // passable, and one that is starved, blocked or faulted may take long.
+  if (blocker !== undefined && s.plc.stations[blocker].status === 'working' && !s.plant.stations[blocker].robots.some((r) => r.fault > 0)) return null;
+  if (target !== i) s.plc.stations[target].reserved = moverId;
+  return target;
+}
+
+/** One place op per placing robot: a load robot starts a new pen, the others add their parts. */
+function placeOps(def: StationDef, load: PlaceOp | null): PlaceOp[] {
+  const robots = placers(def);
+  return robots.map((r: RobotDef, k): PlaceOp => {
+    if (r.step === 'body') return load!;
+    const measure = k === robots.length - 1 ? (def.inspect?.key ?? null) : null;
+    return { kind: 'assemble', parts: r.parts ?? [], fragile: !!def.fragile, measure };
+  });
 }
 
 /** Decides what to do with the mover whose tag was just read. */
@@ -347,11 +425,11 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
       const srId = ++s.plc.srCounter;
       const mark = makeIdentifier(s.rng, cfg.gs1.gtin, now(s), cfg.gs1.expiryYears);
       s.mes.identifiers[srId] = mark;
-      return start(s, cfg, i, { kind: 'load', srId, mark });
+      return start(s, cfg, i, { kind: 'place', places: placeOps(def, { kind: 'load', srId, mark }) });
     }
     case 'assemble':
     case 'inspect': {
-      if (tag.status !== 'ok' || (def.step && tag.done.includes(def.step))) return pass();
+      if (tag.status !== 'ok' || stationSteps(def).every((x) => tag.done.includes(x))) return pass();
       const missing = (def.requires ?? []).filter((r) => !tag.done.includes(r));
       if (missing.length > 0) {
         // An upstream step was skipped (e.g. RFID no read): flag NOK so a reject station takes it out.
@@ -359,17 +437,18 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
         st.stats.passes++;
         return writeTag(s, cfg, i, { ...copyTag(tag), status: 'nok', reason: `Missing step: ${missing.join(', ')}` });
       }
-      if (def.twin) {
-        const pi = partnerFree(s, cfg, def.twin);
-        if (pi !== null) {
-          s.plc.stations[pi].reserved = true;
-          return pass();
+      if (def.group) {
+        const target = groupTarget(s, cfg, i);
+        if (target === null) {
+          st.step = 'waitGroup';
+          return;
         }
+        if (target !== i) return pass();
       }
       if (def.kind === 'inspect') {
         return start(s, cfg, i, { kind: 'inspect', measure: def.inspect!.key, noise: def.inspect!.noise, readCode: !!def.readsCode });
       }
-      return start(s, cfg, i, { kind: 'assemble', parts: def.parts ?? [], fragile: !!def.fragile, measure: def.inspect?.key ?? null });
+      return start(s, cfg, i, { kind: 'place', places: placeOps(def, null) });
     }
     case 'reject':
       return tag.status === 'nok' ? start(s, cfg, i, { kind: 'reject', bin: def.bin! }) : pass();
@@ -386,10 +465,12 @@ function start(s: SimState, cfg: LineConfig, i: number, op: Op): void {
   const ps = s.plant.stations[i];
   const def = cfg.stations[i];
   const st = s.plc.stations[i];
-  st.reserved = false;
+  st.reserved = null;
   st.cycleStart = s.plant.t;
   st.status = 'working';
   st.op = op;
+  st.job = 0;
+  st.result = null;
   if (op.kind === 'inspect') {
     ps.camera!.cycle = { op, moverId: st.moverId!, mechLeft: def.mech, fixedLeft: def.fixed };
     ps.camera!.done = false;

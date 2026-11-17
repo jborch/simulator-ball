@@ -44,7 +44,7 @@ export class Hud {
     $('#b-size-set').addEventListener('click', () => this.send({ type: 'batchSize', size: Number($<HTMLInputElement>('#b-size').value) }));
     $<HTMLInputElement>('#b-auto').addEventListener('change', (e) => this.send({ type: 'autoBatch', on: (e.target as HTMLInputElement).checked }));
     const targets = [
-      ...cfg.stations.filter((d) => d.kind !== 'inspect').map((d) => ({ id: d.id, text: `${d.id} robot: axis fault` })),
+      ...cfg.stations.flatMap((d) => (d.robots ?? []).map((r) => ({ id: r.id, text: `${r.id} robot: axis fault` }))),
       ...cfg.feeders.map((f) => ({ id: f.id, text: `Feeder ${f.id}: jam` })),
     ];
     $('#fault-target').innerHTML = targets.map((t) => `<option value="${t.id}">${t.text}</option>`).join('');

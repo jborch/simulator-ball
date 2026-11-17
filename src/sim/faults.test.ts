@@ -27,8 +27,8 @@ describe('faults', () => {
   test('an injected robot fault freezes the station, holds its mover and clears after the repair time', () => {
     const s = sim();
     s.advance(60);
-    expect(s.command({ type: 'fault', target: 'ST20' })).toBe(true);
-    const robot = s.state.plant.stations[idx('ST20')].robot!;
+    expect(s.command({ type: 'fault', target: 'EM11-SPRING' })).toBe(true);
+    const robot = s.state.plant.stations[idx('EM11')].robots[1];
     const repair = robot.fault;
     expect(repair).toBeGreaterThanOrEqual(LINE.faults.robotRepair[0]);
     expect(repair).toBeLessThanOrEqual(LINE.faults.robotRepair[1]);
@@ -36,18 +36,18 @@ describe('faults', () => {
     const goodBefore = s.state.mes.good;
     let faultStatus = 0;
     const es = collect(s, repair - 1, () => {
-      if (s.state.plc.stations[idx('ST20')].status === 'fault') faultStatus++;
+      if (s.state.plc.stations[idx('EM11')].status === 'fault') faultStatus++;
     });
     expect(faultStatus).toBeGreaterThan(0);
     expect(robot.fault).toBeGreaterThan(0);
-    // Downstream drains while the queue builds behind ST20; the machine itself keeps running.
+    // Downstream drains while the queue builds behind EM11; the machine itself keeps running.
     expect(s.state.plc.machine).toBe('Execute');
-    expect(stationEvents(es).map((e) => e.message)).toContain('Axis fault: operator called');
+    expect(stationEvents(es).map((e) => e.message)).toContain('Axis fault (EM11-SPRING): operator called');
 
     const after = collect(s, 5);
     expect(robot.fault).toBe(0);
-    expect(stationEvents(after).map((e) => e.message)).toContain('Axis fault cleared');
-    expect(s.state.plc.stations[idx('ST20')].stats.faultTime).toBeGreaterThan(repair - 1.5);
+    expect(stationEvents(after).map((e) => e.message)).toContain('Axis fault cleared (EM11-SPRING)');
+    expect(s.state.plc.stations[idx('EM11')].stats.faultTime).toBeGreaterThan(repair - 1.5);
     expect(s.state.mes.good).toBeGreaterThan(goodBefore);
   }, 30_000);
 
@@ -59,7 +59,7 @@ describe('faults', () => {
     const fedAtJam = feeder.fed;
     let starved = false;
     const es = collect(s, feeder.jam - 0.5, () => {
-      if (s.state.plc.stations[idx('ST10')].status === 'starved') starved = true;
+      if (s.state.plc.stations[idx('EM11')].status === 'starved') starved = true;
     });
     expect(feeder.fed).toBe(fedAtJam);
     expect(starved).toBe(true);
@@ -114,7 +114,7 @@ describe('batches', () => {
     expect(done.good + done.rejected).toBe(40);
     expect(states).toEqual(expect.arrayContaining(['Execute', 'Completing', 'Complete', 'Starting']));
     // Nothing is loaded during run-out: every pen loaded in batch 1 is finished before Complete.
-    const loads = es.filter((e) => e.kind === 'processed' && e.process.endsWith('ST10'));
+    const loads = es.filter((e) => e.kind === 'processed' && e.process.endsWith('EM11'));
     const completedAt = done.logged;
     expect(loads.filter((e) => e.kind === 'processed' && e.to <= completedAt).length).toBe(40);
   }, 60_000);

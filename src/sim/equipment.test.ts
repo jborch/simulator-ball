@@ -27,13 +27,13 @@ test('nests and trays are only changed with the robot gripper clear of them', ()
     for (const n of p.nests) {
       if (n.changing > 0 && !(prevNest.get(n.station)! > 0)) {
         nestChanges++;
-        expect(p.stations[idx(n.station)].robot!.z).toBeGreaterThanOrEqual(safe);
+        expect(p.stations[idx(n.station)].robots[0].z).toBeGreaterThanOrEqual(safe);
       }
       prevNest.set(n.station, n.changing);
     }
     if (p.tray.changing > 0 && prevTray === 0) {
       trayChanges++;
-      expect(p.stations[idx('ST70')].robot!.z).toBeGreaterThanOrEqual(safe);
+      expect(p.stations[idx('EM60')].robots[0].z).toBeGreaterThanOrEqual(safe);
     }
     prevTray = p.tray.changing;
   }
@@ -43,8 +43,8 @@ test('nests and trays are only changed with the robot gripper clear of them', ()
 
 test('a cartridge is pushed home slowly from above the body during the press time', () => {
   const s = sim();
-  const robot = s.state.plant.stations[idx('ST40A')].robot!;
-  const def = LINE.stations[idx('ST40A')];
+  const robot = s.state.plant.stations[idx('EM41A')].robots[0];
+  const def = LINE.stations[idx('EM41A')].robots![0];
   const seated = seatedTip(LINE, def.parts!);
   const heights: number[] = [];
   for (let t = 0; t < 120 && heights.length < 50; t += 0.01) {
@@ -79,29 +79,31 @@ test('once Complete, no robot is moving and none picked parts for pens that will
   const s = sim((c) => (c.batch.size = 5));
   for (let t = 0; t < 300 && s.state.plc.machine !== 'Complete'; t += 0.1) s.advance(0.1);
   expect(s.state.plc.machine).toBe('Complete');
-  const robots = s.state.plant.stations.map((ps) => ps.robot).filter((r) => r !== null);
+  const robots = s.state.plant.stations.flatMap((ps) => ps.robots);
   expect(robots.every((r) => r.job === null)).toBe(true);
   // The loading robot doesn't fetch a body for a pen beyond the batch.
-  expect(s.state.plant.stations[idx('ST10')].robot!.holding).toBeNull();
+  expect(s.state.plant.stations[idx('EM11')].robots[0].holding).toBeNull();
   const z = robots.map((r) => r.z);
   s.advance(5);
   expect(robots.map((r) => r.z)).toEqual(z);
 }, 60_000);
 
-test('ST40A does not pass movers on to a faulted ST40B', () => {
+test('EM41A does not pass movers on to a faulted EM41B', () => {
   const s = sim();
-  const a = s.state.plc.stations[idx('ST40A')];
-  const b = s.state.plc.stations[idx('ST40B')];
+  const a = s.state.plc.stations[idx('EM41A')];
+  const b = s.state.plc.stations[idx('EM41B')];
   s.advance(60);
-  // Fault B while it's free; a busy B would never be offered a mover anyway.
-  for (let t = 0; t < 30 && !(b.step === 'idle' && !b.reserved); t += 0.01) s.advance(0.01);
-  expect(s.command({ type: 'fault', target: 'ST40B' })).toBe(true);
-  const robotB = s.state.plant.stations[idx('ST40B')].robot!;
+  // Fault B while it's idle. A mover already promised to it stays committed (it waits for the repair).
+  for (let t = 0; t < 30 && b.step !== 'idle'; t += 0.01) s.advance(0.01);
+  expect(b.step).toBe('idle');
+  const promised = b.reserved;
+  expect(s.command({ type: 'fault', target: 'EM41B' })).toBe(true);
+  const robotB = s.state.plant.stations[idx('EM41B')].robots[0];
   const cyclesA = a.stats.cycles;
   let reservedWhileFaulted = false;
   for (let t = 0; t < 30 && robotB.fault > 0; t += 0.01) {
     s.advance(0.01);
-    if (b.reserved && b.step === 'idle') reservedWhileFaulted = true;
+    if (b.reserved !== null && b.reserved !== promised) reservedWhileFaulted = true;
   }
   expect(reservedWhileFaulted).toBe(false);
   expect(a.stats.cycles).toBeGreaterThan(cyclesA);
@@ -132,4 +134,26 @@ test('Hold waits for a running tray change, so nothing moves once Held', () => {
   expect(s.state.plc.machine).toBe('Held');
   expect(p.tray.changing).toBe(0);
   expect(p.nests.every((n) => n.changing === 0)).toBe(true);
+}, 60_000);
+
+test('a 4-up group spreads consecutive movers over all members, which work at the same time', () => {
+  const s = sim((c) => {
+    // Turn the EM41 pair into four members with slow presses, so all four are needed.
+    const b = c.stations.find((d) => d.id === 'EM41B')!;
+    for (const [id, ds] of [['EM41C', 0.25], ['EM41D', 0.5]] as const) {
+      c.stations.splice(c.stations.indexOf(b) + (id === 'EM41C' ? 1 : 2), 0, { ...structuredClone(b), id, s: b.s + ds, fragile: false, robots: [{ ...b.robots![0], id }] });
+    }
+    for (const d of c.stations.filter((x) => x.group === 'EM41')) d.robots![0].mech = 8;
+  });
+  const members = ['EM41A', 'EM41B', 'EM41C', 'EM41D'].map((id) => s.cfg.stations.findIndex((d) => d.id === id));
+  let maxBusy = 0;
+  for (let t = 0; t < 300; t += 0.05) {
+    s.advance(0.05);
+    const busy = members.filter((i) => s.state.plc.stations[i].step === 'working').length;
+    maxBusy = Math.max(maxBusy, busy);
+  }
+  const cycles = members.map((i) => s.state.plc.stations[i].stats.cycles);
+  expect(maxBusy).toBe(4);
+  const total = cycles.reduce((a, b) => a + b, 0);
+  for (const c of cycles) expect(c / total).toBeGreaterThan(0.18);
 }, 60_000);

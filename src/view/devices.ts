@@ -7,40 +7,22 @@ import { M, RAIL_Y, type Reach, TABLE, box, cyl, label, local, mat, span } from 
 import type { Models } from './models';
 import { AssemblyView, HeldView, housingWithCap } from './movers';
 
-/**
- * Cartesian robot on a single-sided gantry: a beam on two legs behind the station's equipment
- * (outer side), an arm cantilevered over the belt that travels along the beam (a), a carriage on
- * the arm (r) and a z column with the gripper. Nothing stands between the belt and the viewer.
- */
-export class RobotView {
-  readonly group = new THREE.Group();
-  private readonly arm = new THREE.Group();
+/** One arm of a gantry: travels along the beam (a), with a carriage (r) and a z column with the gripper. */
+class ArmView {
+  readonly arm = new THREE.Group();
   private readonly carriage = new THREE.Group();
   private readonly column = new THREE.Group();
   private readonly held: HeldView;
-  private readonly laser: THREE.Mesh | null = null;
   private readonly fingers: THREE.Mesh[] = [];
 
-  /**
-   * `beamR`: where the beam and its legs stand, outside everything on the table below the robot.
-   * `lowestTip`: the lowest gripper height the robot goes to; the z column stays in its carriage there.
-   */
   constructor(
-    reach: Reach,
+    rMin: number,
     beamR: number,
     lowestTip: number,
     private readonly cfg: LineConfig,
     models: Models,
-    withLaser: boolean,
   ) {
-    const { aMin, aMax, rMin } = reach;
     const top = RAIL_Y + 0.02;
-    this.group.add(span(aMin - 0.03, aMax + 0.03, top - 0.05, top, beamR - 0.025, beamR + 0.025, M.frame));
-    this.group.add(span(aMin - 0.03, aMax + 0.03, top - 0.012, top, beamR - 0.03, beamR - 0.02, M.rail));
-    for (const a of [aMin - 0.01, aMax + 0.01]) {
-      this.group.add(span(a - 0.02, a + 0.02, TABLE, top - 0.05, beamR - 0.02, beamR + 0.02, M.frame));
-      this.group.add(span(a - 0.035, a + 0.035, TABLE, TABLE + 0.008, beamR - 0.035, beamR + 0.035, M.drive));
-    }
     // Arm (moves along a) with the r-axis rail underneath.
     this.arm.add(span(-0.03, 0.03, top, top + 0.03, beamR - 0.035, beamR + 0.035, M.axisDark));
     this.arm.add(span(-0.018, 0.018, top + 0.005, top + 0.045, rMin - 0.02, beamR + 0.02, M.axis));
@@ -57,7 +39,49 @@ export class RobotView {
     this.column.add(this.held.root);
     this.carriage.add(this.column);
     this.arm.add(this.carriage);
-    this.group.add(this.arm);
+  }
+
+  update(r: RobotFrame): void {
+    this.arm.position.x = r.a;
+    this.carriage.position.z = -r.r;
+    this.column.position.y = r.z;
+    this.held.show(r.holding);
+    // Jaws close on the held part's top; open a few mm wider when empty.
+    const half = r.holding ? gripRadius(this.cfg, r.holding) + 0.0025 : 0.014;
+    this.fingers[0].position.z = half;
+    this.fingers[1].position.z = -half;
+  }
+}
+
+/**
+ * Cartesian robots on a single-sided gantry: a beam on two legs behind the station's equipment
+ * (outer side), with one arm per robot cantilevered over the belt and travelling along the beam.
+ * Several arms share the beam and take turns over the mover. Nothing stands between the belt and
+ * the viewer.
+ */
+export class RobotView {
+  readonly group = new THREE.Group();
+  private readonly arms: ArmView[];
+  private readonly laser: THREE.Mesh | null = null;
+
+  /**
+   * `beamR`: where the beam and its legs stand, outside everything on the table below the robots.
+   * `lowestTip`: the lowest gripper height the robots go to; the z columns stay in their carriage there.
+   */
+  constructor(reach: Reach, beamR: number, lowestTip: number, cfg: LineConfig, models: Models, arms: number, withLaser: boolean) {
+    const { aMin, aMax, rMin } = reach;
+    const top = RAIL_Y + 0.02;
+    this.group.add(span(aMin - 0.03, aMax + 0.03, top - 0.05, top, beamR - 0.025, beamR + 0.025, M.frame));
+    this.group.add(span(aMin - 0.03, aMax + 0.03, top - 0.012, top, beamR - 0.03, beamR - 0.02, M.rail));
+    for (const a of [aMin - 0.01, aMax + 0.01]) {
+      this.group.add(span(a - 0.02, a + 0.02, TABLE, top - 0.05, beamR - 0.02, beamR + 0.02, M.frame));
+      this.group.add(span(a - 0.035, a + 0.035, TABLE, TABLE + 0.008, beamR - 0.035, beamR + 0.035, M.drive));
+    }
+    this.arms = Array.from({ length: arms }, () => {
+      const arm = new ArmView(rMin, beamR, lowestTip, cfg, models);
+      this.group.add(arm.arm);
+      return arm;
+    });
 
     if (withLaser) {
       // Marking head beside the belt on the inner side, where the pen's code faces.
@@ -78,16 +102,9 @@ export class RobotView {
     }
   }
 
-  update(r: RobotFrame): void {
-    this.arm.position.x = r.a;
-    this.carriage.position.z = -r.r;
-    this.column.position.y = r.z;
-    this.held.show(r.holding);
-    // Jaws close on the held part's top; open a few mm wider when empty.
-    const half = r.holding ? gripRadius(this.cfg, r.holding) + 0.0025 : 0.014;
-    this.fingers[0].position.z = half;
-    this.fingers[1].position.z = -half;
-    if (this.laser) this.laser.visible = r.phase === 'laser';
+  update(robots: RobotFrame[], laser: boolean): void {
+    robots.forEach((r, i) => this.arms[i]?.update(r));
+    if (this.laser) this.laser.visible = laser;
   }
 }
 

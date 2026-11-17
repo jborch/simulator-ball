@@ -89,15 +89,16 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
   return accepted;
 }
 
-/** Makes a station robot or a feeder fail now, as if it had happened on the real line. */
+/** Makes a robot or a feeder fail now, as if it had happened on the real line. */
 function injectFault(s: SimState, cfg: LineConfig, target: string): boolean {
   const fi = cfg.feeders.findIndex((f) => f.id === target);
   if (fi >= 0) {
     s.plant.feeders[fi].jam = repairTime(s.rng, cfg.faults.feederRepair);
     return true;
   }
-  const robot = s.plant.stations.find((ps) => ps.id === target)?.robot;
-  if (!robot) return false;
+  const i = cfg.stations.findIndex((d) => d.robots?.some((r) => r.id === target));
+  if (i < 0) return false;
+  const robot = s.plant.stations[i].robots[cfg.stations[i].robots!.findIndex((r) => r.id === target)];
   robot.fault = repairTime(s.rng, cfg.faults.robotRepair);
   return true;
 }

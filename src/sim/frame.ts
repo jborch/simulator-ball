@@ -27,8 +27,9 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
       gateClosed: ps.gateClosed,
       moverId: st.moverId,
       progress: cameraProgress(cfg, ps, i),
-      robot: ps.robot ? robotFrame(ps.robot) : null,
-      fault: ps.robot?.fault ?? 0,
+      robots: ps.robots.map(robotFrame),
+      fault: Math.max(0, ...ps.robots.map((r) => r.fault)),
+      laser: ps.laser !== null,
       scrap: plant.scrap[st.id] ?? 0,
     };
   });
