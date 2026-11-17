@@ -111,11 +111,12 @@ describe('steady production (60 min)', () => {
     for (const e of [...binned, ...processed(events, 'R1')]) expect(e.properties?.['Reject Cause']).toBeDefined();
   });
 
-  test('reject rate is about 5 %', () => {
+  test("reject rate is about 17 %, as the original line's quality figures give", () => {
+    // Mostly EM14B (~31 % of its pens) and the original's bad movers (most of mover 2's pens).
     const { good, rejected } = sim.state.mes;
     const rate = rejected / (good + rejected);
-    expect(rate).toBeGreaterThan(0.035);
-    expect(rate).toBeLessThan(0.07);
+    expect(rate).toBeGreaterThan(0.12);
+    expect(rate).toBeLessThan(0.22);
   });
 
   test('twin stations share the work and process at the same time', () => {
@@ -128,22 +129,29 @@ describe('steady production (60 min)', () => {
     expect(overlapping.length / a.length).toBeGreaterThan(0.8);
   });
 
-  test('fragile EM41B pushes seating-depth rejects up', () => {
-    const viaB = new Set(processed(events, 'EM41B').map((e) => e.scopedId));
-    const final = processed(events, 'EM50');
-    const rate = (xs: ItemProcessedEvent[]) => xs.filter((e) => e.result === 'Failed').length / xs.length;
-    expect(rate(final.filter((e) => viaB.has(e.scopedId)))).toBeGreaterThan(rate(final.filter((e) => !viaB.has(e.scopedId))));
+  test('EM14B is the outlier of the four spring base presses, logged on the spring base', () => {
+    const rate = (id: string) => {
+      const xs = processed(events, id);
+      expect(xs.every((e) => e.itemType === 'SpringBase' && e.carrier)).toBe(true);
+      return xs.filter((e) => e.result === 'Failed').length / xs.length;
+    };
+    const others = ['EM14A', 'EM14C', 'EM14D'].map(rate);
+    for (const r of others) expect(r).toBeLessThan(0.12);
+    expect(rate('EM14B')).toBeGreaterThan(0.2);
+    expect(rate('EM14B')).toBeGreaterThan(3 * Math.max(...others));
   });
 
-  test('worn mover #24 (fixture offset) is rejected more often than average', () => {
+  test("the original's bad movers are rejected more, the worse the more (badness 2: 22, 24: 12)", () => {
     const m = sim.state.mes.movers;
     const rate = (id: number) => m[id].rejects / (m[id].pens + m[id].rejects);
-    const ids = Object.keys(m).map(Number);
-    const avg = ids.reduce((sum, id) => sum + rate(id), 0) / ids.length;
+    const good = Object.keys(m).map(Number).filter((id) => ![2, 6, 24].includes(id));
+    const avg = good.reduce((sum, id) => sum + rate(id), 0) / good.length;
     expect(rate(24)).toBeGreaterThan(avg * 1.5);
+    expect(rate(2)).toBeGreaterThan(rate(24));
+    expect(rate(2)).toBeGreaterThan(0.5);
   });
 
-  test('each good pen has full genealogy: spring, cartridge (from a nest), housing, cap and a tray', () => {
+  test('each good pen has full genealogy: spring, spring base, cartridge (from a nest), housing, cap and a tray', () => {
     const merged = events.filter((e): e is ItemsMergedEvent => e.kind === 'merged');
     const goods = processed(events, 'EM60').filter((e) => e.itemType === 'Pen' && e.properties?.['Tray Position'] !== undefined);
     const byTarget = new Map<number, string[]>();
@@ -154,7 +162,7 @@ describe('steady production (60 min)', () => {
     const inside = goods.filter((g) => loaded.has(g.scopedId));
     expect(inside.length).toBeGreaterThan(500);
     for (const g of inside) {
-      expect(byTarget.get(g.scopedId)?.sort()).toEqual(['Cap', 'Cartridge', 'Housing', 'Spring']);
+      expect(byTarget.get(g.scopedId)?.sort()).toEqual(['Cap', 'Cartridge', 'Housing', 'Spring', 'SpringBase']);
       expect(trayed.has(g.scopedId)).toBe(true);
     }
     const cartridges = processed(events).filter((e) => e.itemType === 'Cartridge');

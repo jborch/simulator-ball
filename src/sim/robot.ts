@@ -8,7 +8,7 @@ import type { LineConfig, RobotDef, StationDef } from './config';
 import { nextFailure, repairTime } from './devices';
 import { nestPocket, seatedTip, trayPocket } from './layout';
 import { type RngState, random } from './rng';
-import type { Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
+import type { Distribution, Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
 
 export function createRobot(safeZ: number, home: number, nextFault: number): Robot {
   return {
@@ -48,6 +48,7 @@ interface Target {
 
 /** A robot's part source sits at its home along the belt. */
 function sourcePos(cfg: LineConfig, rdef: RobotDef, robot: Robot): Target {
+  if (rdef.source === 'cup') return { a: rdef.home, r: cfg.distribution.cupR, z: cfg.distribution.cupZ };
   if (rdef.source === 'nest') {
     const p = nestPocket(cfg, robot.slot ?? 0);
     return { a: rdef.home + p.a, r: p.r, z: cfg.layout.z.nest };
@@ -194,6 +195,10 @@ function feederFor(p: PlantState, rdef: RobotDef): Feeder {
   return p.feeders.find((f) => f.id === rdef.source)!;
 }
 
+function cupFor(p: PlantState, def: StationDef): Distribution['cups'][number] {
+  return p.distribution.cups.find((c) => c.station === def.id)!;
+}
+
 /** Counts down a timed step (grip/release); true when it's over. */
 function timer(robot: Robot, seconds: number, dt: number): boolean {
   if (!robot.stepStarted) robot.dwellFixed = seconds;
@@ -271,9 +276,11 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
           robot.slot = slot;
           finished = true;
         }
+      } else if (rdef.source === 'cup') {
+        finished = cupFor(p, def).full;
       } else {
         const f = feederFor(p, rdef);
-        finished = f.items.length > 0 && f.items[0] === 0;
+        finished = f.items.length > 0 && f.items[0].x === 0;
       }
       robot.phase = finished ? 'move' : 'starved';
       break;
@@ -299,9 +306,15 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       } else if (rdef.source === 'nest') {
         nestFor(p, def).slots[robot.slot!] = 0;
         robot.holding = { kind: 'part', parts: ['cartridge'] };
+      } else if (rdef.source === 'cup') {
+        const cup = cupFor(p, def);
+        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [cup.sr] };
+        cup.full = false;
+        cup.sr = null;
       } else {
-        feederFor(p, rdef).items.shift();
-        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])] };
+        // The part's SR id from its sub-line (if tracked there) goes with it.
+        const item = feederFor(p, rdef).items.shift()!;
+        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [item.sr] };
       }
       break;
 
@@ -355,7 +368,9 @@ function release(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef,
   const misplaced = cfg.faults.enabled && random(rng) < cfg.faults.misplaceRate;
   const result = misplaced || !robot.op ? null : placeOnMover(p, cfg, rng, def, robot.op, robot.moverId);
   if (result === null) p.scrap[def.id] = (p.scrap[def.id] ?? 0) + 1;
-  robot.result = result ?? { measurement: null };
+  // The PLC records the parts as placed either way: it can't see that one didn't seat.
+  const partIds = robot.holding?.kind === 'part' ? robot.holding.ids : undefined;
+  robot.result = { ...(result ?? { measurement: null }), partIds };
 }
 
 /**

@@ -12,6 +12,8 @@ const frame = (t: number, s: number): Frame => ({
   movers: [{ id: 1, s, v: 0.25, status: 'empty', parts: [], srId: null, mark: null, laps: 0, lastLap: null }],
   stations: [],
   feeders: [],
+    orienter: { phase: 'idle', progress: 0 },
+    distribution: { items: [], cups: [] },
   nests: [],
   tray: { count: 0, changing: 0, queue: [] },
   batch: null,

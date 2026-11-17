@@ -6,6 +6,7 @@ import { makeIdentifier } from './gs1';
 import { carrierId, emit, feederId, now, placers, processId, setMachine, stationSteps, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
+import { scanSublines } from './sublines';
 import { leftMover, startJob } from './robot';
 import { copyTag } from './tags';
 import type { Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
@@ -29,6 +30,7 @@ export function createPlc(cfg: LineConfig): PlcState {
       reserved: null,
       op: null,
       job: 0,
+      placed: [],
       result: null,
       stats: { cycles: 0, passes: 0, busy: 0, noReads: 0, faults: 0, faultTime: 0 },
       faulted: {},
@@ -56,6 +58,7 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   scanMachine(s, cfg);
   scanFaults(s, cfg, dt);
   if (plant.estop) return;
+  scanSublines(s, cfg);
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
@@ -107,6 +110,8 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
     plant.tray.changing === 0 &&
     plant.nests.every((n) => n.changing === 0);
   plant.beltRunning = !['Stopped', 'Held', 'Aborted', 'Complete'].includes(plc.machine);
+  // Bowls and sub-line conveyors run with the line, so no part is fed or checked between batches.
+  plant.feedersOn = plant.beltRunning;
 
   switch (plc.machine) {
     case 'Starting':
@@ -268,6 +273,7 @@ function scanStation(s: SimState, cfg: LineConfig, io: Inputs, i: number, canSta
             if (!leftMover(robot)) break;
             const place = op.places[st.job];
             if (place.kind === 'assemble' && place.measure) st.result = robot.result;
+            st.placed[st.job] = robot.result?.partIds ?? [];
             if (++st.job < op.places.length) {
               st.step = 'waitRobot';
               break;
@@ -472,6 +478,7 @@ function start(s: SimState, cfg: LineConfig, i: number, op: Op): void {
   st.status = 'working';
   st.op = op;
   st.job = 0;
+  st.placed = [];
   st.result = null;
   if (op.kind === 'inspect') {
     ps.camera!.cycle = { op, moverId: st.moverId!, mechLeft: def.mech, fixedLeft: def.fixed };

@@ -1,7 +1,7 @@
 // What the line looks like in CATCH.AI: devices, processes, properties, events and the batch
 // period type. Derived from the line config so it can't drift from what the sim reports.
-import type { LineConfig, PartType, StationDef } from '../sim/config';
-import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, sourceProcessId, stationById, trayProcessId, unitId } from '../sim/machine';
+import type { LineConfig, PartType, SubProcessDef } from '../sim/config';
+import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, sourceProcessId, stationById, subProcessId, trayProcessId, unitId } from '../sim/machine';
 import type { StationCode } from '../sim/types';
 import { Severity, type Device, type EventDefinition, type ItemView, type Process, type PropertyDefinition } from './types';
 
@@ -47,7 +47,7 @@ export const STATION_EVENTS: Record<StationCode, EventSpec> = {
 
 const itemType = (part: PartType) => part[0].toUpperCase() + part.slice(1);
 
-const FEEDER_NAMES: Record<string, string> = { body: 'Body', spring: 'Spring', housing: 'Housing + cap' };
+const FEEDER_NAMES: Record<string, string> = { body: 'Body', spring: 'Spring', springBase: 'Spring base', housing: 'Housing + cap' };
 
 export function catalogue(cfg: LineConfig): Catalogue {
   const line = cfg.id;
@@ -74,12 +74,21 @@ export function catalogue(cfg: LineConfig): Catalogue {
     }
   }
 
-  // Part sources. Bodies become the pen itself at the load station, so that feeder reports no items of its own.
+  // Part sources. Bodies become the pen itself at the load station. Springs and spring bases are
+  // reported where they are inspected (EM10, EM13), so only the other feeders report their parts.
+  const subs: SubProcessDef[] = [...cfg.feeders.flatMap((f) => (f.inline ? [f.inline] : [])), cfg.orienter];
   for (const f of cfg.feeders) {
     const id = feederId(cfg, f.id);
     devices.push(child(f.unit, id, `${FEEDER_NAMES[f.part] ?? itemType(f.part)} bowl feeder`));
-    if (f.part !== 'body' && cfg.stations.some((d) => d.robots?.some((r) => r.source === f.id))) process(id, itemType(f.part));
+    const used = cfg.stations.some((d) => d.robots?.some((r) => r.source === f.id));
+    if (f.part !== 'body' && used && !f.inline) process(id, itemType(f.part));
+    if (f.inline) {
+      devices.push(child(f.inline.unit, subProcessId(cfg, f.inline), f.inline.name));
+      process(subProcessId(cfg, f.inline), itemType(f.part), { HasResult: true });
+    }
   }
+  devices.push(child(cfg.orienter.unit, subProcessId(cfg, cfg.orienter), cfg.orienter.name));
+  process(subProcessId(cfg, cfg.orienter), itemType(cfg.feeders.find((f) => f.id === cfg.orienter.feeder)!.part), { HasResult: true });
   for (const def of cfg.stations) {
     const robot = def.robots?.find((r) => r.source === 'nest');
     if (!robot) continue;
@@ -104,9 +113,14 @@ export function catalogue(cfg: LineConfig): Catalogue {
     { Name: 'Tray Count', Type: 'Integer', Description: 'Pens in the tray when it left' },
     { Name: 'Bin', Type: 'String', Description: 'Reject bin' },
     { Name: PROPERTY.machineState, Type: 'String', Description: 'PackML-style machine state' },
-    ...cfg.stations
-      .filter((d): d is StationDef & { inspect: NonNullable<StationDef['inspect']> } => !!d.inspect)
-      .map((d): PropertySpec => ({ Name: measurementName(d.inspect.key), Type: 'Float', Unit: d.inspect.unit, NumberOfDecimals: 3, Description: `Measured at ${d.id}` })),
+    // One property per measurement, however many stations measure it (EM14A–D).
+    ...[...cfg.stations.filter((d) => d.inspect), ...subs]
+      .map((d) => d.inspect!)
+      .filter((lim, i, all) => all.findIndex((x) => x.key === lim.key) === i)
+      .map((lim): PropertySpec => {
+        const at = [...cfg.stations, ...subs].filter((d) => d.inspect?.key === lim.key).map((d) => d.id);
+        return { Name: measurementName(lim.key), Type: 'Float', Unit: lim.unit, NumberOfDecimals: 3, Description: `Measured at ${at.join(', ')}` };
+      }),
   ];
 
   const events: EventSpec[] = [

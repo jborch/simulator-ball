@@ -28,10 +28,18 @@ export const CAMERAS: CameraDef[] = [
   {
     id: 'infeed',
     name: 'Infeed',
-    title: 'Infeed · EM11 body load + spring, EM12 spring angle',
-    fov: 42,
-    mount: { station: 'EM11', a: 0.2, y: 0.17, r: -0.6 },
-    aim: { station: 'EM11', a: 0.2, y: 0.15, r: 0.05 },
+    title: 'Infeed · EM10 spring check, EM11 body load + spring, EM12 spring angle',
+    fov: 46,
+    mount: { station: 'EM11', a: 0.32, y: 0.17, r: -0.64 },
+    aim: { station: 'EM11', a: 0.32, y: 0.15, r: 0.1 },
+  },
+  {
+    id: 'springbase',
+    name: 'Spring base',
+    title: 'Spring base · EM13 orienter, EM14A–D presses (4-up), EM15 hook check',
+    fov: 54,
+    mount: { station: 'EM14B', a: 0.12, y: 0.17, r: -0.66 },
+    aim: { station: 'EM14B', a: 0.12, y: 0.15, r: 0.1 },
   },
   {
     id: 'cartridge',

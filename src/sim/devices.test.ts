@@ -130,7 +130,8 @@ test('parts are conserved: every body leaving the feeder is on a mover, in a gri
 
   const onMovers = p.movers.filter((m) => m.load).length;
   const inGrippers = p.stations.flatMap((st) => st.robots).filter((r) => r.holding && (r.holding.kind === 'pen' || r.holding.parts.includes('body'))).length;
-  const inBins = Object.values(p.bins).reduce((a, b) => a + b, 0);
+  // Pen reject bins only; the sub-line chutes hold springs and spring bases.
+  const inBins = LINE.stations.filter((d) => d.bin).reduce((a, d) => a + p.bins[d.bin!], 0);
   const packed = p.pensOut + p.tray.count;
   // EM11's spring robot also scraps there, but only springs: with no misplaced parts nothing is scrapped.
   const scrappedBodies = p.scrap.EM11 ?? 0;

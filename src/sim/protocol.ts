@@ -2,7 +2,7 @@
 // browser), sent as JSON text over a WebSocket at /ws.
 import type { ReporterStatus } from '../catchai/reporter';
 import type { PartType } from './config';
-import type { Batch, MachineState, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
+import type { Batch, MachineState, Orienter, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
 
 export type Command =
   | { type: 'start' }
@@ -67,6 +67,10 @@ export interface Frame {
   movers: MoverFrame[];
   stations: StationFrame[];
   feeders: { id: string; items: number[]; jam: number }[];
+  /** EM13: what it's doing, and 0..1 through turning and measuring the current part. */
+  orienter: { phase: Orienter['phase']; progress: number };
+  /** Spring base conveyor: part positions (loop coordinate) and each cup: 0 empty, 1 full, 2 filling. */
+  distribution: { items: number[]; cups: number[] };
   nests: { station: string; slots: number[]; changing: number }[];
   /** Tray being filled, and the pen counts of the trays queued on the outfeed (newest first). */
   tray: { count: number; changing: number; queue: number[] };

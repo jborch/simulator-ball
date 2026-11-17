@@ -1,6 +1,6 @@
 // Views of station equipment, each drawn in its station's local coordinates from frame data.
 import * as THREE from 'three';
-import type { LineConfig, PartType } from '../sim/config';
+import type { FeederDef, LineConfig, PartType } from '../sim/config';
 import { gripRadius, heldLength, nestPocket, trayPocket } from '../sim/layout';
 import type { RobotFrame } from '../sim/protocol';
 import { M, RAIL_Y, type Reach, TABLE, box, cyl, label, local, mat, span } from './build';
@@ -169,6 +169,8 @@ export class FeederView {
   private readonly tag: HTMLElement;
   private readonly name: string;
   private lastT = 0;
+  /** Inline check (EM10): ring light that flashes as a part passes the camera, and the chute count. */
+  private readonly inline: { at: number; ring: THREE.MeshStandardMaterial; count: HTMLElement; id: string } | null = null;
 
   /** `parts`: what the robot picks from this feeder (as the station places it). */
   constructor(
@@ -229,7 +231,9 @@ export class FeederView {
     this.bulk.position.copy(local(0, floorY + 0.012, bowlC));
     this.group.add(drum, foot, bowl, spiral, this.bulk);
 
-    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', housing: 'Housings (capped)' };
+    if (def.inline) this.inline = this.buildInline(def.inline, trackY);
+
+    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings (capped)' };
     this.name = names[def.part] ?? def.id;
     const l = label(this.name, 'label feeder');
     l.position.copy(local(0, rimY + 0.08, bowlC));
@@ -239,6 +243,7 @@ export class FeederView {
     const make = (): THREE.Object3D => {
       if (def.part === 'body') return models.pen_body.clone(true);
       if (def.part === 'spring') return models.spring.clone(true);
+      if (def.part === 'springBase') return models.spring_base.clone(true);
       return housingWithCap(cfg, models);
     };
     // Bulk parts lie on the bowl floor in a deterministic jumble, roughly along the wall.
@@ -265,11 +270,54 @@ export class FeederView {
     }
   }
 
-  update(items: number[], jam: number, t: number): void {
+  /**
+   * EM10 over the track: a camera on a post looking down at the passing parts, an air jet a
+   * little further on, and the chute the jet blows bad parts into (on the far side of the track).
+   */
+  private buildInline(inline: NonNullable<FeederDef['inline']>, trackY: number): NonNullable<FeederView['inline']> {
+    const camR = this.feederR + inline.at;
+    const jetR = this.feederR + inline.jetAt;
+    const top = trackY + 0.1;
+    this.group.add(span(-0.06, -0.045, TABLE, top, camR - 0.008, camR + 0.008, M.frame));
+    this.group.add(span(-0.06, 0.008, top - 0.01, top, camR - 0.008, camR + 0.008, M.frame));
+    this.group.add(span(-0.012, 0.012, trackY + 0.05, top - 0.01, camR - 0.012, camR + 0.012, M.camera));
+    const ring = mat(0xffffff, { emissive: 0xbfe3ff, emissiveIntensity: 0.2 });
+    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.01, 0.002, 8, 20), ring);
+    torus.rotation.x = Math.PI / 2;
+    torus.position.copy(local(0, trackY + 0.048, camR));
+    this.group.add(torus);
+    // Jet nozzle on one side of the track, chute on the other.
+    const nozzle = cyl(0.003, 0.02, M.rail, 12);
+    nozzle.rotation.z = Math.PI / 2;
+    nozzle.position.copy(local(-0.03, trackY + 0.006, jetR));
+    this.group.add(nozzle, span(-0.045, -0.04, TABLE, trackY + 0.006, jetR - 0.004, jetR + 0.004, M.frame));
+    const chute = new THREE.Group();
+    const w = 0.05;
+    chute.add(span(0.025, 0.025 + w, TABLE, TABLE + 0.004, jetR - 0.03, jetR + 0.03, M.bin));
+    for (const [a0, a1, r0, r1] of [
+      [0.025, 0.025 + w, jetR - 0.03, jetR - 0.026],
+      [0.025, 0.025 + w, jetR + 0.026, jetR + 0.03],
+      [0.025 + w - 0.004, 0.025 + w, jetR - 0.03, jetR + 0.03],
+    ]) {
+      chute.add(span(a0, a1, TABLE, trackY - 0.01, r0, r1, M.bin));
+    }
+    this.group.add(chute);
+    const l = label(`${inline.id} rejects: 0`, 'label bin');
+    l.position.copy(local(0.05, trackY + 0.03, jetR));
+    this.group.add(l);
+    return { at: inline.at, ring, count: l.element, id: inline.id };
+  }
+
+  update(items: number[], jam: number, t: number, bins: Record<string, number> = {}): void {
     this.pool.forEach((o, i) => {
       o.visible = i < items.length;
       if (o.visible) o.position.z = -(this.feederR + items[i]);
     });
+    if (this.inline) {
+      const { at, ring, count, id } = this.inline;
+      ring.emissiveIntensity = items.some((x) => Math.abs(x - at) < 0.004) ? 2.5 : 0.2;
+      count.textContent = `${id} rejects: ${bins[id] ?? 0}`;
+    }
     const jammed = jam > 0;
     const dt = Math.min(0.1, Math.max(0, t - this.lastT));
     this.lastT = t;

@@ -1,7 +1,7 @@
 // Builds the compact per-frame view of the state that clients render (~30 Hz).
 import type { LineConfig } from './config';
 import type { Frame, RobotFrame, StationFrame } from './protocol';
-import type { PlantStation, Robot, SimState } from './types';
+import type { Orienter, PlantStation, Robot, SimState } from './types';
 
 function robotFrame(r: Robot): RobotFrame {
   const held = r.holding;
@@ -15,6 +15,14 @@ function cameraProgress(cfg: LineConfig, ps: PlantStation, i: number): number | 
   const total = def.mech + def.fixed;
   if (!c || total <= 0) return null;
   return 1 - (Math.max(0, c.mechLeft) + Math.max(0, c.fixedLeft)) / total;
+}
+
+/** 0..1 through turning and measuring the current spring base. */
+function orienterProgress(cfg: LineConfig, o: Orienter): number {
+  const { mech, fixed } = cfg.orienter;
+  if (o.phase === 'turning') return (1 - o.mechLeft / mech) * (mech / (mech + fixed));
+  if (o.phase === 'measuring') return (mech + fixed - Math.max(0, o.fixedLeft)) / (mech + fixed);
+  return o.phase === 'idle' ? 0 : 1;
 }
 
 export function buildFrame(s: SimState, cfg: LineConfig): Frame {
@@ -52,7 +60,9 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
       lastLap: m.lastLap,
     })),
     stations,
-    feeders: plant.feeders.map((f) => ({ id: f.id, items: [...f.items], jam: f.jam })),
+    feeders: plant.feeders.map((f) => ({ id: f.id, items: f.items.map((it) => it.x), jam: f.jam })),
+    orienter: { phase: plant.orienter.phase, progress: orienterProgress(cfg, plant.orienter) },
+    distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
     nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
     tray: { count: plant.tray.count, changing: plant.tray.changing, queue: [...plant.trayQueue] },
     batch: plc.batch ? { ...plc.batch } : null,

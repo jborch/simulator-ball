@@ -8,6 +8,7 @@ import type { LineConfig, MoverProfile } from './config';
 import { createFeeder, createNest, nextFailure, stepFeeder, stepNest, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
 import { createRobot, stepRobot, toolClear } from './robot';
+import { createDistribution, createOrienter, stepDistribution, stepOrienter } from './sublines';
 import { copyTag, emptyTag } from './tags';
 import { forward, trackLength } from './track';
 import type { Mover, PlantState, PlantStation } from './types';
@@ -20,6 +21,7 @@ function makeProfile(cfg: LineConfig, rng: RngState, id: number): MoverProfile {
     settle: uniform(rng, ...p.settle),
     fixtureOffset: normal(rng, 0, p.fixtureSd),
     rfidOk: p.rfidOk,
+    badness: 0,
   };
   return { ...base, ...p.worn[id] };
 }
@@ -79,7 +81,15 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     movers,
     stations,
     gateOrder,
-    bins: Object.fromEntries(cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0])),
+    feedersOn: false,
+    orienter: createOrienter(),
+    distribution: createDistribution(cfg),
+    // Reject bins of the loop stations, and the chutes of the sub-line inspections.
+    bins: Object.fromEntries([
+      ...cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0]),
+      ...cfg.feeders.filter((f) => f.inline).map((f) => [f.inline!.id, 0]),
+      [cfg.orienter.id, 0],
+    ]),
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
     nests: cfg.stations.filter((d) => d.robots?.some((r) => r.source === 'nest')).map((d) => createNest(cfg, d.id)),
@@ -116,7 +126,9 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
     if (ps.laser) stepLaser(p, ps, dt);
     ps.robots.forEach((r, k) => stepRobot(p, cfg, rng, def, def.robots![k], r, dt));
   });
-  p.feeders.forEach((f, i) => stepFeeder(f, cfg.feeders[i], cfg, rng, dt));
+  p.feeders.forEach((f, i) => stepFeeder(p, f, cfg.feeders[i], cfg, rng, dt));
+  stepOrienter(p, cfg, rng, dt);
+  stepDistribution(p, cfg, dt);
   const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
   for (const n of p.nests) stepNest(n, cfg, clear(n.station), dt);
   stepTray(p, cfg, clear(cfg.layout.tray.station), dt);

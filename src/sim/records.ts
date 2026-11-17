@@ -1,6 +1,7 @@
 // Turns a finished station cycle into the new tag contents and MES records (ItemProcessed /
 // ItemsMerged), and keeps counters (good, rejected, batch, tray, nest) up to date.
-import type { LineConfig, StationDef } from './config';
+import type { Limits, LineConfig } from './config';
+import { type RngState, random } from './rng';
 import { carrierId, emit, measurementName, now, placers, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, ItemsMergedEvent, SimState, Tag } from './types';
@@ -13,8 +14,8 @@ interface Evaluation {
   props: Props;
 }
 
-function evaluate(def: StationDef, value: number | null): Evaluation {
-  const lim = def.inspect!;
+/** Checks a measurement against its limits, with the reject cause as the original line words it. */
+export function evaluate(lim: Limits, value: number | null, rng: RngState): Evaluation {
   const passed = value !== null && value >= lim.lower && value <= lim.upper;
   const props: Props = {
     [measurementName(lim.key)]: value,
@@ -25,7 +26,10 @@ function evaluate(def: StationDef, value: number | null): Evaluation {
   };
   let cause: string | null = null;
   if (!passed) {
-    cause = value === null ? 'Part missing' : value > lim.upper ? `${lim.cause} (high)` : `${lim.cause} (low)`;
+    if (value === null) cause = 'Part missing';
+    else if (value > lim.upper && lim.high) cause = lim.high;
+    else if (value < lim.lower && lim.low) cause = lim.low;
+    else cause = lim.alt && random(rng) < lim.alt.p ? lim.alt.cause : lim.cause;
     props['Reject Cause'] = cause;
   }
   return { passed, cause, props };
@@ -57,17 +61,23 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
       const robots = placers(def);
       // Merges go out after the pen's record, so a new pen (load station) exists before parts go into it.
       const merges: ItemsMergedEvent[] = [];
+      const sourceIds: { id: number; type: string }[] = [];
       op.places.forEach((place, k) => {
         if (place.kind === 'load') {
           // A new pen: its SR id and identifier go on the tag.
           tag = { srId: place.srId, status: 'ok', done: [], reason: null };
         } else {
           const pen = tag.srId!;
-          const source = sourceProcessId(cfg, def, robots[k]);
-          for (const part of place.parts) {
-            const partId = ++s.plc.srCounter;
+          place.parts.forEach((part, j) => {
             const partType = part[0].toUpperCase() + part.slice(1);
-            if (part === 'cartridge') {
+            // A part tracked on its sub-line (spring, spring base) was reported there already.
+            const tracked = st.placed[k]?.[j] ?? null;
+            const partId = tracked ?? ++s.plc.srCounter;
+            sourceIds.push({ id: partId, type: partType });
+            if (tracked !== null) {
+              // Nothing more to report until it is merged.
+            } else if (part === 'cartridge') {
+              const source = sourceProcessId(cfg, def, robots[k]);
               // Cartridges are unpacked from the station's nest (1 nest → N cartridges).
               const nest = s.plc.nests[def.id];
               if (nest.used >= cfg.nestSize) {
@@ -76,10 +86,10 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
               }
               emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourceType: 'Nest', sourcePosition: nest.used++ });
             } else {
-              emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to });
+              emit(s, { kind: 'processed', process: sourceProcessId(cfg, def, robots[k]), scopedId: partId, itemType: partType, from, to });
             }
             merges.push({ kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
-          }
+          });
         }
         if (robots[k].step) tag.done.push(robots[k].step!);
       });
@@ -87,19 +97,25 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
       let props: Props = { 'Mover Id': carrier };
       let verdict: 'Passed' | 'Failed' | undefined;
       if (def.inspect) {
-        const ev = evaluate(def, result.measurement);
+        const ev = evaluate(def.inspect!, result.measurement, s.rng);
         props = { ...props, ...ev.props };
         verdict = ev.passed ? 'Passed' : 'Failed';
         if (!ev.passed) markNok(tag, ev.cause);
       }
-      emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: verdict, properties: props });
+      if (def.logOnSource && sourceIds.length > 0) {
+        // The station's record goes on the part it mounted (the pen's carrier still identifies the mover).
+        const src = sourceIds.at(-1)!;
+        emit(s, { kind: 'processed', process, scopedId: src.id, itemType: src.type, from, to, carrier, result: verdict, properties: props });
+      } else {
+        emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: verdict, properties: props });
+      }
       for (const m of merges) emit(s, m);
       return tag;
     }
 
     case 'inspect': {
       const pen = tag.srId!;
-      const ev = evaluate(def, result.measurement);
+      const ev = evaluate(def.inspect!, result.measurement, s.rng);
       const props: Props = { 'Mover Id': carrier, ...ev.props };
       let { passed, cause } = ev;
       if (op.readCode) {

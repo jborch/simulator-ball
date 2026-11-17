@@ -1,4 +1,4 @@
-// Monitoring-screen controls: pick one of the installed cameras (buttons or keys 1–5), and
+// Monitoring-screen controls: pick one of the installed cameras (buttons or keys 1–6), and
 // auto-hide the controls after a few seconds without input, like a video player, so the view
 // reads as a clean camera feed. `?cam=<id>` picks the camera and `&ui=hidden` starts with auto-hide on
 // (handy for a wall display).

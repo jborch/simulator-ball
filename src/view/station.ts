@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { LineConfig, StationDef } from '../sim/config';
+import type { LineConfig, PartType, StationDef } from '../sim/config';
 import { heldLength, nestPocket, seatedTip, trayPocket } from '../sim/layout';
 import type { Frame, StationFrame } from '../sim/protocol';
 import { pose } from '../sim/track';
@@ -47,7 +47,8 @@ export class StationView {
       if (r.source === 'nest') {
         this.nest = new NestView(cfg, models);
         this.nest.group.position.x = r.home;
-      } else if (r.source) {
+      } else if (r.source && r.source !== 'cup') {
+        // (A cup is drawn with the distribution conveyor that fills it.)
         const feeder = new FeederView(r.source, r.parts ?? [], cfg, models);
         feeder.group.position.x = r.home;
         this.feeders.push(feeder);
@@ -55,16 +56,18 @@ export class StationView {
     }
     if (def.kind === 'unload') this.tray = new TrayView(cfg, models);
     if (def.bin) {
-      // Early rejects are part-built pens; the unload station only rejects finished ones.
-      const rejected = def.kind === 'reject' ? StationView.partBuilt(cfg, models) : finishedPen(cfg, models);
-      const length = def.kind === 'reject' ? cfg.parts.body.length : heldLength(cfg, ['body', 'housing', 'cap']);
+      // Early rejects are pens as built so far; the unload station only rejects finished ones.
+      const built = StationView.builtBefore(cfg, def);
+      const rejected = def.kind === 'reject' ? StationView.partBuilt(cfg, models, built) : finishedPen(cfg, models);
+      const length = def.kind === 'reject' ? heldLength(cfg, built) : heldLength(cfg, ['body', 'housing', 'cap']);
       this.bin = new BinView(def.bin, rejected, length);
       const b = cfg.layout.bins[def.bin];
       this.bin.group.position.copy(local(b.a, TABLE, b.r));
     }
     // What a robot drops when a part doesn't seat: the last part it places.
     const source = def.robots?.filter((r) => r.source).at(-1)?.source;
-    const scrapPart = source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'housings' ? models.housing : models.pen_body;
+    const scrapPart =
+      source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'cup' ? models.spring_base : source === 'housings' ? models.housing : models.pen_body;
     this.scrap = new ScrapView(scrapPart);
     for (const part of [this.nest, ...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
@@ -88,10 +91,16 @@ export class StationView {
     this.group.add(tagObj);
   }
 
-  /** A pen body with its spring, as rejected after the spring inspection. */
-  private static partBuilt(cfg: LineConfig, models: Models): THREE.Object3D {
+  /** Parts a pen has by the time it reaches this station: everything placed upstream of it. */
+  private static builtBefore(cfg: LineConfig, def: StationDef): PartType[] {
+    const parts = cfg.stations.filter((d) => d.s < def.s).flatMap((d) => (d.robots ?? []).flatMap((r) => (r.source ? (r.parts ?? []) : [])));
+    return [...new Set(parts)];
+  }
+
+  /** A part-built pen, as rejected at an early reject station. */
+  private static partBuilt(cfg: LineConfig, models: Models, parts: PartType[]): THREE.Object3D {
     const a = new AssemblyView(cfg, models);
-    a.show(['body', 'spring']);
+    a.show(parts);
     return a.root;
   }
 
@@ -102,6 +111,7 @@ export class StationView {
     for (const r of def.robots ?? []) {
       if (r.parts) tips.push(seatedTip(cfg, r.parts));
       if (r.source === 'nest') tips.push(z.nest);
+      else if (r.source === 'cup') tips.push(cfg.distribution.cupZ);
       else if (r.source) tips.push(cfg.feeders.find((f) => f.id === r.source)!.pickZ);
     }
     if (def.kind === 'reject' || def.kind === 'unload') tips.push(seatedTip(cfg, ['body']));
@@ -113,6 +123,8 @@ export class StationView {
   /** The gantry beam stands just outside the bins and tray conveyor under the robot. */
   private static beamR(cfg: LineConfig, def: StationDef, reach: Reach): number {
     let outer = reach.rMax;
+    // Stand clear of the distribution conveyor that passes under the presses.
+    if (def.robots?.some((r) => r.source === 'cup')) outer = Math.max(outer, cfg.distribution.r + 0.04);
     if (def.bin) outer = Math.max(outer, cfg.layout.bins[def.bin].r + 0.1);
     if (def.kind === 'unload') outer = Math.max(outer, cfg.layout.tray.r + 0.07);
     return outer + 0.04;
@@ -124,6 +136,7 @@ export class StationView {
     for (const r of def.robots ?? []) {
       pts.push({ a: r.home, r: 0 });
       if (r.source === 'nest') for (let i = 0; i < cfg.nestSize; i++) pts.push({ ...nestPocket(cfg, i), a: r.home + nestPocket(cfg, i).a });
+      else if (r.source === 'cup') pts.push({ a: r.home, r: cfg.distribution.cupR });
       else if (r.source) pts.push({ a: r.home, r: cfg.layout.feederR });
     }
     if (def.bin) pts.push(cfg.layout.bins[def.bin]);
@@ -141,7 +154,7 @@ export class StationView {
     const f = fa.stations[index];
     for (const feeder of this.feeders) {
       const fd = fa.feeders.find((x) => x.id === feeder.id);
-      feeder.update(fd?.items ?? [], fd?.jam ?? 0, t);
+      feeder.update(fd?.items ?? [], fd?.jam ?? 0, t, fa.counters.bins);
     }
     const nest = this.nest && fa.nests.find((x) => x.station === this.def.id);
     if (nest) this.nest!.update(nest.slots, nest.changing);

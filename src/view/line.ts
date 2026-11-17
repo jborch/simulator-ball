@@ -10,12 +10,14 @@ import type { Sample } from './interp';
 import type { Models } from './models';
 import { MoverView } from './movers';
 import { StationView } from './station';
+import { SpringBaseLineView } from './sublines';
 import { beltTexture } from './textures';
 
 export class LineView {
   readonly group = new THREE.Group();
   readonly movers: MoverView[];
   private readonly stations: StationView[];
+  private readonly springBases: SpringBaseLineView;
   private readonly beltTex: THREE.Texture;
   private beltTravel = 0;
   private readonly L: number;
@@ -33,6 +35,8 @@ export class LineView {
       this.group.add(sv.group);
       return sv;
     });
+    this.springBases = new SpringBaseLineView(cfg, models);
+    this.group.add(this.springBases.group);
     this.movers = Array.from({ length: cfg.mover.count }, (_, i) => {
       const mv = new MoverView(i + 1, cfg, models);
       this.group.add(mv.root);
@@ -114,6 +118,7 @@ export class LineView {
   bounds(): THREE.Box3 {
     const box = new THREE.Box3();
     for (const sv of this.stations) box.expandByObject(sv.group);
+    box.expandByObject(this.springBases.group);
     for (const mv of this.movers) box.expandByObject(mv.root);
     return box;
   }
@@ -126,5 +131,6 @@ export class LineView {
     this.beltTex.offset.y = -this.beltTravel / RIB;
 
     this.stations.forEach((sv, i) => sv.update(sample.a, f, sample.alpha, i, sample.t));
+    this.springBases.update(sample.a, sample.t);
   }
 }

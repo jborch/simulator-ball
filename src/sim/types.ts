@@ -57,6 +57,8 @@ export type InspectOp = Extract<Op, { kind: 'inspect' }>;
 
 export interface CycleResult {
   measurement: number | null;
+  /** SR ids of the parts a robot placed, where they were tracked before (null where not). */
+  partIds?: (number | null)[];
   /** Decoded DataMatrix, or null if unreadable. Undefined when not read. */
   code?: string | null;
 }
@@ -80,8 +82,8 @@ export interface Reader {
   data: Tag | null;
 }
 
-/** What a robot gripper holds. */
-export type Held = { kind: 'part'; parts: PartType[] } | { kind: 'pen'; load: Load };
+/** What a robot gripper holds. A part carries the SR id it was tracked by on its sub-line, if any. */
+export type Held = { kind: 'part'; parts: PartType[]; ids?: (number | null)[] } | { kind: 'pen'; load: Load };
 
 export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
 
@@ -139,14 +141,50 @@ export interface Robot {
   nextFault: number;
 }
 
+/** A part on a feeder track. */
+export interface FeederItem {
+  /** Position along the track; 0 = at the pick point, increasing back toward the bowl. */
+  x: number;
+  /** Plant-side identity, so the PLC can find the part a camera result belongs to. */
+  uid: number;
+  /** True value of what the inline camera measures, if the track has one. */
+  truth: number | null;
+  /** PLC shift register: SR id and eject decision once the part has been inspected. */
+  sr: number | null;
+  eject: boolean;
+}
+
 export interface Feeder {
   id: string;
-  /** Part positions along the track; 0 = at the pick point, increasing back toward the bowl. */
-  items: number[];
+  items: FeederItem[];
   nextIn: number;
   fed: number;
   /** Seconds until a jam is cleared; 0 when feeding normally. */
   jam: number;
+  nextUid: number;
+  /** Inline camera measurements (and when they were taken) not yet taken by the PLC. */
+  results: { uid: number; value: number; t: number }[];
+}
+
+/** EM13: takes a spring base, turns it, measures its angle; the PLC decides where it goes. */
+export interface Orienter {
+  item: { truth: number; sr: number | null } | null;
+  phase: 'idle' | 'turning' | 'measuring' | 'decide' | 'out';
+  mechLeft: number;
+  fixedLeft: number;
+  /** Sim time the current part was taken. */
+  start: number;
+  /** Measured angle once phase is 'decide'. */
+  result: number | null;
+  /** Set by the PLC: push the part on (true) or into the reject chute (false). */
+  pass: boolean | null;
+}
+
+/** Spring base distribution conveyor with a diverter and pick cup per station. */
+export interface Distribution {
+  /** Parts on the conveyor (loop coordinate x), front first, with their SR ids. */
+  items: { x: number; sr: number | null }[];
+  cups: { station: string; sr: number | null; full: boolean; filling: number }[];
 }
 
 export interface Nest {
@@ -191,6 +229,10 @@ export interface PlantState {
   stations: PlantStation[];
   /** Station indexes sorted by gate position. */
   gateOrder: number[];
+  /** Bowls and sub-line conveyors only run while the machine runs (PLC output). */
+  feedersOn: boolean;
+  orienter: Orienter;
+  distribution: Distribution;
   bins: Record<string, number>;
   feeders: Feeder[];
   nests: Nest[];
@@ -223,6 +265,8 @@ export interface PlcStation {
   op: Op | null;
   /** Place ops: index of the robot whose turn it is. */
   job: number;
+  /** Place ops: SR ids of the parts each robot placed (where tracked on a sub-line). */
+  placed: (number | null)[][];
   /** What the station measured during the cycle (a camera, or the robot that measures). */
   result: CycleResult | null;
   stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };

@@ -56,6 +56,7 @@ YELLOW = lambda: mat("MoverTop", (0.95, 0.75, 0.1), rough=0.5)
 TRAY = lambda: mat("TrayPET", (0.35, 0.55, 0.75), rough=0.4)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
+BASE = lambda: mat("SpringBaseTeal", (0.05, 0.55, 0.5), rough=0.45)
 # Pen bodies are frosted translucent plastic, so the spring and cartridge show through.
 BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
 
@@ -144,7 +145,8 @@ def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
 
 
 # Geometry along the pen axis matches LINE.parts in src/sim/config.ts: the spring sits in the body
-# from 6 mm, the cartridge on top of it from 51 mm, the housing slides over the body from 8 mm.
+# from 6 mm, the spring base on top of it from 51 mm, the cartridge on that from 57 mm, and the
+# housing slides over the body from 8 mm.
 DM_Z = 0.045  # centre of the laser-marked code on the body
 
 
@@ -178,6 +180,16 @@ def spring(z0=0.0):
     o.select_set(True)
     bpy.ops.object.convert(target="MESH")
     return o
+
+
+def spring_base():
+    """Seat that caps the spring: a boss into the spring's top coil, a disc that fits the body's
+    bore, and a notch the spring's hook engages (what EM15 looks for). 6 mm tall, origin at its base."""
+    boss = cyl(0.0034, 0.002, 0.0, BASE(), "base_boss")
+    disc = cyl(0.0048, 0.004, 0.002, BASE(), "base_disc")
+    cut(disc, box(0.0016, 0.004, 0.0025, (0, -0.0042, 0.003), BASE(), "base_hook_notch"))
+    rim = cyl(0.0042, 0.0006, 0.0054, BASE(), "base_rim")
+    return group("SpringBase", [boss, disc, rim])
 
 
 def cartridge():
@@ -318,6 +330,7 @@ reset()
 assets = [
     (pen_body(), "pen_body.glb", "Pen body"),
     (group("SpringRoot", [spring()]), "spring.glb", "Spring"),
+    (spring_base(), "spring_base.glb", "Spring base"),
     (cartridge(), "cartridge.glb", "Cartridge"),
     (housing(), "housing.glb", "Housing"),
     (cap(), "cap.glb", "Cap"),
@@ -334,10 +347,10 @@ if not RENDER:
     sys.exit(0)
 
 # Lay out in a row for the preview; small parts up front, carriers behind.
-small = assets[:6]
-big = assets[6:]
+small = assets[:7]
+big = assets[7:]
 for i, (root, _, label) in enumerate(small):
-    root.location = ((i - 2.5) * 0.045, 0.0, 0.0)
+    root.location = ((i - 3) * 0.045, 0.0, 0.0)
 for i, (root, _, label) in enumerate(big):
     root.location = ((i - 1) * 0.16, 0.15, 0.0)
 # Put a pen in the mover and on the tray to show fit.

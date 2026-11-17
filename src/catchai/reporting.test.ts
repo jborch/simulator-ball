@@ -186,7 +186,7 @@ describe('CATCH.AI mapping', () => {
       expect(reported.has(x.SourceItemScopedId), `source ${x.SourceItemType} ${x.SourceItemScopedId}`).toBe(true);
       expect(types.get(x.SourceItemScopedId)).toBe(x.SourceItemType);
     }
-    expect(new Set(merges.map((x) => x.SourceItemType))).toEqual(new Set(['Spring', 'Cartridge', 'Housing', 'Cap', 'Pen']));
+    expect(new Set(merges.map((x) => x.SourceItemType))).toEqual(new Set(['Spring', 'SpringBase', 'Cartridge', 'Housing', 'Cap', 'Pen']));
     // Pens go into trays; the tray is reported when it leaves.
     const trays = items.filter((i) => i.ItemType === 'Tray');
     for (const x of merges.filter((x) => x.TargetItemType === 'Tray').slice(0, -12)) expect(trays.map((t) => t.ScopedId)).toContain(x.TargetItemScopedId);

@@ -1,18 +1,36 @@
 // Physical effect of station work on the assembly in a mover's fixture: which parts it has,
 // and its true quality (what inspections later measure, plus sensor noise).
-import type { LineConfig, QualityKey, StationDef } from './config';
+import type { LineConfig, PartType, QualityKey, StationDef } from './config';
 import { type RngState, normal, random } from './rng';
-import type { CycleResult, InspectOp, Mover, PlaceOp, PlantState } from './types';
+import type { CycleResult, InspectOp, Load, Mover, PlaceOp, PlantState } from './types';
 
 export function moverById(p: PlantState, id: number): Mover {
   return p.movers[id - 1];
 }
 
-function trueQuality(cfg: LineConfig, rng: RngState, key: QualityKey, m: Mover, fragile: boolean): number {
+/** What placing each part settles about the pen's quality (what later inspections measure). */
+const SETTLES: Partial<Record<PartType, QualityKey[]>> = {
+  spring: ['springAngle'],
+  springBase: ['seatForce', 'hook'],
+  cartridge: ['seatDepth'],
+  housing: ['snapForce'],
+};
+
+/** True value of a quality: the station's own (mean, σ) where it has one, plus the mover's fixture bias. */
+function trueQuality(cfg: LineConfig, rng: RngState, key: QualityKey, m: Mover, own?: { mean: number; sd: number }): number {
   const q = cfg.quality[key];
-  let v = normal(rng, q.mean, q.sd) + m.profile.fixtureOffset * q.perMmOffset;
-  if (fragile && 'fragileShift' in q) v += q.fragileShift;
-  return v;
+  const { mean, sd } = own ?? q;
+  return normal(rng, mean, sd) + m.profile.fixtureOffset * q.perMmOffset;
+}
+
+/**
+ * A sensor's reading of a quality of the pen: true value plus noise, shifted down by every pass
+ * through a fragile station and by the mover's badness (the original line's rule: 0.15 σ each).
+ */
+function measure(cfg: LineConfig, rng: RngState, m: Mover, load: Load, key: QualityKey, noise: number): number | null {
+  const truth = load.quality[key];
+  if (truth === undefined) return null;
+  return truth + normal(rng, 0, noise) - (load.fragile + m.profile.badness) * cfg.fragileShift * cfg.quality[key].sd;
 }
 
 /**
@@ -30,21 +48,21 @@ export function placeOnMover(p: PlantState, cfg: LineConfig, rng: RngState, def:
   if (!load) return null;
   for (const part of op.parts) {
     load.parts.push(part);
-    if (part === 'spring') load.quality.springAngle = trueQuality(cfg, rng, 'springAngle', m, false);
-    if (part === 'cartridge') load.quality.seatDepth = trueQuality(cfg, rng, 'seatDepth', m, op.fragile);
-    if (part === 'housing') load.quality.snapForce = trueQuality(cfg, rng, 'snapForce', m, false);
+    for (const key of SETTLES[part] ?? []) {
+      load.quality[key] = trueQuality(cfg, rng, key, m, key === def.inspect?.key ? def.quality : undefined);
+    }
   }
+  const measurement = op.measure ? measure(cfg, rng, m, load, op.measure, def.inspect?.noise ?? 0) : null;
+  // A fragile station's own measurement isn't affected; everything after it is.
   if (op.fragile) load.fragile++;
-  if (!op.measure) return { measurement: null };
-  const truth = load.quality[op.measure];
-  return { measurement: truth === undefined ? null : truth + normal(rng, 0, def.inspect?.noise ?? 0) };
+  return { measurement };
 }
 
 /** An inspection camera looks at the mover: measures quality and, if asked, reads the DataMatrix. */
 export function inspectMover(p: PlantState, cfg: LineConfig, rng: RngState, op: InspectOp, moverId: number): CycleResult {
-  const load = moverById(p, moverId).load;
-  const truth = load?.quality[op.measure];
-  const measurement = truth === undefined ? null : truth + normal(rng, 0, op.noise);
+  const m = moverById(p, moverId);
+  const load = m.load;
+  const measurement = load ? measure(cfg, rng, m, load, op.measure, op.noise) : null;
   if (!op.readCode) return { measurement };
   const unreadable = !load || !load.mark || random(rng) < cfg.dataMatrix.readFailRate;
   return { measurement, code: unreadable ? null : load.mark };

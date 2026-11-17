@@ -1,8 +1,8 @@
 // Line configuration. SI units throughout: metres, seconds, m/s.
 
-export type Step = 'body' | 'spring' | 'springInsp' | 'cartridge' | 'housing' | 'final';
-export type PartType = 'body' | 'spring' | 'cartridge' | 'housing' | 'cap';
-export type QualityKey = 'springAngle' | 'seatDepth' | 'snapForce';
+export type Step = 'body' | 'spring' | 'springInsp' | 'springBase' | 'hookInsp' | 'cartridge' | 'housing' | 'final';
+export type PartType = 'body' | 'spring' | 'springBase' | 'cartridge' | 'housing' | 'cap';
+export type QualityKey = 'springTension' | 'springAngle' | 'baseAngle' | 'seatForce' | 'hook' | 'seatDepth' | 'snapForce';
 export type StationKind = 'load' | 'assemble' | 'inspect' | 'reject' | 'unload';
 
 export interface Limits {
@@ -12,7 +12,21 @@ export interface Limits {
   /** Measurement noise (1σ) added by the sensor on top of the true value. */
   noise: number;
   unit: string;
+  /** Reject cause (the original line's wording). */
   cause: string;
+  /** Cause when the value is above the upper / below the lower limit, if they differ. */
+  high?: string;
+  low?: string;
+  /** A second failure mode the station can't tell apart by value: reported with this probability. */
+  alt?: { p: number; cause: string };
+}
+
+/** A process on a sub-line, off the mover loop (like EM10 and EM13): parts, not pens, no carrier. */
+export interface SubProcessDef {
+  id: string;
+  name: string;
+  unit: string;
+  inspect: Limits;
 }
 
 export interface UnitDef {
@@ -30,7 +44,10 @@ export interface RobotDef {
   id: string;
   /** Where the arm waits along the belt (station-local a); its part source sits there too. */
   home: number;
-  /** Where it picks parts: a feeder id or the station's cartridge nest. Pickers (reject, unload) have none. */
+  /**
+   * Where it picks parts: a feeder id, the station's cartridge nest ('nest') or its pick cup on the
+   * distribution conveyor ('cup'). Pickers (reject, unload) have none.
+   */
   source?: string;
   parts?: PartType[];
   /** Step written to the mover tag once this robot has placed its parts ('body' loads a new pen). */
@@ -69,12 +86,19 @@ export interface StationDef {
   group?: string;
   /** Degrades the assembly it touches (like EM14B in the C# sim). */
   fragile?: boolean;
+  /** This station's own quality of the step it measures, instead of the line's (EM14A–D differ). */
+  quality?: { mean: number; sd: number };
+  /**
+   * Report the station's record on the part it merges, not on the pen (the original's
+   * LogProcessedDataOnSourceItem: EM14 on the spring base, EM40 on the housing).
+   */
+  logOnSource?: boolean;
   /** Also verifies the DataMatrix identifier against tracking. */
   readsCode?: boolean;
   bin?: string;
 }
 
-const STRAIGHT = 3.6;
+const STRAIGHT = 5.2;
 const RADIUS = 0.4;
 const BOTTOM = STRAIGHT + Math.PI * RADIUS;
 
@@ -112,7 +136,8 @@ export const LINE = {
   parts: {
     body: { seat: 0, length: 0.11, radius: 0.0065 },
     spring: { seat: 0.006, length: 0.045, radius: 0.0048 },
-    cartridge: { seat: 0.051, length: 0.073, radius: 0.0048 },
+    springBase: { seat: 0.051, length: 0.006, radius: 0.0048 },
+    cartridge: { seat: 0.057, length: 0.073, radius: 0.0048 },
     housing: { seat: 0.008, length: 0.12, radius: 0.0085 },
     cap: { seat: 0.128, length: 0.035, radius: 0.009 },
   } satisfies Record<PartType, PartGeometry> as Record<PartType, PartGeometry>,
@@ -129,12 +154,35 @@ export const LINE = {
   nestChange: 4,
   /** Indexing a full tray out and an empty one in. */
   trayChange: 3,
-  /** Bowl feeders push parts onto a linear track toward the robot's pick point. */
+  /** Bowl feeders push parts onto a linear track toward the robot's pick point (or the orienter). */
   feeders: [
     { id: 'bodies', unit: 'UN01', part: 'body', interval: 1.0, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
-    { id: 'springs', unit: 'UN01', part: 'spring', interval: 1.0, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.22 },
+    {
+      id: 'springs', unit: 'UN01', part: 'spring', interval: 0.9, track: 0.24, pitch: 0.02, speed: 0.12, pickZ: 0.22,
+      // EM10 checks every spring on the track as it passes, and an air jet blows bad ones into a chute.
+      inline: {
+        id: 'EM10', name: 'Spring verification', unit: 'UN01', at: 0.17, jetAt: 0.12, exposure: 0.02,
+        inspect: { key: 'springTension', lower: 3, upper: 7, noise: 0.05, unit: 'N', cause: 'Spring tension out of range', alt: { p: 0.5, cause: 'Spring deformation detected' } },
+      },
+    },
+    { id: 'bases', unit: 'UN01', part: 'springBase', interval: 0.8, track: 0.2, pitch: 0.012, speed: 0.12, pickZ: 0.2 },
     { id: 'housings', unit: 'UN02', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
   ] as FeederDef[],
+  /**
+   * EM13 takes spring bases off the end of their feeder track, turns each to the right angle and
+   * checks it, then pushes good ones onto the distribution conveyor and bad ones into a chute.
+   * It stands beside the loop at `s`, in that point's station-local coordinates.
+   */
+  orienter: {
+    id: 'EM13', name: 'Rotate spring base', unit: 'UN01', s: 2.2, feeder: 'bases', mech: 1.0, fixed: 0.2,
+    inspect: { key: 'baseAngle', lower: 75, upper: 105, noise: 0.3, unit: 'deg', cause: 'Spring base rotation angle incorrect' },
+  } as OrienterDef,
+  /**
+   * Distribution conveyor beside the loop, from the orienter past the EM14 stations (in loop
+   * coordinates, along the straight). A diverter at each station pushes a passing part into the
+   * station's pick cup when the cup is empty; parts nobody takes queue at the end stop.
+   */
+  distribution: { from: 2.2, speed: 0.12, pitch: 0.012, r: 0.3, cupR: 0.24, divert: 0.3, cupZ: 0.21, stations: ['EM14A', 'EM14B', 'EM14C', 'EM14D'] },
   /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
   faults: {
     enabled: true,
@@ -172,7 +220,7 @@ export const LINE = {
     /** Each nest-fed station has its own nest, in station-local coordinates. */
     nest: { a: 0, r: 0.34, cols: 6, rows: 4, pitch: 0.016 },
     tray: { station: 'EM60', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
-    bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 } } as Record<string, { a: number; r: number }>,
+    bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 }, BIN3: { a: 0, r: 0.3 } } as Record<string, { a: number; r: number }>,
     /**
      * Gripper tip heights above the belt surface. The gripper holds a part (or a pen) by its top,
      * so on the mover the tip height follows from the part geometry (see layout.ts).
@@ -193,44 +241,80 @@ export const LINE = {
       inspect: { key: 'springAngle', lower: 35, upper: 55, noise: 0.4, unit: 'deg', cause: 'Spring angle out of tolerance' },
     },
     { id: 'R1', name: 'Early reject', unit: 'UN01', kind: 'reject', s: 1.85, mech: 0, fixed: 0, bin: 'BIN1', robots: [{ id: 'R1', home: 0, mech: 0 }] },
+    // Four spring base presses work side by side (4-up). EM14B's is mis-adjusted and fragile: the original line's outlier.
+    ...(
+      [
+        ['EM14A', 2.6, 2.1, 0.3],
+        ['EM14B', 2.87, 2.5, 0.4],
+        ['EM14C', 3.14, 2.05, 0.3],
+        ['EM14D', 3.41, 2.15, 0.3],
+      ] as const
+    ).map(
+      ([id, s, mean, sd]): StationDef => ({
+        id, name: 'Mount spring base', unit: 'UN01', kind: 'assemble', s, mech: 0, fixed: 0, requires: ['springInsp'], group: 'EM14',
+        fragile: id === 'EM14B', quality: { mean, sd }, logOnSource: true,
+        robots: [{ id, home: 0, source: 'cup', parts: ['springBase'], step: 'springBase', insert: 0.03, mech: 6.0 }],
+        inspect: { key: 'seatForce', lower: 1.5, upper: 2.7, noise: 0.02, unit: 'N', cause: 'Spring base seating force out of range', high: 'Spring base seating force too high', low: 'Spring base misalignment' },
+      }),
+    ),
     {
-      id: 'EM41A', name: 'Insert cartridge A', unit: 'UN02', kind: 'assemble', s: 2.45, mech: 0, fixed: 0, requires: ['springInsp'], group: 'EM41',
+      id: 'EM15', name: 'Inspect spring hook present', unit: 'UN01', kind: 'inspect', s: 4.1, mech: 0.3, fixed: 0.3, step: 'hookInsp', requires: ['springBase'],
+      inspect: { key: 'hook', lower: 0.5, upper: 1.5, noise: 0.02, unit: '', cause: 'Spring hook not present' },
+    },
+    { id: 'R2', name: 'Reject', unit: 'UN01', kind: 'reject', s: 4.6, mech: 0, fixed: 0, bin: 'BIN3', robots: [{ id: 'R2', home: 0, mech: 0 }] },
+    {
+      id: 'EM41A', name: 'Insert cartridge A', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.6, mech: 0, fixed: 0, requires: ['hookInsp'], group: 'EM41',
       robots: [{ id: 'EM41A', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
     },
     {
-      id: 'EM41B', name: 'Insert cartridge B', unit: 'UN02', kind: 'assemble', s: 2.7, mech: 0, fixed: 0, requires: ['springInsp'], group: 'EM41', fragile: true,
+      id: 'EM41B', name: 'Insert cartridge B', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.85, mech: 0, fixed: 0, requires: ['hookInsp'], group: 'EM41',
       robots: [{ id: 'EM41B', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
     },
     {
-      id: 'EM40', name: 'Mount housing + cap', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.6, mech: 0, fixed: 0, requires: ['cartridge'],
+      id: 'EM40', name: 'Mount housing + cap', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.6, mech: 0, fixed: 0, requires: ['cartridge'],
       robots: [{ id: 'EM40', home: 0, source: 'housings', parts: ['housing', 'cap'], step: 'housing', insert: 0.11, mech: 0.6 }],
       inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window' },
     },
     {
-      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 1.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
+      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
       inspect: { key: 'seatDepth', lower: -0.3, upper: 0.3, noise: 0.02, unit: 'mm', cause: 'Cartridge seating depth' },
     },
-    { id: 'EM60', name: 'Pen to tray', unit: 'UN03', kind: 'unload', s: BOTTOM + 2.3, mech: 0, fixed: 0, bin: 'BIN2', robots: [{ id: 'EM60', home: 0, mech: 0 }] },
+    { id: 'EM60', name: 'Pen to tray', unit: 'UN03', kind: 'unload', s: BOTTOM + 3.3, mech: 0, fixed: 0, bin: 'BIN2', robots: [{ id: 'EM60', home: 0, mech: 0 }] },
   ] satisfies StationDef[] as StationDef[],
-  /** True quality of each assembly step (mean, σ) plus mover fixture and fragile-station effects. */
+  /**
+   * True quality of each step (mean, σ, as in the original line where it has one) and how much a
+   * mover's fixture offset (per mm) biases it.
+   */
   quality: {
-    springAngle: { mean: 45, sd: 4.2, perMmOffset: 8 },
-    seatDepth: { mean: 0, sd: 0.1, fragileShift: 0.1, perMmOffset: 0.3 },
+    springTension: { mean: 5.0, sd: 0.8, perMmOffset: 0 },
+    springAngle: { mean: 45, sd: 3.0, perMmOffset: 8 },
+    baseAngle: { mean: 90, sd: 5.0, perMmOffset: 0 },
+    seatForce: { mean: 2.1, sd: 0.3, perMmOffset: 0.3 },
+    hook: { mean: 1.0, sd: 0.15, perMmOffset: 0.1 },
+    seatDepth: { mean: 0, sd: 0.1, perMmOffset: 0.3 },
     snapForce: { mean: 32, sd: 2.5, perMmOffset: 4 },
-  },
+  } satisfies Record<QualityKey, { mean: number; sd: number; perMmOffset: number }>,
+  /**
+   * Each pass through a fragile station, and each point of the mover's badness, shifts every
+   * later measurement of the pen down by this many σ (the original line's rule).
+   */
+  fragileShift: 0.15,
   moverProfiles: {
     mu: [0.115, 0.125] as [number, number],
     slip: [0, 0.02] as [number, number],
     settle: [0.08, 0.15] as [number, number],
     fixtureSd: 0.03,
     rfidOk: 0.999,
-    /** Deliberately worn movers, keyed by mover number. */
+    /**
+     * Deliberately worn movers, keyed by mover number. The badness of 2, 6 and 24 is the original
+     * line's bad carriers: every inspection of a pen on them reads badness × 0.15 σ low.
+     */
     worn: {
-      2: { rfidOk: 0.95 },
-      6: { mu: 0.06 },
+      2: { rfidOk: 0.95, badness: 22 },
+      6: { mu: 0.06, badness: 4 },
       11: { settle: 0.35 },
       19: { slip: 0.06 },
-      24: { fixtureOffset: 0.4 },
+      24: { fixtureOffset: 0.4, badness: 12 },
     } as Record<number, Partial<MoverProfile>>,
   },
 };
@@ -254,6 +338,8 @@ export interface MoverProfile {
   fixtureOffset: number;
   /** Probability that an RFID read/write succeeds on the first try. */
   rfidOk: number;
+  /** Worn fixture that biases every inspection, like the original's bad carriers (0 = good). */
+  badness: number;
 }
 
 export interface FeederDef {
@@ -267,6 +353,18 @@ export interface FeederDef {
   speed: number;
   /** Gripper height when picking from the end of the track; feeders sit on stands so parts are near safe height. */
   pickZ: number;
+  /** Inline inspection on the track: camera at `at`, air jet at `jetAt` (track positions, 0 = pick end). */
+  inline?: SubProcessDef & { at: number; jetAt: number; exposure: number };
+}
+
+export interface OrienterDef extends SubProcessDef {
+  /** Where it stands beside the loop. */
+  s: number;
+  /** Feeder whose track ends at the orienter. */
+  feeder: string;
+  /** Turning time at 100 % speed, and camera time that doesn't scale. */
+  mech: number;
+  fixed: number;
 }
 
 export type LineConfig = typeof LINE;

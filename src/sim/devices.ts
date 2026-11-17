@@ -1,8 +1,8 @@
 // Station devices other than robots: bowl feeders with linear tracks, cartridge nests and the
 // tray outfeed, plus the random-failure helpers shared with the robots.
 import type { FeederDef, LineConfig } from './config';
-import { type RngState, random, uniform } from './rng';
-import type { Feeder, Nest, PlantState } from './types';
+import { type RngState, normal, random, uniform } from './rng';
+import type { Feeder, FeederItem, Nest, PlantState } from './types';
 
 /** Operating seconds until the next random fault, exponentially distributed around the MTBF. */
 export function nextFailure(rng: RngState, mtbf: number): number {
@@ -14,34 +14,52 @@ export function repairTime(rng: RngState, range: [number, number]): number {
 }
 
 export function createFeeder(def: FeederDef): Feeder {
-  // Start with a full track so the line doesn't begin starved.
-  const n = Math.floor(def.track / def.pitch + 1e-9);
-  const items = Array.from({ length: n }, (_, i) => i * def.pitch);
-  return { id: def.id, items, nextIn: def.interval, fed: 0, jam: 0 };
+  // Start with a full track so the line doesn't begin starved. A track with an inline camera
+  // starts empty instead: every part on it has to have passed the camera.
+  const n = def.inline ? 0 : Math.floor(def.track / def.pitch + 1e-9);
+  const items = Array.from({ length: n }, (_, i): FeederItem => ({ x: i * def.pitch, uid: i, truth: null, sr: null, eject: false }));
+  return { id: def.id, items, nextIn: def.interval, fed: 0, jam: 0, nextUid: n, results: [] };
 }
 
-export function createNest(cfg: LineConfig, station: string): Nest {
-  return { station, slots: new Array(cfg.nestSize).fill(1), changing: 0, count: 1 };
-}
-
-export function stepFeeder(f: Feeder, def: FeederDef, cfg: LineConfig, rng: RngState, dt: number): void {
+/**
+ * Bowl feeder and its linear track. Parts move toward the pick point and queue there. On a track
+ * with an inline camera (EM10), each part is measured as it passes the camera, and the air jet a
+ * little further on blows it into the chute if the PLC has marked it for ejection.
+ */
+export function stepFeeder(p: PlantState, f: Feeder, def: FeederDef, cfg: LineConfig, rng: RngState, dt: number): void {
+  // The operator clears a jam whether or not the line is running.
+  if (f.jam > 0) f.jam = Math.max(0, f.jam - dt);
+  if (!p.feedersOn) return;
+  const inline = def.inline;
   for (let i = 0; i < f.items.length; i++) {
-    const min = i === 0 ? 0 : f.items[i - 1] + def.pitch;
-    f.items[i] = Math.max(min, f.items[i] - def.speed * dt);
+    const it = f.items[i];
+    const min = i === 0 ? 0 : f.items[i - 1].x + def.pitch;
+    const before = it.x;
+    it.x = Math.max(min, it.x - def.speed * dt);
+    if (!inline) continue;
+    if (before > inline.at && it.x <= inline.at && it.truth !== null) {
+      f.results.push({ uid: it.uid, value: it.truth + normal(rng, 0, inline.inspect.noise), t: p.t });
+    }
+    if (before > inline.jetAt && it.x <= inline.jetAt && it.eject) {
+      f.items.splice(i--, 1);
+      p.bins[inline.id] = (p.bins[inline.id] ?? 0) + 1;
+    }
   }
   // A jammed bowl feeds nothing; the track drains until the operator clears it.
-  if (f.jam > 0) {
-    f.jam = Math.max(0, f.jam - dt);
-    return;
-  }
+  if (f.jam > 0) return;
   f.nextIn -= dt;
   const last = f.items.at(-1);
-  if (f.nextIn <= 0 && (last === undefined || last <= def.track - def.pitch)) {
-    f.items.push(def.track);
+  if (f.nextIn <= 0 && (last === undefined || last.x <= def.track - def.pitch)) {
+    const q = inline ? cfg.quality[inline.inspect.key] : null;
+    f.items.push({ x: def.track, uid: f.nextUid++, truth: q ? normal(rng, q.mean, q.sd) : null, sr: null, eject: false });
     f.fed++;
     f.nextIn = def.interval * uniform(rng, 0.6, 1.4);
     if (cfg.faults.enabled && random(rng) < cfg.faults.feederJamPerPart) f.jam = repairTime(rng, cfg.faults.feederRepair);
   }
+}
+
+export function createNest(cfg: LineConfig, station: string): Nest {
+  return { station, slots: new Array(cfg.nestSize).fill(1), changing: 0, count: 1 };
 }
 
 /** Swaps an empty nest for a full one, once the robot's gripper is clear of it. */

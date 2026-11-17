@@ -98,15 +98,16 @@ Notes for deploying:
 
 ## Cameras and controls
 
-The view has five monitoring cameras. Pick one with the bar at the bottom or with keys **1–5**:
+The view has six monitoring cameras. Pick one with the bar at the bottom or with keys **1–6**:
 
 | Key | Camera | Shows |
 | --- | --- | --- |
 | 1 | Overview | The whole line, framed to the window |
-| 2 | Infeed | EM11 body load + spring (two arms on one gantry), EM12 spring angle, early-reject bin |
-| 3 | Cartridge | Close-up of the twin EM41A/B robots inserting cartridges from their nests |
-| 4 | Housing | Close-up of EM40 placing and snapping housing + cap |
-| 5 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
+| 2 | Infeed | EM10 checking springs on their track, EM11 body load + spring (two arms on one gantry), EM12 spring angle |
+| 3 | Spring base | EM13 turning spring bases onto the distribution conveyor, the four EM14 presses side by side, EM15 |
+| 4 | Cartridge | Close-up of the twin EM41A/B robots inserting cartridges from their nests |
+| 5 | Housing | Close-up of EM40 placing and snapping housing + cap |
+| 6 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
 
 The fixed cameras are defined in `src/view/cameras.ts`, in each station's own coordinates, so
 they stay on their station if the layout changes. You can still orbit and zoom with the mouse.
@@ -118,7 +119,7 @@ monitoring feed. CATCH.AI alerts stay visible. The chosen camera and the auto-hi
 remembered in the browser.
 
 For a wall display, open `/?cam=cartridge&ui=hidden`. `cam` is a camera id (`overview`,
-`infeed`, `cartridge`, `housing`, `outfeed`). `ui=hidden` starts with the controls hidden and
+`infeed`, `springbase`, `cartridge`, `housing`, `outfeed`). `ui=hidden` starts with the controls hidden and
 auto-hide on.
 
 ## RTSP camera streams

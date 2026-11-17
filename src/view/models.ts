@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'cartridge', 'pen', 'tray', 'nest', 'housing', 'cap'] as const;
+export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'nest', 'housing', 'cap'] as const;
 export type ModelName = (typeof MODEL_NAMES)[number];
 export type Models = Record<ModelName, THREE.Object3D>;
 

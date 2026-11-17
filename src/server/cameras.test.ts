@@ -3,7 +3,7 @@ import { captureParams } from '../view/capture';
 import { captureUrl, ffmpegArgs, parseCameraList, publishTarget, redact, STREAM } from './cameras';
 import { mediaMtxConfig } from './mediamtx';
 
-const KNOWN = ['overview', 'infeed', 'cartridge', 'housing', 'outfeed'];
+const KNOWN = ['overview', 'infeed', 'springbase', 'cartridge', 'housing', 'outfeed'];
 
 describe('RTSP_CAMERAS', () => {
   it('is off when empty', () => {

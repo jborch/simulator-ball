@@ -1,5 +1,5 @@
 // Small helpers shared by the PLC, the command handler and MES record building.
-import type { LineConfig, RobotDef, StationDef, Step } from './config';
+import type { LineConfig, RobotDef, StationDef, Step, SubProcessDef } from './config';
 import type { MachineState, SimEvent, SimState } from './types';
 
 /** Wall-clock time (ms) of the current sim time. */
@@ -18,6 +18,11 @@ export function unitId(cfg: LineConfig, unit: string): string {
 
 /** Device id used in reports, e.g. "L07-UN01-EM12". */
 export function processId(cfg: LineConfig, def: StationDef): string {
+  return `${unitId(cfg, def.unit)}-${def.id}`;
+}
+
+/** Device id of a sub-line process (EM10, EM13), e.g. "L07-UN01-EM10". */
+export function subProcessId(cfg: LineConfig, def: SubProcessDef): string {
   return `${unitId(cfg, def.unit)}-${def.id}`;
 }
 

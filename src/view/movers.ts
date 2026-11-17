@@ -20,6 +20,7 @@ export class AssemblyView {
   readonly root = new THREE.Group();
   private readonly body: THREE.Object3D;
   private readonly spring: THREE.Object3D;
+  private readonly springBase: THREE.Object3D;
   private readonly cartridge: THREE.Object3D;
   private readonly pen: THREE.Object3D;
   readonly dmMaterial = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
@@ -32,12 +33,13 @@ export class AssemblyView {
     };
     this.body = models.pen_body.clone(true);
     this.spring = at(models.spring.clone(true), 'spring');
+    this.springBase = at(models.spring_base.clone(true), 'springBase');
     this.cartridge = at(models.cartridge.clone(true), 'cartridge');
     // The finished-pen model is the housing with its cap; the body stays inside it.
     this.pen = at(models.pen.clone(true), 'housing');
     const dm = findMesh(this.body, 'dm_mark');
     if (dm) dm.material = this.dmMaterial;
-    for (const o of [this.body, this.spring, this.cartridge, this.pen]) {
+    for (const o of [this.body, this.spring, this.springBase, this.cartridge, this.pen]) {
       o.visible = false;
       this.root.add(o);
     }
@@ -53,6 +55,7 @@ export class AssemblyView {
     this.body.visible = parts.includes('body');
     this.cartridge.visible = parts.includes('cartridge');
     this.spring.visible = parts.includes('spring');
+    this.springBase.visible = parts.includes('springBase');
   }
 }
 
@@ -61,6 +64,7 @@ export class HeldView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
   private readonly spring: THREE.Object3D;
+  private readonly springBase: THREE.Object3D;
   private readonly cartridge: THREE.Object3D;
   private readonly housing = new THREE.Group();
   private key = '-';
@@ -72,11 +76,13 @@ export class HeldView {
     this.assembly = new AssemblyView(cfg, models);
     this.spring = models.spring.clone(true);
     this.spring.position.y = -heldLength(cfg, ['spring']);
+    this.springBase = models.spring_base.clone(true);
+    this.springBase.position.y = -heldLength(cfg, ['springBase']);
     this.cartridge = models.cartridge.clone(true);
     this.cartridge.position.y = -heldLength(cfg, ['cartridge']);
     this.housing.add(housingWithCap(cfg, models));
     this.housing.position.y = -heldLength(cfg, ['housing', 'cap']);
-    this.root.add(this.assembly.root, this.spring, this.cartridge, this.housing);
+    this.root.add(this.assembly.root, this.spring, this.springBase, this.cartridge, this.housing);
     this.show(null);
   }
 
@@ -92,6 +98,7 @@ export class HeldView {
       this.assembly.root.position.y = -heldLength(this.cfg, parts!);
     }
     this.spring.visible = !isPen && has('spring');
+    this.springBase.visible = !isPen && has('springBase');
     this.cartridge.visible = !isPen && has('cartridge');
     this.housing.visible = !isPen && has('housing');
   }
