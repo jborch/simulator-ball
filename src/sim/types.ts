@@ -149,6 +149,8 @@ export interface FeederItem {
   uid: number;
   /** True value of what the inline camera measures, if the track has one. */
   truth: number | null;
+  /** Passed the inline camera; its result is with the PLC. */
+  measured: boolean;
   /** PLC shift register: SR id and eject decision once the part has been inspected. */
   sr: number | null;
   eject: boolean;

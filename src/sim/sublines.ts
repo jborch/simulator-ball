@@ -91,8 +91,10 @@ export function stepDistribution(p: PlantState, cfg: LineConfig, dt: number): vo
   for (let i = 0; i < d.items.length; i++) {
     const it = d.items[i];
     const max = i === 0 ? end : d.items[i - 1].x - def.pitch;
+    const before = it.x;
     it.x = Math.min(max, it.x + def.speed * dt);
-    const k = cupAt.findIndex((x) => Math.abs(it.x - x) <= def.pitch / 2);
+    // The diverter acts on a part anywhere in its window during this step, however far it moved.
+    const k = cupAt.findIndex((x) => before <= x + def.pitch / 2 && it.x >= x - def.pitch / 2);
     const cup = d.cups[k];
     if (cup && !cup.full && cup.filling === 0 && cup.sr === null) {
       cup.sr = it.sr;

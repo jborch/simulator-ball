@@ -17,7 +17,7 @@ export function createFeeder(def: FeederDef): Feeder {
   // Start with a full track so the line doesn't begin starved. A track with an inline camera
   // starts empty instead: every part on it has to have passed the camera.
   const n = def.inline ? 0 : Math.floor(def.track / def.pitch + 1e-9);
-  const items = Array.from({ length: n }, (_, i): FeederItem => ({ x: i * def.pitch, uid: i, truth: null, sr: null, eject: false }));
+  const items = Array.from({ length: n }, (_, i): FeederItem => ({ x: i * def.pitch, uid: i, truth: null, measured: false, sr: null, eject: false }));
   return { id: def.id, items, nextIn: def.interval, fed: 0, jam: 0, nextUid: n, results: [] };
 }
 
@@ -34,13 +34,16 @@ export function stepFeeder(p: PlantState, f: Feeder, def: FeederDef, cfg: LineCo
   for (let i = 0; i < f.items.length; i++) {
     const it = f.items[i];
     const min = i === 0 ? 0 : f.items[i - 1].x + def.pitch;
-    const before = it.x;
     it.x = Math.max(min, it.x - def.speed * dt);
     if (!inline) continue;
-    if (before > inline.at && it.x <= inline.at && it.truth !== null) {
+    if (!it.measured && it.x <= inline.at && it.truth !== null) {
+      it.measured = true;
       f.results.push({ uid: it.uid, value: it.truth + normal(rng, 0, inline.inspect.noise), t: p.t });
     }
-    if (before > inline.jetAt && it.x <= inline.jetAt && it.eject) {
+    // A part waits at the jet until the PLC has decided about it (it never has to with the
+    // default timing), so no unchecked part gets past; a part marked for ejection is blown off there.
+    if (it.measured && it.sr === null) it.x = Math.max(it.x, inline.jetAt);
+    if (it.x <= inline.jetAt && it.eject) {
       f.items.splice(i--, 1);
       p.bins[inline.id] = (p.bins[inline.id] ?? 0) + 1;
     }
@@ -51,7 +54,7 @@ export function stepFeeder(p: PlantState, f: Feeder, def: FeederDef, cfg: LineCo
   const last = f.items.at(-1);
   if (f.nextIn <= 0 && (last === undefined || last.x <= def.track - def.pitch)) {
     const q = inline ? cfg.quality[inline.inspect.key] : null;
-    f.items.push({ x: def.track, uid: f.nextUid++, truth: q ? normal(rng, q.mean, q.sd) : null, sr: null, eject: false });
+    f.items.push({ x: def.track, uid: f.nextUid++, truth: q ? normal(rng, q.mean, q.sd) : null, measured: false, sr: null, eject: false });
     f.fed++;
     f.nextIn = def.interval * uniform(rng, 0.6, 1.4);
     if (cfg.faults.enabled && random(rng) < cfg.faults.feederJamPerPart) f.jam = repairTime(rng, cfg.faults.feederRepair);
