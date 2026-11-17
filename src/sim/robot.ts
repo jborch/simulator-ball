@@ -145,13 +145,42 @@ function axis(pos: number, vel: number, target: number, vmax: number, amax: numb
   return [next, vel, next === target && vel === 0];
 }
 
+/** Range along the beam an arm may use without coming too close to its neighbours. */
+interface Lane {
+  lo: number;
+  hi: number;
+}
+
+/**
+ * Anti-collision of arms sharing a gantry beam: an arm keeps `armClearance` from each neighbour's
+ * current position, whatever the neighbour is doing (even frozen by a fault). Arms are ordered
+ * along the beam by their home.
+ */
+function laneOf(p: PlantState, cfg: LineConfig, def: StationDef, rdef: RobotDef): Lane {
+  const lane = { lo: -Infinity, hi: Infinity };
+  const robots = p.stations.find((x) => x.id === def.id)!.robots;
+  def.robots!.forEach((other, k) => {
+    if (other === rdef) return;
+    if (other.home < rdef.home) lane.lo = Math.max(lane.lo, robots[k].a + cfg.robot.armClearance);
+    else lane.hi = Math.min(lane.hi, robots[k].a - cfg.robot.armClearance);
+  });
+  return lane;
+}
+
 /** Moves all axes toward their targets; true when every axis has arrived. */
-function moveAxes(robot: Robot, cfg: LineConfig, speed: number, dt: number): boolean {
+function moveAxes(robot: Robot, cfg: LineConfig, speed: number, dt: number, lane: Lane): boolean {
   const { vH, aH, vZ, aZ } = cfg.robot;
   let atA: boolean;
   let atR: boolean;
   let atZ: boolean;
-  [robot.a, robot.va, atA] = axis(robot.a, robot.va, robot.ta, vH * speed, aH * speed, dt);
+  // Head for the target, but stop short of a neighbouring arm in the way (and never pass it).
+  const ta = Math.min(lane.hi, Math.max(lane.lo, robot.ta));
+  [robot.a, robot.va, atA] = axis(robot.a, robot.va, ta, vH * speed, aH * speed, dt);
+  if (robot.a < lane.lo || robot.a > lane.hi) {
+    robot.a = Math.min(lane.hi, Math.max(lane.lo, robot.a));
+    robot.va = 0;
+  }
+  atA = atA && ta === robot.ta;
   [robot.r, robot.vr, atR] = axis(robot.r, robot.vr, robot.tr, vH * speed, aH * speed, dt);
   [robot.z, robot.vz, atZ] = axis(robot.z, robot.vz, robot.tz, vZ * speed, aZ * speed, dt);
   return atA && atR && atZ;
@@ -208,7 +237,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         robot.tz = height(p, cfg, rdef, robot, step.to);
       }
       robot.phase = 'move';
-      finished = moveAxes(robot, cfg, p.speed, dt);
+      finished = moveAxes(robot, cfg, p.speed, dt, laneOf(p, cfg, def, rdef));
       break;
 
     case 'xy':
@@ -220,7 +249,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         robot.tz = robot.z;
       }
       robot.phase = 'move';
-      finished = moveAxes(robot, cfg, p.speed, dt);
+      finished = moveAxes(robot, cfg, p.speed, dt, laneOf(p, cfg, def, rdef));
       break;
 
     case 'leave':
@@ -230,7 +259,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         robot.tz = cfg.layout.z.safe;
       }
       robot.phase = 'move';
-      finished = moveAxes(robot, cfg, p.speed, dt);
+      finished = moveAxes(robot, cfg, p.speed, dt, laneOf(p, cfg, def, rdef));
       break;
 
     case 'waitSource':

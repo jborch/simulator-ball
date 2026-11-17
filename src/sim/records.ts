@@ -3,7 +3,7 @@
 import type { LineConfig, StationDef } from './config';
 import { carrierId, emit, measurementName, now, placers, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
-import type { CycleResult, SimState, Tag } from './types';
+import type { CycleResult, ItemsMergedEvent, SimState, Tag } from './types';
 
 type Props = Record<string, number | string | boolean | null>;
 
@@ -55,6 +55,8 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
     case 'place': {
       let tag = copyTag(st.tag!);
       const robots = placers(def);
+      // Merges go out after the pen's record, so a new pen (load station) exists before parts go into it.
+      const merges: ItemsMergedEvent[] = [];
       op.places.forEach((place, k) => {
         if (place.kind === 'load') {
           // A new pen: its SR id and identifier go on the tag.
@@ -76,7 +78,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
             } else {
               emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to });
             }
-            emit(s, { kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
+            merges.push({ kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });
           }
         }
         if (robots[k].step) tag.done.push(robots[k].step!);
@@ -91,6 +93,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
         if (!ev.passed) markNok(tag, ev.cause);
       }
       emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: verdict, properties: props });
+      for (const m of merges) emit(s, m);
       return tag;
     }
 

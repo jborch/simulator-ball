@@ -156,7 +156,16 @@ export const LINE = {
     pause: 20,
   },
   /** Cartesian pick-and-place robots: along belt (a), across belt toward the outside (r), height (z). */
-  robot: { vH: 2.0, aH: 12, vZ: 1.0, aZ: 12, gripTime: 0.08, lift: 0.02 },
+  robot: {
+    vH: 2.0,
+    aH: 12,
+    vZ: 1.0,
+    aZ: 12,
+    gripTime: 0.08,
+    lift: 0.02,
+    /** Closest two arms on one gantry beam may come (centre to centre, along the belt). */
+    armClearance: 0.07,
+  },
   /** Device positions in station-local coordinates (a along travel, r outward from belt centre), metres. */
   layout: {
     feederR: 0.32,

@@ -364,7 +364,8 @@ function release(s: SimState, i: number, passing: boolean): void {
 function memberFree(s: SimState, i: number): boolean {
   const p = s.plc.stations[i];
   const faulted = s.plant.stations[i].robots.some((r) => r.fault > 0) || p.status === 'fault';
-  return p.step !== 'working' && p.step !== 'waitRobot' && p.reserved === null && !faulted;
+  // A member holding a mover at its gate for the group isn't free either: that mover works there next.
+  return !['working', 'waitRobot', 'waitGroup'].includes(p.step) && p.reserved === null && !faulted;
 }
 
 /**
@@ -465,7 +466,8 @@ function start(s: SimState, cfg: LineConfig, i: number, op: Op): void {
   const ps = s.plant.stations[i];
   const def = cfg.stations[i];
   const st = s.plc.stations[i];
-  st.reserved = null;
+  // Only the mover a reservation is for uses it up; another mover's stays for when that one arrives.
+  if (st.reserved === st.moverId) st.reserved = null;
   st.cycleStart = s.plant.t;
   st.status = 'working';
   st.op = op;

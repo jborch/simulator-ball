@@ -1,5 +1,5 @@
 // Physical interlocks, insertion strokes and run-out behaviour of the station equipment.
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { LINE } from './config';
 import { seatedTip } from './layout';
 import { Simulation } from './simulation';
@@ -157,3 +157,42 @@ test('a 4-up group spreads consecutive movers over all members, which work at th
   const total = cycles.reduce((a, b) => a + b, 0);
   for (const c of cycles) expect(c / total).toBeGreaterThan(0.18);
 }, 60_000);
+
+describe('arms sharing a gantry', () => {
+  const clearance = LINE.robot.armClearance;
+  const gap = (s: Simulation) => {
+    const [body, spring] = s.state.plant.stations[idx('EM11')].robots;
+    return spring.a - body.a;
+  };
+
+  test('never come closer than the clearance in normal work', () => {
+    const s = sim();
+    let min = Infinity;
+    for (let t = 0; t < 120; t += 0.002) {
+      s.advance(0.002);
+      min = Math.min(min, gap(s));
+    }
+    expect(min).toBeGreaterThanOrEqual(clearance - 1e-9);
+  }, 60_000);
+
+  test('the spring arm waits for a body arm that faults over the mover, and works once it is repaired', () => {
+    const s = sim();
+    const [body, spring] = s.state.plant.stations[idx('EM11')].robots;
+    // Freeze the body arm right as it starts back home from the mover.
+    for (let t = 0; t < 60 && !(body.steps[0]?.k === 'leave' && body.stepStarted); t += 0.001) s.advance(0.001);
+    expect(body.steps[0]?.k).toBe('leave');
+    body.fault = 5;
+    let min = Infinity;
+    for (let t = 0; t < 4.9; t += 0.002) {
+      s.advance(0.002);
+      min = Math.min(min, gap(s));
+    }
+    expect(min).toBeGreaterThanOrEqual(clearance - 1e-9);
+    // Still waiting beside the mover with its spring.
+    expect(spring.job).toBe('place');
+    expect(spring.holding).not.toBeNull();
+    const cycles = s.state.plc.stations[idx('EM11')].stats.cycles;
+    s.advance(5);
+    expect(s.state.plc.stations[idx('EM11')].stats.cycles).toBeGreaterThan(cycles);
+  }, 60_000);
+});

@@ -43,8 +43,17 @@ describe('robots', () => {
     let turns = 0;
     let ready = 0;
     let last = '';
+    let arrivals = 0;
+    let heldOnArrival = 0;
+    let prev = 'idle';
     run(s, 300, () => {
       const st = s.state.plc.stations[i];
+      // The first arm has its part before the mover even arrives.
+      if (prev === 'idle' && st.step !== 'idle') {
+        arrivals++;
+        if (s.state.plant.stations[i].robots[0].holding) heldOnArrival++;
+      }
+      prev = st.step;
       if (st.step !== 'waitRobot') return;
       // A turn starts when the station first waits for robot `job` on this mover.
       const key = `${st.moverId}/${st.job}`;
@@ -55,6 +64,8 @@ describe('robots', () => {
     }, 0.01);
     expect(turns).toBeGreaterThan(160);
     expect(ready / turns).toBeGreaterThan(0.95);
+    expect(arrivals).toBeGreaterThan(80);
+    expect(heldOnArrival / arrivals).toBeGreaterThan(0.95);
   }, 30_000);
 });
 
