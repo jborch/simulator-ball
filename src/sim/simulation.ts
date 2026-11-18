@@ -29,7 +29,7 @@ export class Simulation {
       rng,
       plant: createPlant(this.cfg, rng),
       plc: createPlc(this.cfg),
-      mes: { identifiers: {}, good: 0, rejected: 0, rejectsByCause: {}, movers: {}, events: [] },
+      mes: { identifiers: {}, good: 0, rejected: 0, rejectsByCause: {}, movers: {}, retests: 0, events: [] },
     };
     this.stepsPerScan = Math.round(this.cfg.plcScan / this.cfg.plantDt);
   }

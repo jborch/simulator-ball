@@ -2,7 +2,7 @@
 
 export type Step = 'body' | 'spring' | 'springInsp' | 'springBase' | 'hookInsp' | 'cartridge' | 'housing' | 'final';
 export type PartType = 'body' | 'spring' | 'springBase' | 'cartridge' | 'housing';
-export type QualityKey = 'springTension' | 'springAngle' | 'baseAngle' | 'seatForce' | 'hook' | 'labelQuality' | 'seatDepth' | 'snapForce' | 'snapPosition';
+export type QualityKey = 'springTension' | 'springAngle' | 'baseAngle' | 'seatForce' | 'hook' | 'labelQuality' | 'snapForce' | 'snapPosition' | 'finalTest' | 'trayCheck';
 export type StationKind = 'load' | 'assemble' | 'inspect' | 'reject' | 'unload';
 
 export interface Limits {
@@ -17,8 +17,11 @@ export interface Limits {
   /** Cause when the value is above the upper / below the lower limit, if they differ. */
   high?: string;
   low?: string;
-  /** A second failure mode the station can't tell apart by value: reported with this probability. */
-  alt?: { p: number; cause: string };
+  /**
+   * Failure modes the station can't tell apart by value, with their shares (the original line's
+   * odds); used instead of `cause` where neither `high` nor `low` applies.
+   */
+  causes?: [string, number][];
 }
 
 /** A process on a sub-line, off the mover loop (like EM10 and EM13): parts, not pens, no carrier. */
@@ -97,6 +100,11 @@ export interface StationDef {
   snap?: boolean;
   /** Also verifies the DataMatrix identifier against tracking. */
   readsCode?: boolean;
+  /**
+   * Share of first tests that come out Inconclusive (the original's eject rate): the pen goes
+   * round once more for a retest, which is always conclusive.
+   */
+  inconclusive?: number;
   bin?: string;
 }
 
@@ -150,7 +158,8 @@ export const LINE = {
   /** After maxTries failed writes the station holds the mover and retries every stuckRetryDelay. */
   rfid: { readTime: 0.04, writeTime: 0.04, retryDelay: 0.3, maxTries: 3, stuckRetryDelay: 2 },
   dataMatrix: { readFailRate: 0.002 },
-  traySize: 12,
+  /** Pens per tray (the original packs 32). */
+  traySize: 32,
   /**
    * EM41's cartridge supply, in EM41's station-local coordinates. Tubs ("nests") of 160
    * cartridges come in on a conveyor; EM00 de-nests them one by one into collets that circulate
@@ -175,6 +184,20 @@ export const LINE = {
   },
   /** Indexing a full tray out and an empty one in. */
   trayChange: 3,
+  /**
+   * UN03's tray line, in EM60's station-local coordinates (a along the belt). Empty trays come off
+   * a destacker beside the packing position; a full tray indexes out onto a conveyor, stops under
+   * EM61's camera, then goes onto the outfeed stack, or is pushed off into the reject rack.
+   */
+  trays: {
+    /** Where the destacker stands, EM61's camera, and the end of the conveyor (along a). */
+    destack: -0.12, end: 0.44,
+    speed: 0.15, pitch: 0.12,
+    /** Stack of empty trays the destacker holds (refilled by the operator, never runs out here). */
+    stack: 8,
+    check: { id: 'EM61', name: 'Tray inspection', unit: 'UN03', a: 0.22, mech: 1.0, fixed: 1.0,
+      inspect: { key: 'trayCheck', lower: 6, upper: 14, noise: 0.05, unit: '', cause: 'Tray packing incomplete', causes: [['Tray packing incomplete', 0.5], ['Tray seal defect', 0.5]] } as Limits },
+  },
   /** Bowl feeders push parts onto a linear track toward the robot's pick point (or the orienter). */
   feeders: [
     { id: 'bodies', unit: 'UN01', part: 'body', interval: 1.0, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
@@ -183,7 +206,7 @@ export const LINE = {
       // EM10 checks every spring on the track as it passes, and an air jet blows bad ones into a chute.
       inline: {
         id: 'EM10', name: 'Spring verification', unit: 'UN01', at: 0.17, jetAt: 0.12, exposure: 0.02,
-        inspect: { key: 'springTension', lower: 3, upper: 7, noise: 0.05, unit: 'N', cause: 'Spring tension out of range', alt: { p: 0.5, cause: 'Spring deformation detected' } },
+        inspect: { key: 'springTension', lower: 3, upper: 7, noise: 0.05, unit: 'N', cause: 'Spring tension out of range', causes: [['Spring tension out of range', 0.5], ['Spring deformation detected', 0.5]] },
       },
     },
     { id: 'bases', unit: 'UN01', part: 'springBase', interval: 0.8, track: 0.2, pitch: 0.012, speed: 0.12, pickZ: 0.2 },
@@ -238,8 +261,11 @@ export const LINE = {
     misplaceRate: 0.003,
   },
   batch: {
-    /** Pens loaded per batch; the line runs out (empties) once this many are loaded. */
-    size: 300,
+    /**
+     * Trays per batch, counted when EM61 has checked them (the original counts its last process).
+     * EM11 keeps loading until the pens still on the line can make the last tray full.
+     */
+    size: 10,
     /** Start the next batch automatically after a completed one. */
     autoNext: true,
     /** Pause between batches. */
@@ -260,7 +286,7 @@ export const LINE = {
   layout: {
     feederR: 0.32,
     /** Each nest-fed station has its own nest, in station-local coordinates. */
-    tray: { station: 'EM60', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
+    tray: { station: 'EM60', a: 0.05, r: 0.3, cols: 4, rows: 8, pitch: 0.021 },
     bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 }, BIN3: { a: 0, r: 0.3 } } as Record<string, { a: number; r: number }>,
     /**
      * Gripper tip heights above the belt surface. The gripper holds a part (or a pen) by its top,
@@ -316,8 +342,13 @@ export const LINE = {
       robots: [{ id: 'EM41', home: 0, source: 'collet', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 0.8 }],
     },
     {
-      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.25, mech: 0.4, fixed: 0.6, step: 'final', requires: ['cartridge'], readsCode: true,
-      inspect: { key: 'seatDepth', lower: -0.3, upper: 0.3, noise: 0.02, unit: 'mm', cause: 'Cartridge seating depth' },
+      // Final test (the original's 50 ± 5 in 35–65) plus the code on the label. Now and then it
+      // can't decide (Inconclusive): the pen goes round once more and is tested again.
+      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.25, mech: 0.4, fixed: 0.6, step: 'final', requires: ['cartridge'], readsCode: true, inconclusive: 0.01,
+      inspect: {
+        key: 'finalTest', lower: 35, upper: 65, noise: 0.3, unit: '', cause: 'Assembly incomplete',
+        causes: [['Assembly incomplete', 0.3], ['Cosmetic defect', 0.2], ['Functional test failed', 0.2], ['Dimensional out of tolerance', 0.3]],
+      },
     },
     { id: 'EM60', name: 'Pen to tray', unit: 'UN03', kind: 'unload', s: BOTTOM + 3.3, mech: 0, fixed: 0, bin: 'BIN2', robots: [{ id: 'EM60', home: 0, mech: 0 }] },
   ] satisfies StationDef[] as StationDef[],
@@ -331,7 +362,8 @@ export const LINE = {
     baseAngle: { mean: 90, sd: 5.0, perMmOffset: 0 },
     seatForce: { mean: 2.1, sd: 0.3, perMmOffset: 0.3 },
     hook: { mean: 1.0, sd: 0.15, perMmOffset: 0.1 },
-    seatDepth: { mean: 0, sd: 0.1, perMmOffset: 0.3 },
+    finalTest: { mean: 50, sd: 5, perMmOffset: 3 },
+    trayCheck: { mean: 10, sd: 1.2, perMmOffset: 0 },
     labelQuality: { mean: 0.85, sd: 0.08, perMmOffset: 0 },
     snapForce: { mean: 32, sd: 2.5, perMmOffset: 4 },
     snapPosition: { mean: 4.2, sd: 0.15, perMmOffset: 0.3 },

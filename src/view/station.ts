@@ -125,7 +125,8 @@ export class StationView {
     // ...and behind the housing dial, whose unload position the robot reaches over.
     if (def.robots?.some((r) => r.source === 'dial')) outer = Math.max(outer, cfg.dial.r + cfg.dial.radius + 0.06);
     if (def.bin) outer = Math.max(outer, cfg.layout.bins[def.bin].r + 0.1);
-    if (def.kind === 'unload') outer = Math.max(outer, cfg.layout.tray.r + 0.07);
+    // ...and the tray and its conveyor.
+    if (def.kind === 'unload') outer = Math.max(outer, cfg.layout.tray.r + (cfg.layout.tray.rows * cfg.layout.tray.pitch) / 2 + 0.07);
     return outer + 0.04;
   }
 
@@ -157,7 +158,7 @@ export class StationView {
       const fd = fa.feeders.find((x) => x.id === feeder.id);
       feeder.update(fd?.items ?? [], fd?.jam ?? 0, t, fa.counters.bins);
     }
-    this.tray?.update(fa.tray.count, fa.tray.changing, fa.tray.queue, fa.counters.traysOut);
+    this.tray?.update(fa.tray, t);
     this.bin?.setCount(fa.counters.bins[this.def.bin!] ?? 0);
     this.scrap.setCount(f.scrap);
 

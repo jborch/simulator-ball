@@ -104,7 +104,8 @@ test('the presses rarely wait for a spring base: the distribution conveyor keeps
 
 test('no part is fed or checked between batches', () => {
   const s = sim((c) => {
-    c.batch.size = 20;
+    c.traySize = 4;
+    c.batch.size = 5;
     c.batch.pause = 30;
   });
   let completeAt: number | null = null;

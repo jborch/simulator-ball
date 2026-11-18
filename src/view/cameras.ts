@@ -60,10 +60,10 @@ export const CAMERAS: CameraDef[] = [
   {
     id: 'outfeed',
     name: 'Outfeed',
-    title: 'Outfeed · EM50 final inspection, EM60 tray packing and rejects',
+    title: 'Outfeed · EM60 tray packing (32 per tray), EM61 tray inspection, stack and reject rack',
     fov: 50,
-    mount: { station: 'EM60', a: -0.38, y: 0.17, r: -0.68 },
-    aim: { station: 'EM60', a: -0.38, y: 0.14, r: 0.05 },
+    mount: { station: 'EM60', a: 0.12, y: 0.17, r: -0.68 },
+    aim: { station: 'EM60', a: 0.12, y: 0.14, r: 0.05 },
   },
 ];
 

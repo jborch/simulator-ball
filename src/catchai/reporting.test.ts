@@ -14,7 +14,8 @@ const EPOCH = Date.UTC(2026, 10, 15, 8);
 
 function run(seconds: number, mutate?: (c: LineConfig) => void): { cfg: LineConfig; events: SimEvent[]; sim: Simulation } {
   const cfg = steadyConfig((c) => {
-    c.batch.size = 40;
+    c.traySize = 8;
+    c.batch.size = 5;
     mutate?.(c);
   });
   const sim = new Simulation({ seed: 21, cfg, epochMs: EPOCH });
@@ -197,7 +198,7 @@ describe('CATCH.AI mapping', () => {
     expect(new Set(merges.map((x) => x.SourceItemType))).toEqual(new Set(['Spring', 'SpringBase', 'Cartridge', 'Housing', 'Pen']));
     // Pens go into trays; the tray is reported when it leaves.
     const trays = items.filter((i) => i.ItemType === 'Tray');
-    for (const x of merges.filter((x) => x.TargetItemType === 'Tray').slice(0, -12)) expect(trays.map((t) => t.ScopedId)).toContain(x.TargetItemScopedId);
+    for (const x of merges.filter((x) => x.TargetItemType === 'Tray').slice(0, -cfg.traySize)) expect(trays.map((t) => t.ScopedId)).toContain(x.TargetItemScopedId);
 
     const allKeys = new Set([...Object.values(properties)]);
     for (const d of data) for (const k of Object.keys(d.Properties ?? {})) expect(allKeys).toContain(k);

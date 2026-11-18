@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type { FeederDef, LineConfig, PartType } from '../sim/config';
 import { gripRadius, heldLength, trayPocket } from '../sim/layout';
-import type { RobotFrame } from '../sim/protocol';
+import type { Frame, RobotFrame } from '../sim/protocol';
 import { M, RAIL_Y, type Reach, TABLE, box, cyl, label, local, mat, span } from './build';
 import type { Models } from './models';
 import { AssemblyView, HeldView, housingPart } from './movers';
@@ -355,77 +355,119 @@ class TrayLoad {
 }
 
 /**
- * Tray outfeed: the tray being filled sits under the unload robot; full trays index along the
- * conveyor (+a) and queue at its end until taken away.
+ * UN03's tray line beside EM60: the destacker holding a stack of empty trays, the tray being
+ * filled under the unload robot, the conveyor (+a) carrying full trays under EM61's camera, and
+ * at its end the outfeed stack of good trays and the reject rack.
  */
 export class TrayView {
   readonly group = new THREE.Group();
   private readonly current: TrayLoad;
-  private readonly queue: TrayLoad[];
-  private readonly stackLabel: HTMLElement;
+  private readonly line: TrayLoad[];
+  private readonly top: TrayLoad;
+  private readonly stacked: THREE.Object3D[] = [];
+  private readonly ring: THREE.MeshStandardMaterial;
+  private readonly outLabel: HTMLElement;
+  private readonly rackLabel: HTMLElement;
   private readonly trayY: number;
-  private static readonly QUEUE = [0.17, 0.32];
+  private static readonly STACK = 6;
 
   constructor(
     private readonly cfg: LineConfig,
     models: Models,
   ) {
     const t = cfg.layout.tray;
+    const tl = cfg.trays;
     // The gripper lets go with the pen's base just above the tray floor.
     const fullPen = heldLength(cfg, ['body', 'spring', 'springBase', 'cartridge', 'housing']);
     const penBase = cfg.layout.z.tray - fullPen;
     this.trayY = penBase - 0.006;
+    const y = this.trayY;
+    const half = (t.rows * t.pitch) / 2 + 0.02;
+    const a0 = tl.destack - 0.07;
+    const a1 = tl.end + 0.07;
     // Conveyor: frame on the table with a dark belt on top, side guides at tray height.
-    this.group.add(span(t.a - 0.09, t.a + 0.42, TABLE, this.trayY - 0.004, t.r - 0.065, t.r + 0.065, M.frame));
-    this.group.add(span(t.a - 0.09, t.a + 0.42, this.trayY - 0.004, this.trayY, t.r - 0.06, t.r + 0.06, M.drive));
-    for (const r of [t.r - 0.068, t.r + 0.068]) this.group.add(span(t.a - 0.09, t.a + 0.42, this.trayY - 0.004, this.trayY + 0.012, r - 0.003, r + 0.003, M.rail));
+    this.group.add(span(a0, a1, TABLE, y - 0.004, t.r - half, t.r + half, M.frame));
+    this.group.add(span(a0, a1, y - 0.004, y, t.r - half + 0.005, t.r + half - 0.005, M.drive));
+    for (const r of [t.r - half - 0.003, t.r + half + 0.003]) this.group.add(span(a0, a1, y - 0.004, y + 0.012, r - 0.003, r + 0.003, M.rail));
     const make = () => {
-      const l = new TrayLoad(cfg, models, penBase - this.trayY);
+      const l = new TrayLoad(cfg, models, penBase - y);
       this.group.add(l.group);
       return l;
     };
     this.current = make();
-    this.queue = TrayView.QUEUE.map(() => make());
-    const l = label('Trays out: 0', 'label feeder');
-    l.position.copy(local(t.a + 0.3, 0.3, t.r));
-    this.stackLabel = l.element;
-    this.group.add(l);
-  }
+    this.line = [make(), make(), make()];
 
-  private place(load: TrayLoad, da: number, dy = 0): void {
-    const t = this.cfg.layout.tray;
-    load.group.position.copy(local(t.a + da, this.trayY + dy, t.r));
-  }
-
-  /** `queue`: pen counts of the trays already out, newest first. */
-  update(count: number, changing: number, queue: number[], traysOut: number): void {
-    const [q0, q1] = TrayView.QUEUE;
-    const step = q1 - q0;
-    const progress = changing > 0 ? 1 - changing / this.cfg.trayChange : 0;
-    // Trays queued on the conveyor: position and pen count (beyond the end they've been taken away).
-    let queued: { a: number; n: number }[];
-    if (changing > 0 && progress < 0.5) {
-      // The filled tray moves out and pushes the queue along.
-      const k = progress / 0.5;
-      this.place(this.current, k * q0);
-      this.current.fill(count);
-      queued = queue.map((n, j) => ({ a: q0 + step * (j + k), n }));
-    } else {
-      // An empty tray comes down from the magazine; the filled one now heads the queue.
-      const k = changing > 0 ? (progress - 0.5) / 0.5 : 1;
-      this.place(this.current, 0, (1 - k) * 0.08);
-      this.current.fill(changing > 0 ? 0 : count);
-      queued = (changing > 0 ? [count, ...queue] : queue).map((n, j) => ({ a: q0 + step * j, n }));
+    // Destacker: four posts holding a stack of empty trays above the conveyor upstream of the packing position.
+    const w = (t.cols * t.pitch) / 2 + 0.015;
+    for (const da of [-w, w]) for (const dr of [-half, half]) this.group.add(span(tl.destack + da - 0.004, tl.destack + da + 0.004, y, y + 0.03 + 0.012 * TrayView.STACK, t.r + dr - 0.004, t.r + dr + 0.004, M.frame));
+    for (let k = 0; k < TrayView.STACK; k++) {
+      const empty = models.tray.clone(true);
+      empty.position.copy(local(tl.destack, y + 0.03 + k * 0.012, t.r));
+      this.group.add(empty);
     }
-    queued = queued.filter((q) => q.a <= q1 + 1e-6);
-    this.queue.forEach((load, i) => {
-      load.group.visible = i < queued.length;
-      if (load.group.visible) {
-        this.place(load, queued[i].a);
-        load.fill(queued[i].n);
-      }
+
+    // EM61: camera on a post outside the conveyor, looking down at the tray it stops.
+    const check = tl.check;
+    this.group.add(span(check.a - 0.01, check.a + 0.01, TABLE, y + 0.26, t.r + half + 0.03, t.r + half + 0.05, M.frame));
+    this.group.add(span(check.a - 0.01, check.a + 0.01, y + 0.25, y + 0.27, t.r - 0.01, t.r + half + 0.05, M.frame));
+    this.group.add(span(check.a - 0.025, check.a + 0.025, y + 0.19, y + 0.25, t.r - 0.025, t.r + 0.025, M.camera));
+    this.ring = mat(0xffffff, { emissive: 0xbfe3ff, emissiveIntensity: 0.2 });
+    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.004, 8, 28), this.ring);
+    torus.rotation.x = Math.PI / 2;
+    torus.position.copy(local(check.a, y + 0.185, t.r));
+    this.group.add(torus);
+    const name = label(`${check.id} ${check.name}`, 'label feeder');
+    name.position.copy(local(check.a, y + 0.33, t.r + half + 0.04));
+    this.group.add(name);
+
+    // Outfeed stack (good trays) past the end, reject rack beside the end.
+    for (let k = 0; k < TrayView.STACK; k++) {
+      const tr = models.tray.clone(true);
+      tr.position.copy(local(tl.end + 0.12, TABLE + k * 0.012, t.r));
+      tr.visible = false;
+      this.stacked.push(tr);
+      this.group.add(tr);
+    }
+    this.top = make();
+    const out = label('Trays out: 0', 'label feeder');
+    out.position.copy(local(tl.end + 0.12, y + 0.2, t.r));
+    this.outLabel = out.element;
+    this.group.add(out);
+    const rackR = t.r + half + 0.12;
+    this.group.add(span(tl.end - 0.06, tl.end + 0.06, TABLE, y + 0.05, rackR - 0.08, rackR + 0.08, M.bin));
+    const rack = label(`${check.id} rejects: 0`, 'label bin');
+    rack.position.copy(local(tl.end, y + 0.12, rackR));
+    this.rackLabel = rack.element;
+    this.group.add(rack);
+  }
+
+  private place(load: TrayLoad, a: number, dy = 0): void {
+    load.group.position.copy(local(a, this.trayY + dy, this.cfg.layout.tray.r));
+  }
+
+  update(tray: Frame['tray'], t: number): void {
+    const pack = this.cfg.layout.tray.a;
+    const tl = this.cfg.trays;
+    // During a change the destacker slides the next empty tray from under its stack into place.
+    const k = tray.changing > 0 ? 1 - tray.changing / this.cfg.trayChange : 1;
+    this.place(this.current, tl.destack + (pack - tl.destack) * k);
+    this.current.fill(tray.count);
+    this.line.forEach((load, i) => {
+      const tr = tray.line[i];
+      load.group.visible = !!tr;
+      if (!tr) return;
+      this.place(load, tr[0]);
+      load.fill(tr[1]);
     });
-    this.stackLabel.textContent = `Trays out: ${traysOut}`;
+    this.ring.emissiveIntensity = tray.line.some((x) => x[2] === 1) && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
+    // The stack shows up to a handful of trays, the top one full.
+    const n = Math.min(tray.stacked, TrayView.STACK);
+    this.stacked.forEach((s, i) => (s.visible = i < n - 1));
+    this.top.group.visible = n > 0;
+    this.top.group.position.copy(local(tl.end + 0.12, TABLE + Math.max(0, n - 1) * 0.012, this.cfg.layout.tray.r));
+    this.top.fill(this.cfg.traySize);
+    this.outLabel.textContent = `Trays out: ${tray.stacked}`;
+    this.rackLabel.textContent = `${tl.check.id} rejects: ${tray.rejected}`;
   }
 }
 

@@ -79,7 +79,7 @@ export function catalogue(cfg: LineConfig): Catalogue {
 
   // Part sources. Bodies become the pen itself at the load station. Springs and spring bases are
   // reported where they are inspected (EM10, EM13), so only the other feeders report their parts.
-  const subs: SubProcessDef[] = [...cfg.feeders.flatMap((f) => (f.inline ? [f.inline] : [])), cfg.orienter, cfg.dial.inspect];
+  const subs: SubProcessDef[] = [...cfg.feeders.flatMap((f) => (f.inline ? [f.inline] : [])), cfg.orienter, cfg.dial.inspect, cfg.trays.check];
   for (const f of cfg.feeders) {
     const id = feederId(cfg, f.id);
     devices.push(child(f.unit, id, `${FEEDER_NAMES[f.part] ?? itemType(f.part)} bowl feeder`));
@@ -105,6 +105,10 @@ export function catalogue(cfg: LineConfig): Catalogue {
   const trayStation = stationById(cfg, cfg.layout.tray.station);
   devices.push(child(trayStation.unit, trayProcessId(cfg), 'Tray packing'));
   process(trayProcessId(cfg), 'Tray', { SourceItemType: 'Pen' });
+  // EM61 checks each tray: the line's last process, which counts the batch's output.
+  const check = cfg.trays.check;
+  devices.push(child(check.unit, subProcessId(cfg, check), check.name));
+  process(subProcessId(cfg, check), 'Tray', { HasResult: true });
 
   const properties: PropertySpec[] = [
     { Name: PROPERTY.scopedId, Type: 'Integer', Description: 'Scoped id of the item the data belongs to' },

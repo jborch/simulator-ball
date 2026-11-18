@@ -83,14 +83,19 @@ export interface Frame {
    * seconds left of a tub change, EM00's robot, and each collet's [loop position, full 0/1].
    */
   cartridges: { used: number; changing: number; robot: RobotFrame; collets: [number, number][] };
-  /** Tray being filled, and the pen counts of the trays queued on the outfeed (newest first). */
-  tray: { count: number; changing: number; queue: number[] };
+  /**
+   * Tray being filled, the trays on the conveyor ([position, pens, state 0 moving, 1 being checked
+   * by EM61, 2 good, 3 rejected]), and how many went onto the stack and into the reject rack.
+   */
+  tray: { count: number; changing: number; line: [number, number, number][]; stacked: number; rejected: number };
   batch: Batch | null;
   /** Applies to the next batch. */
   batchSettings: { size: number; autoNext: boolean };
   counters: {
     good: number;
     rejected: number;
+    /** Pens sent round for a retest. */
+    retests: number;
     traysOut: number;
     bins: Record<string, number>;
   };

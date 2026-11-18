@@ -6,7 +6,8 @@
 import { inspectMover, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
 import { createCartridgeCell, stepCartridgeCell } from './cartridges';
-import { createFeeder, nextFailure, stepFeeder, stepTray } from './devices';
+import { createFeeder, nextFailure, stepFeeder } from './devices';
+import { createTrayLine, stepTray, stepTrayLine } from './trays';
 import { type RngState, normal, random, uniform } from './rng';
 import { createRobot, stepRobot, toolClear } from './robot';
 import { createDial, stepDial } from './dial';
@@ -97,10 +98,10 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
     cartridges: createCartridgeCell(cfg),
-    tray: { count: 0, changing: 0, discharge: false },
+    tray: { count: 0, sr: null, changing: 0, discharge: false },
+    trayLine: createTrayLine(),
     traysOut: 0,
     pensOut: 0,
-    trayQueue: [],
   };
 }
 
@@ -136,7 +137,8 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   stepDial(p, cfg, rng, dt);
   stepCartridgeCell(p, cfg, dt);
   const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
-  stepTray(p, cfg, clear(cfg.layout.tray.station), dt);
+  stepTray(p, cfg, rng, clear(cfg.layout.tray.station), dt);
+  stepTrayLine(p, cfg, rng, dt);
 }
 
 /** The laser marks the body on the mover; the code exists once the exposure is over. */

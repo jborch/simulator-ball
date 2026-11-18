@@ -99,24 +99,26 @@ describe('faults', () => {
 });
 
 describe('batches', () => {
-  test('a batch loads its target, runs out the line, completes and the next one starts after the pause', () => {
+  test('a batch fills its trays, runs out the line, completes and the next one starts after the pause', () => {
     const s = sim((c) => {
-      c.batch.size = 40;
+      c.traySize = 8;
+      c.batch.size = 5;
       c.batch.pause = 10;
     });
     const states: MachineState[] = [];
-    const es = collect(s, 400, () => {
+    const es = collect(s, 600, () => {
       if (states.at(-1) !== s.state.plc.machine) states.push(s.state.plc.machine);
     });
     const batches = es.filter((e): e is BatchEvent => e.kind === 'batch');
     expect(batches.map((b) => b.state).slice(0, 3)).toEqual(['started', 'completed', 'started']);
     const done = batches[1];
-    expect(done.good + done.rejected).toBe(40);
+    // Fill to count: exactly the trays' worth of good pens, the rejects topped up by extra loads.
+    expect(done.good).toBe(40);
     expect(states).toEqual(expect.arrayContaining(['Execute', 'Completing', 'Complete', 'Starting']));
     // Nothing is loaded during run-out: every pen loaded in batch 1 is finished before Complete.
     const loads = es.filter((e) => e.kind === 'processed' && e.process.endsWith('EM11'));
     const completedAt = done.logged;
-    expect(loads.filter((e) => e.kind === 'processed' && e.to <= completedAt).length).toBe(40);
+    expect(loads.filter((e) => e.kind === 'processed' && e.to <= completedAt).length).toBe(done.good + done.rejected);
   }, 60_000);
 
   test('ending a batch early runs the line empty; auto-next off waits in Complete', () => {

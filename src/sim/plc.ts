@@ -8,9 +8,10 @@ import { closeTray, recordCycle, recordOutput } from './records';
 import { scanCartridgeCell } from './cartridges';
 import { scanDial } from './dial';
 import { scanSublines } from './sublines';
+import { scanTrays } from './trays';
 import { leftMover, startJob } from './robot';
 import { copyTag } from './tags';
-import type { Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
+import type { Batch, Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
 
 export function createPlc(cfg: LineConfig): PlcState {
   return {
@@ -60,6 +61,7 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   scanSublines(s, cfg);
   scanDial(s, cfg);
   scanCartridgeCell(s, cfg);
+  scanTrays(s, cfg);
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
@@ -73,7 +75,11 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
     if (robots.some((r) => r.fault > 0)) plc.stations[i].status = 'fault';
     // Pre-pick: a robot with a part source fetches the next part while movers index, as long as
     // more parts will be needed. While stopping it only fetches for a mover it's committed to.
-    const running = plc.machine === 'Starting' || plc.machine === 'Execute' || (plc.machine === 'Completing' && def.kind !== 'load');
+    // The load station only fetches bodies while the batch still needs pens loaded (fill to count:
+    // it may be waiting to see whether pens on the line are rejected).
+    const b = plc.batch;
+    const loadNeeded = !!b && b.state === 'running' && b.loaded - b.rejected < batchPens(cfg, b);
+    const running = def.kind === 'load' ? (plc.machine === 'Starting' || plc.machine === 'Execute') && loadNeeded : plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
     const st = plc.stations[i];
     const inCycle = (st.step === 'waitRobot' || st.step === 'working') && st.op?.kind === 'place';
     robots.forEach((robot, k) => {
@@ -120,7 +126,8 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
       }
       break;
     case 'Execute':
-      if (batch && (batch.state === 'completing' || batch.loaded >= batch.target)) {
+      // Fill to count: once the batch's trays have all their good pens, the line runs out.
+      if (batch && (batch.state === 'completing' || batch.good >= batchPens(cfg, batch))) {
         batch.state = 'completing';
         setMachine(s, 'Completing');
       }
@@ -129,12 +136,13 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
       // Run-out: the load station has stopped loading; finish every pen still on the line.
       const inFlight = batch ? batch.loaded - batch.good - batch.rejected : 0;
       if (inFlight > 0 || !allIdle) break;
-      // The batch's last tray goes out even if it isn't full, so batches never share a tray.
+      // The batch's last tray goes out even if it isn't full (only when ended early), so batches
+      // never share a tray; it is complete once EM61 has checked its last tray.
       if (plc.tray.count > 0) {
         closeTray(s, cfg);
         plant.tray.discharge = true;
       }
-      if (!plant.tray.discharge && plant.tray.changing === 0) {
+      if (!plant.tray.discharge && plant.tray.changing === 0 && plant.trayLine.trays.length === 0) {
         if (batch) {
           batch.state = 'complete';
           emit(s, { kind: 'batch', name: batch.name, state: 'completed', target: batch.target, good: batch.good, rejected: batch.rejected, logged: now(s) });
@@ -155,6 +163,11 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
       if (allIdle) setMachine(s, plc.machine === 'Stopping' ? 'Stopped' : 'Held');
       break;
   }
+}
+
+/** Good pens a batch needs: full trays only. */
+export function batchPens(cfg: LineConfig, b: Batch): number {
+  return b.target * cfg.traySize;
 }
 
 /** Reports fault inputs (robot axis faults, feeder jams) as events when they change. */
@@ -427,7 +440,8 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
   switch (def.kind) {
     case 'load': {
       const b = s.plc.batch;
-      if (tag.status !== 'empty' || !b || b.state !== 'running' || b.loaded >= b.target) return pass();
+      // Fill to count: load while the pens not (yet) rejected can't fill the batch's trays.
+      if (tag.status !== 'empty' || !b || b.state !== 'running' || b.loaded - b.rejected >= batchPens(cfg, b)) return pass();
       b.loaded++;
       // The pen gets its identifier later, with the labelled housing (EM31, EM40).
       const srId = ++s.plc.srCounter;
@@ -460,6 +474,8 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
       return tag.status === 'nok' ? start(s, cfg, i, { kind: 'reject', bin: def.bin! }) : pass();
     case 'unload': {
       if (tag.status === 'empty') return pass();
+      // A good pen still waiting for its retest goes round again.
+      if (tag.status === 'ok' && tag.retests > 0 && !tag.done.includes('final')) return pass();
       const good = tag.status === 'ok' && tag.done.includes('final');
       return start(s, cfg, i, { kind: 'unload', good, bin: def.bin! });
     }

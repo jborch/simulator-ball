@@ -171,9 +171,11 @@ export class Hud {
       $('#b-name').textContent = `Batch ${b.name}`;
       $('#b-state').textContent = b.state === 'completing' ? 'running out' : b.state;
       $('#b-state').dataset.state = b.state;
-      $('#b-bar').style.width = `${Math.min(100, (100 * (b.good + b.rejected)) / b.target)}%`;
-      $('#b-loaded').textContent = `${b.loaded} / ${b.target} loaded`;
-      $('#b-out').textContent = `${b.good} good · ${b.rejected} rejected`;
+      // Batches count trays (checked at EM61); the bar follows the good pens they need.
+      const pens = b.target * this.cfg.traySize;
+      $('#b-bar').style.width = `${Math.min(100, (100 * b.good) / pens)}%`;
+      $('#b-loaded').textContent = `${b.trays} / ${b.target} trays${b.traysRejected ? ` (${b.traysRejected} rejected)` : ''}`;
+      $('#b-out').textContent = `${b.good}/${pens} pens · ${b.rejected} rejected`;
     }
     const size = $<HTMLInputElement>('#b-size');
     if (document.activeElement !== size) size.value = String(f.batchSettings.size);
@@ -230,7 +232,7 @@ export class Hud {
       case 'batch':
         return {
           time: at(e.logged),
-          text: e.state === 'started' ? `Batch ${e.name} started (${e.target} pens)` : `Batch ${e.name} complete: ${e.good} good, ${e.rejected} rejected`,
+          text: e.state === 'started' ? `Batch ${e.name} started (${e.target} trays)` : `Batch ${e.name} complete: ${e.good} good pens, ${e.rejected} rejected`,
           cls: 'state',
         };
       default:

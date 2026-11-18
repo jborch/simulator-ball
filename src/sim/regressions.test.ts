@@ -66,7 +66,10 @@ test('after an E-stop, Reset leaves the equipment frozen until Start', () => {
 }, 30_000);
 
 test('a batch completes only after its last pen is physically in the tray or bin', () => {
-  const s = sim((c) => (c.batch.size = 1));
+  const s = sim((c) => {
+    c.traySize = 4;
+    c.batch.size = 1;
+  });
   let checked = false;
   expect(
     until(

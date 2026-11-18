@@ -11,6 +11,8 @@ export interface Tag {
   status: 'empty' | 'ok' | 'nok';
   done: Step[];
   reason: string | null;
+  /** Times a station has sent the pen round again for a retest (EM50's Inconclusive). */
+  retests: number;
 }
 
 /** The physical assembly sitting in a mover's fixture — the truth. */
@@ -286,10 +288,37 @@ export interface DenestRobot {
 
 export interface TrayState {
   count: number;
+  /** PLC shift register: the SR id of the tray being filled (set once it's in place). */
+  sr: number | null;
   /** Seconds left of a tray change, 0 when an empty tray is in place. */
   changing: number;
   /** PLC request to send out a partly filled tray (end of batch). Cleared when it has gone. */
   discharge: boolean;
+}
+
+/** A filled tray on the conveyor from EM60 through EM61's check to the stack or reject rack. */
+export interface OutTray {
+  sr: number | null;
+  count: number;
+  /** Position along the conveyor (EM60's station-local a). */
+  x: number;
+  phase: 'toCheck' | 'checking' | 'decide' | 'out';
+  /** Seconds left of the check, and when it began. */
+  mechLeft: number;
+  fixedLeft: number;
+  from: number;
+  /** True quality EM61 sees, and the PLC's verdict. */
+  quality: number;
+  ok: boolean | null;
+}
+
+export interface TrayLine {
+  trays: OutTray[];
+  /** Good trays on the outfeed stack, and trays pushed into the reject rack. */
+  stacked: number;
+  rejected: number;
+  /** Finished checks for the PLC to record (sim times). */
+  results: { sr: number | null; count: number; value: number; from: number; to: number }[];
 }
 
 /** A station's physical equipment: stop gate, RFID reader and either robots or a camera. */
@@ -327,11 +356,10 @@ export interface PlantState {
   /** Parts dropped or lost (didn't seat), by station. */
   scrap: Record<string, number>;
   tray: TrayState;
+  trayLine: TrayLine;
   traysOut: number;
   /** Pens in the trays that have gone out. */
   pensOut: number;
-  /** Pens in the most recent trays out, newest first (the ones still queued on the outfeed). */
-  trayQueue: number[];
 }
 
 export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitGroup' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
@@ -376,10 +404,14 @@ export interface PendingOutput {
 
 export interface Batch {
   name: string;
+  /** Trays to make (EM61 counts them). */
   target: number;
   loaded: number;
   good: number;
   rejected: number;
+  /** Trays checked at EM61: passed, and pushed into the reject rack. */
+  trays: number;
+  traysRejected: number;
   startedAt: number;
   state: 'running' | 'completing' | 'complete';
 }
@@ -409,7 +441,7 @@ export interface ItemProcessedEvent {
   from: number;
   to: number;
   carrier?: string;
-  result?: 'Passed' | 'Failed';
+  result?: 'Passed' | 'Failed' | 'Inconclusive';
   /** Long unique id marked on the item (the pen's GS1 code). */
   identifier?: string;
   sourceScopedId?: number;
@@ -488,6 +520,8 @@ export interface MesState {
   rejected: number;
   rejectsByCause: Record<string, number>;
   movers: Record<number, { pens: number; rejects: number }>;
+  /** Pens sent round again for a retest. */
+  retests: number;
   events: SimEvent[];
 }
 

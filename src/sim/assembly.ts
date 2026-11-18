@@ -13,7 +13,7 @@ export function moverById(p: PlantState, id: number): Mover {
 const SETTLES: Partial<Record<PartType, QualityKey[]>> = {
   spring: ['springAngle'],
   springBase: ['seatForce', 'hook'],
-  cartridge: ['seatDepth'],
+  cartridge: ['finalTest'],
   housing: ['snapForce', 'snapPosition'],
 };
 

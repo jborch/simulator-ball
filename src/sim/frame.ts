@@ -90,9 +90,16 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     dial: dialFrame(cfg, plant.dial),
     distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
     cartridges: cartridgeFrame(cfg, plant.cartridges),
-    tray: { count: plant.tray.count, changing: plant.tray.changing, queue: [...plant.trayQueue] },
+    tray: {
+      count: plant.tray.count,
+      changing: plant.tray.changing,
+      // Trays on the conveyor: [position, pens, state 0 moving, 1 being checked, 2 good, 3 rejected].
+      line: plant.trayLine.trays.map((t) => [t.x, t.count, t.phase === 'checking' ? 1 : t.ok === null ? 0 : t.ok ? 2 : 3]),
+      stacked: plant.trayLine.stacked,
+      rejected: plant.trayLine.rejected,
+    },
     batch: plc.batch ? { ...plc.batch } : null,
     batchSettings: { size: plc.batchSize, autoNext: plc.autoNext },
-    counters: { good: mes.good, rejected: mes.rejected, traysOut: plant.traysOut, bins: { ...plant.bins } },
+    counters: { good: mes.good, rejected: mes.rejected, retests: mes.retests, traysOut: plant.traysOut, bins: { ...plant.bins } },
   };
 }

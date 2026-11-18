@@ -1,4 +1,5 @@
-// Station devices other than robots: bowl feeders with linear tracks and the tray outfeed, plus the random-failure helpers shared with the robots.
+// Bowl feeders with their linear tracks (and EM10's inline check), plus the random-failure
+// helpers shared with the robots.
 import type { FeederDef, LineConfig } from './config';
 import { type RngState, normal, random, uniform } from './rng';
 import type { Feeder, FeederItem, PlantState } from './types';
@@ -57,28 +58,5 @@ export function stepFeeder(p: PlantState, f: Feeder, def: FeederDef, cfg: LineCo
     f.fed++;
     f.nextIn = def.interval * uniform(rng, 0.6, 1.4);
     if (cfg.faults.enabled && random(rng) < cfg.faults.feederJamPerPart) f.jam = repairTime(rng, cfg.faults.feederRepair);
-  }
-}
-
-/**
- * Indexes the tray out (full, or partly filled on a discharge request) and an empty one in, once
- * the unload robot's gripper is clear of it.
- */
-export function stepTray(p: PlantState, cfg: LineConfig, toolClear: boolean, dt: number): void {
-  const t = p.tray;
-  if (t.changing > 0) {
-    t.changing -= dt;
-    if (t.changing <= 0) {
-      t.changing = 0;
-      p.pensOut += t.count;
-      p.trayQueue = [t.count, ...p.trayQueue].slice(0, 2);
-      t.count = 0;
-      t.discharge = false;
-      p.traysOut++;
-    }
-  } else if (t.discharge && t.count === 0) {
-    t.discharge = false;
-  } else if (toolClear && (t.count >= cfg.traySize || (t.discharge && t.count > 0))) {
-    t.changing = cfg.trayChange;
   }
 }

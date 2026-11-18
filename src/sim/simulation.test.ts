@@ -192,6 +192,24 @@ describe('steady production (60 min)', () => {
     }
   });
 
+  test('an Inconclusive final test sends the pen round once more, and the retest decides', () => {
+    const em50 = processed(events, 'EM50');
+    const inconclusive = em50.filter((e) => e.result === 'Inconclusive');
+    // About 1 % of first tests (the original's eject rate here).
+    expect(inconclusive.length / em50.length).toBeGreaterThan(0.003);
+    expect(inconclusive.length / em50.length).toBeLessThan(0.025);
+    const out = new Map([...processed(events, 'EM60'), ...processed(events, 'EM60-REJECT')].map((e) => [e.scopedId, e.from]));
+    for (const first of inconclusive) {
+      const later = em50.filter((e) => e.scopedId === first.scopedId && e.from > first.to);
+      if (later.length === 0) continue; // still on its extra lap when the run ended
+      expect(later).toHaveLength(1);
+      expect(later[0].result).not.toBe('Inconclusive');
+      // It wasn't packed or binned before its retest.
+      if (out.has(first.scopedId)) expect(out.get(first.scopedId)!).toBeGreaterThan(later[0].to);
+    }
+    expect(inconclusive.filter((f) => em50.some((e) => e.scopedId === f.scopedId && e.from > f.to)).length).toBeGreaterThan(5);
+  });
+
   test('event timestamps follow sim time and cycles take real time', () => {
     const em41 = processed(events, 'EM41').filter((e) => e.itemType === 'Pen');
     expect(em41.length).toBeGreaterThan(500);

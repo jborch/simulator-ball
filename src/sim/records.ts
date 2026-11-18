@@ -17,6 +17,14 @@ interface Evaluation {
   props: Props;
 }
 
+/** Draws one of several causes by their shares. */
+function pick(rng: RngState, causes: [string, number][]): string {
+  const total = causes.reduce((n, [, w]) => n + w, 0);
+  let x = random(rng) * total;
+  for (const [cause, w] of causes) if ((x -= w) < 0) return cause;
+  return causes[causes.length - 1][0];
+}
+
 /** Checks a measurement against its limits, with the reject cause as the original line words it. */
 export function evaluate(lim: Limits, value: number | null, rng: RngState): Evaluation {
   const passed = value !== null && value >= lim.lower && value <= lim.upper;
@@ -32,7 +40,7 @@ export function evaluate(lim: Limits, value: number | null, rng: RngState): Eval
     if (value === null) cause = 'Part missing';
     else if (value > lim.upper && lim.high) cause = lim.high;
     else if (value < lim.lower && lim.low) cause = lim.low;
-    else cause = lim.alt && random(rng) < lim.alt.p ? lim.alt.cause : lim.cause;
+    else cause = lim.causes ? pick(rng, lim.causes) : lim.cause;
     props['Reject Cause'] = cause;
   }
   return { passed, cause, props };
@@ -68,7 +76,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
       op.places.forEach((place, k) => {
         if (place.kind === 'load') {
           // A new pen: its SR id and identifier go on the tag.
-          tag = { srId: place.srId, status: 'ok', done: [], reason: null };
+          tag = { srId: place.srId, status: 'ok', done: [], reason: null, retests: 0 };
         } else {
           const pen = tag.srId!;
           place.parts.forEach((part, j) => {
@@ -147,7 +155,18 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
           props['Reject Cause'] = cause;
         }
       }
+      // Now and then a first test can't decide (the original's eject to Inconclusive): the step
+      // stays undone, so the pen goes round once more and is tested again. A retest always decides.
+      if (passed && def.inconclusive && tag.retests === 0 && random(s.rng) < def.inconclusive) {
+        tag.retests++;
+        tag.reason = 'Retest';
+        Object.assign(props, { 'Inspection Passed': false, 'Inspection Result': 2 });
+        s.mes.retests++;
+        emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: 'Inconclusive', properties: props });
+        return tag;
+      }
       tag.done.push(def.step!);
+      if (passed && tag.reason === 'Retest') tag.reason = null;
       if (!passed) markNok(tag, cause);
       emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: passed ? 'Passed' : 'Failed', properties: props });
       return tag;

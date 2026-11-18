@@ -110,7 +110,7 @@ The view has six monitoring cameras. Pick one with the bar at the bottom or with
 | 3 | Spring base | EM13 turning spring bases onto the distribution conveyor, the four EM14 presses side by side, EM15 |
 | 4 | Cartridge | EM00 taking cartridges out of a 160-pocket nest into collets, the collet loop, EM41 inserting them |
 | 5 | Housing | The housing dial (EM30 load, EM31 label with the pen's DataMatrix, EM32 label check) and EM40 snapping the housing on |
-| 6 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
+| 6 | Outfeed | EM60 packing trays of 32 from the destacker, EM61 checking each tray, the outfeed stack and reject rack |
 
 The fixed cameras are defined in `src/view/cameras.ts`, in each station's own coordinates, so
 they stay on their station if the layout changes. You can still orbit and zoom with the mouse.

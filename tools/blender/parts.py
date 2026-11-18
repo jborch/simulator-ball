@@ -281,7 +281,8 @@ def mover(num=None):
     return group("Mover", parts)
 
 
-def tray(cols=4, rows=3, pitch=0.03):
+def tray(cols=4, rows=8, pitch=0.021):
+    """Tray of 32 pens (the original packs 32), matching LINE.layout.tray."""
     w, d = cols * pitch + 0.02, rows * pitch + 0.02
     plate = bevel(box(w, d, 0.006, (0, 0, 0.003), TRAY(), "tray_plate"), 0.002)
     rim = bevel(box(w, d, 0.02, (0, 0, 0.01), TRAY(), "tray_rim"), 0.002)
@@ -292,7 +293,7 @@ def tray(cols=4, rows=3, pitch=0.03):
         for j in range(rows):
             x = (i - (cols - 1) / 2) * pitch
             y = (j - (rows - 1) / 2) * pitch
-            pockets.append(tube(0.0125, 0.0095, 0.028, 0.006, TRAY(), f"tray_pocket_{i}_{j}", verts=24))
+            pockets.append(tube(0.0102, 0.009, 0.028, 0.006, TRAY(), f"tray_pocket_{i}_{j}", verts=16))
             pockets[-1].location.x, pockets[-1].location.y = x, y
     return group("Tray", [plate, rim, *pockets])
 
@@ -316,7 +317,7 @@ assets = [
     (housing(), "housing.glb", "Housing"),
     (assembled_pen(), "pen.glb", "Assembled pen"),
     (mover(), "mover.glb", "Mover"),
-    (tray(), "tray.glb", "Tray 3x4"),
+    (tray(), "tray.glb", "Tray 4x8"),
 ]
 for root, fn, _ in assets:
     export(root, fn)
