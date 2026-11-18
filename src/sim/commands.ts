@@ -133,6 +133,8 @@ function injectFault(s: SimState, cfg: LineConfig, target: string): boolean {
     const id = target.replace(/-OVERLOAD$/, '');
     const i = cfg.stations.findIndex((d) => d.robots?.some((r) => r.id === id));
     const robot = p.stations[i].robots[cfg.stations[i].robots!.findIndex((r) => r.id === id)];
+    // One fault at a time: a robot already stopped can't be made to stop for another reason too.
+    if (robot.fault > 0) return false;
     robot.fault = repairTime(s.rng, cfg.faults.overloadRepair);
     robot.faultKind = 'overload';
     return true;
@@ -145,6 +147,7 @@ function injectFault(s: SimState, cfg: LineConfig, target: string): boolean {
   const i = cfg.stations.findIndex((d) => d.robots?.some((r) => r.id === target));
   if (i < 0) return false;
   const robot = s.plant.stations[i].robots[cfg.stations[i].robots!.findIndex((r) => r.id === target)];
+  if (robot.fault > 0) return false;
   robot.fault = repairTime(s.rng, cfg.faults.robotRepair);
   return true;
 }

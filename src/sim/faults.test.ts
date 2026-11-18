@@ -263,4 +263,41 @@ describe('sub-line faults', () => {
     expect(robot.fault).toBe(0);
     expect(robot.faultKind).toBe('axis');
   }, 60_000);
+
+  test('injected consumables stop their equipment with random faults off; a label going on waits for the roll', () => {
+    const s = sim();
+    const p = s.state.plant;
+    // Inject the empty roll while a label is going on.
+    for (let t = 0; t < 300 && !(p.dial.jobs.label && p.dial.jobs.label !== 'done'); t += 0.005) s.advance(0.005);
+    const job = p.dial.jobs.label;
+    expect(job && job !== 'done').toBe(true);
+    s.drainEvents();
+    expect(s.command({ type: 'fault', target: 'EM31-ROLL' })).toBe(true);
+    const change = p.alarms.labelRoll;
+    const es = collect(s, change - 0.5, () => expect(p.dial.roll).toBeGreaterThanOrEqual(0));
+    expect(es.some((e) => e.kind === 'processed' && e.process.endsWith('EM31'))).toBe(false);
+    const after = collect(s, 20);
+    expect(p.dial.roll).toBe(s.cfg.faults.labelRoll);
+    expect(after.some((e) => e.kind === 'processed' && e.process.endsWith('EM31'))).toBe(true);
+
+    // The destacker: while it is being refilled no tray goes out.
+    expect(s.command({ type: 'fault', target: 'EM60-DESTACKER' })).toBe(true);
+    const out = p.traysOut;
+    collect(s, p.alarms.destacker - 0.5);
+    expect(p.traysOut).toBe(out);
+  }, 60_000);
+
+  test('a robot already stopped refuses a second injected fault, so its report stays right', () => {
+    const s = sim(onlyConsumables);
+    s.advance(60);
+    s.drainEvents();
+    expect(s.command({ type: 'fault', target: 'EM14B' })).toBe(true);
+    expect(s.command({ type: 'fault', target: 'EM14B-OVERLOAD' })).toBe(false);
+    expect(s.command({ type: 'fault', target: 'EM14B' })).toBe(false);
+    const robot = s.state.plant.stations[idx('EM14B')].robots[0];
+    expect(robot.faultKind).toBe('axis');
+    const es = collect(s, robot.fault + 2);
+    const codes = stationEvents(es).filter((e) => e.process.endsWith('EM14B')).map((e) => e.code);
+    expect(codes).toEqual(['axisFault', 'axisFaultCleared']);
+  }, 60_000);
 });

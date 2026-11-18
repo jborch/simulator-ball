@@ -202,8 +202,8 @@ export interface Orienter {
   fixedLeft: number;
   /** Sim time the current part was taken. */
   start: number;
-  /** Operating seconds left until its next random fault. */
-  nextFault: number;
+  /** Operating seconds left until its next random fault (null until first drawn). */
+  nextFault: number | null;
   /** Measured angle once phase is 'decide'. */
   result: number | null;
   /** Set by the PLC: push the part on (true) or into the reject chute (false). */

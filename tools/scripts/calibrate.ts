@@ -42,7 +42,7 @@ function runSeed(seed: number): Run {
     }
   };
   for (let t = 0; t < minutes * 60; t += 10) {
-    sim.advance(10);
+    sim.advance(Math.min(10, minutes * 60 - t));
     sim.drainEvents().forEach(count);
   }
   const { mes, plc, plant } = sim.state;

@@ -11,7 +11,7 @@ import { type RngState, normal } from './rng';
 import type { Distribution, Orienter, PlantState, SimState } from './types';
 
 export function createOrienter(): Orienter {
-  return { item: null, phase: 'idle', mechLeft: 0, fixedLeft: 0, start: 0, nextFault: Number.NaN, result: null, pass: null };
+  return { item: null, phase: 'idle', mechLeft: 0, fixedLeft: 0, start: 0, nextFault: null, result: null, pass: null };
 }
 
 export function createDistribution(cfg: LineConfig): Distribution {
@@ -25,8 +25,9 @@ export function stepOrienter(p: PlantState, cfg: LineConfig, rng: RngState, dt: 
   // It stops with the line, mid-part if need be, and carries on when the line restarts; it
   // also stops on a fault until repaired. Faults come with operating time.
   if (!p.feedersOn || p.alarms.orienter > 0) return;
-  if (Number.isNaN(o.nextFault)) o.nextFault = nextFailure(rng, cfg.faults.orienterMtbf);
-  if (cfg.faults.enabled && o.phase !== 'idle') {
+  // (Drawn only with faults on, so a run without faults keeps its random sequence.)
+  if (cfg.faults.enabled && o.nextFault === null) o.nextFault = nextFailure(rng, cfg.faults.orienterMtbf);
+  if (cfg.faults.enabled && o.phase !== 'idle' && o.nextFault !== null) {
     o.nextFault -= dt;
     if (o.nextFault <= 0) {
       o.nextFault = nextFailure(rng, cfg.faults.orienterMtbf);

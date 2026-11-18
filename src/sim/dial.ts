@@ -38,7 +38,8 @@ export function stepDial(p: PlantState, cfg: LineConfig, rng: RngState, dt: numb
   const pos = def.positions;
   // An empty label roll stops labelling until the operator has changed it.
   if (d.roll <= 0 && cfg.faults.enabled) raise(p, cfg, rng, 'labelRoll');
-  const rollReady = !cfg.faults.enabled || (d.roll > 0 && p.alarms.labelRoll === 0);
+  // An alarm that is up (also an injected one) always stops labelling; only depletion needs faults on.
+  const rollReady = p.alarms.labelRoll === 0 && (!cfg.faults.enabled || d.roll > 0);
   if (d.phase === 'index') {
     d.turn -= dt * p.speed;
     if (d.turn > 0) return;
@@ -73,6 +74,8 @@ export function stepDial(p: PlantState, cfg: LineConfig, rng: RngState, dt: numb
       }
     } else if (job !== 'done') {
       busy = true;
+      // A label going on stops with the roll; it carries on once a new roll is in.
+      if (op === 'label' && !rollReady) continue;
       job.left -= scales[op] ? dt * p.speed : dt;
       if (job.left <= 0) {
         finish(p, cfg, rng, op, job.from);
@@ -101,7 +104,7 @@ function finish(p: PlantState, cfg: LineConfig, rng: RngState, op: DialOp, from:
       const part = d.slots[pos.label]!;
       const q = cfg.quality.labelQuality;
       part.label = part.print;
-      if (cfg.faults.enabled) d.roll--;
+      if (cfg.faults.enabled) d.roll = Math.max(0, d.roll - 1);
       part.quality = normal(rng, q.mean, q.sd);
       d.results.push({ op, uid: part.uid, from, to: p.t });
       return;

@@ -30,8 +30,9 @@ export function stepTray(p: PlantState, cfg: LineConfig, rng: RngState, toolClea
   } else if (toolClear && (t.count >= cfg.traySize || (t.discharge && t.count > 0))) {
     const room = p.trayLine.trays.every((x) => x.x - packAt >= cfg.trays.pitch);
     if (!room) return;
-    // No empty tray to follow: the destacker waits for the operator to refill it.
-    if (cfg.faults.enabled && (t.stack <= 0 || p.alarms.destacker > 0)) {
+    // No empty tray to follow: the destacker waits for the operator to refill it. An alarm that
+    // is up (also an injected one) always stops it; only running empty needs faults on.
+    if (p.alarms.destacker > 0 || (cfg.faults.enabled && t.stack <= 0)) {
       raise(p, cfg, rng, 'destacker');
       return;
     }
