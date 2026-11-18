@@ -141,6 +141,9 @@ export interface Robot {
   dwellFixed: number;
   /** Height the current press stroke started from. */
   pressFrom: number;
+  /** Time the current (or last) press stroke actually ran (frozen time excluded), and when it ended. */
+  pressTime: number;
+  pressEnd: number;
   /** What the current step is doing, for display. */
   phase: 'idle' | 'move' | 'grip' | 'press' | 'starved' | 'blocked' | 'fault';
   holding: Held | null;

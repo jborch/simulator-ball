@@ -149,3 +149,61 @@ describe('snap judging', () => {
     expect(new Set(rows.map((r) => r!.Logged)).size).toBe(3);
   });
 });
+
+describe('snap curves stay consistent (review findings)', () => {
+  test("a full curve never shares a millisecond with the station's own result row", () => {
+    const cat = catalogue(LINE);
+    const properties = Object.fromEntries(cat.properties.map((p, i) => [p.Name, `p${i}`]));
+    const evKeys = Object.fromEntries(cat.events.map((p, i) => [p.Name, `e${i}`]));
+    const m = new Mapper(cat, { properties, events: evKeys, batchTypeId: 1, scopedIdBase: 0, created: 0, warnings: [] });
+    const end = 5_000_000;
+    // As records.ts emits them: the result first, then the 600-sample curve ending on the same ms.
+    const out = [
+      ...m.map({ kind: 'processed', process: em40, scopedId: 1, itemType: 'Housing', from: end - 900, to: end, properties: { 'Peak Force': 32 } }),
+      ...m.map({ kind: 'series', process: em40, scopedId: 1, start: end - 599, interval: 1, values: { Force: new Array(600).fill(1), Displacement: new Array(600).fill(0) }, startEvent: 'Snap Start' }),
+    ];
+    const times = out.flatMap((o) => (o.k === 'data' ? [o.v.Logged] : []));
+    expect(times).toHaveLength(601);
+    expect(new Set(times).size).toBe(601);
+  });
+
+  test('curves span the time the stroke really took, whatever the speed does meanwhile', () => {
+    const s = sim(undefined, 9);
+    const events = collect(s, 600, () => {
+      // Swing the speed override every few seconds, mid-stroke as often as not.
+      const t = s.state.plant.t;
+      if (Math.abs((t % 7) - 0.05) < 0.051) s.command({ type: 'speed', percent: Math.floor(t / 7) % 2 === 0 ? 15 : 100 });
+    });
+    const recs = new Map(at(events, em40).map((r) => [r.scopedId, r]));
+    const curves = events.filter((e): e is SeriesEvent => e.kind === 'series');
+    expect(curves.length).toBeGreaterThan(50);
+    const lengths = new Set<number>();
+    for (const c of curves) {
+      const r = recs.get(c.scopedId)!;
+      const n = c.values.Force.length;
+      lengths.add(Math.round(n / 100));
+      expect(c.start).toBeGreaterThanOrEqual(r.from);
+      expect(c.start + (n - 1) * c.interval).toBeLessThanOrEqual(r.to + 1);
+    }
+    // Slow strokes give longer curves than fast ones.
+    expect(lengths.size).toBeGreaterThan(2);
+  }, 60_000);
+
+  test('impossible inputs never give NaN or an accepted snap', () => {
+    for (const [peak, position] of [
+      [32, 0],
+      [32, -1],
+      [Number.NaN, 4.2],
+      [32, Number.NaN],
+      [-5, 4.2],
+    ]) {
+      const r = snapCurve(LINE, { seed: 3 }, peak, position, 0.6, 0);
+      expect(r.force.every(Number.isFinite)).toBe(true);
+      expect(Number.isFinite(r.peak) && Number.isFinite(r.position)).toBe(true);
+      expect(r.accepted).toBe(false);
+    }
+    const bad = judge(LINE, [1, Number.NaN, 3], [0, 1, 2]);
+    expect(bad.accepted).toBe(false);
+    expect(bad.reason).toBe('Invalid force curve');
+  });
+});

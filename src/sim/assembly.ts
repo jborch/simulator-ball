@@ -34,12 +34,17 @@ function measure(cfg: LineConfig, rng: RngState, m: Mover, load: Load, key: Qual
   return truth + normal(rng, 0, noise) - (load.fragile + m.profile.badness) * cfg.fragileShift * cfg.quality[key].sd;
 }
 
-/** EM40 records the press stroke it just did (as long as the press time took at this speed). */
-function recordSnap(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, m: Mover, load: Load): CycleResult {
+/** The press stroke a robot just did: how long it actually ran and when it ended (sim time). */
+export interface Stroke {
+  duration: number;
+  end: number;
+}
+
+/** EM40 records the press stroke it just did, sampled over the time the stroke really took. */
+function recordSnap(cfg: LineConfig, rng: RngState, m: Mover, load: Load, stroke: Stroke): CycleResult {
   const peak = measure(cfg, rng, m, load, 'snapForce', 0)!;
   const position = measure(cfg, rng, m, load, 'snapPosition', 0)!;
-  const press = (def.robots ?? []).find((r) => r.source)!.mech;
-  const snap = snapCurve(cfg, rng, peak, position, press / Math.max(p.speed, 0.01), p.t);
+  const snap = snapCurve(cfg, rng, peak, position, stroke.duration, stroke.end);
   return { measurement: snap.peak, snap };
 }
 
@@ -47,7 +52,16 @@ function recordSnap(p: PlantState, cfg: LineConfig, rng: RngState, def: StationD
  * A robot puts parts on the mover. Returns what the station measured while doing so, or null if
  * there was nothing to assemble onto (empty fixture) and the parts fell off.
  */
-export function placeOnMover(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, op: PlaceOp, moverId: number, label?: string): CycleResult | null {
+export function placeOnMover(
+  p: PlantState,
+  cfg: LineConfig,
+  rng: RngState,
+  def: StationDef,
+  op: PlaceOp,
+  moverId: number,
+  label?: string,
+  stroke: Stroke = { duration: 0, end: p.t },
+): CycleResult | null {
   const m = moverById(p, moverId);
   if (op.kind === 'load') {
     m.load = { srId: op.srId, mark: '', parts: ['body'], quality: {}, fragile: 0 };
@@ -64,7 +78,7 @@ export function placeOnMover(p: PlantState, cfg: LineConfig, rng: RngState, def:
     }
   }
   let result: CycleResult = { measurement: null };
-  if (op.measure && def.snap) result = recordSnap(p, cfg, rng, def, m, load);
+  if (op.measure && def.snap) result = recordSnap(cfg, rng, m, load, stroke);
   else if (op.measure) result = { measurement: measure(cfg, rng, m, load, op.measure, def.inspect?.noise ?? 0) };
   // A fragile station's own measurement isn't affected; everything after it is.
   if (op.fragile) load.fragile++;

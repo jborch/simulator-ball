@@ -28,6 +28,8 @@ export function createRobot(safeZ: number, home: number, nextFault: number): Rob
     dwellMech: 0,
     dwellFixed: 0,
     pressFrom: safeZ,
+    pressTime: 0,
+    pressEnd: 0,
     phase: 'idle',
     holding: null,
     op: null,
@@ -338,6 +340,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       if (!robot.stepStarted) {
         robot.dwellMech = step.mech;
         robot.pressFrom = robot.z;
+        robot.pressTime = 0;
         robot.ta = robot.a;
         robot.tr = robot.r;
         robot.tz = moverHeight(p, cfg, rdef, robot);
@@ -347,7 +350,10 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       const k = robot.dwellMech / step.mech;
       robot.z = robot.tz + (robot.pressFrom - robot.tz) * k;
       robot.vz = robot.dwellMech > 0 ? ((robot.tz - robot.pressFrom) / step.mech) * p.speed : 0;
+      // Only time the stroke really ran counts (a frozen robot isn't stepped at all).
+      robot.pressTime += dt;
       finished = robot.dwellMech <= 0;
+      if (finished) robot.pressEnd = p.t;
       break;
     }
 
@@ -374,7 +380,8 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
 function release(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, robot: Robot): void {
   const misplaced = cfg.faults.enabled && random(rng) < cfg.faults.misplaceRate;
   const label = robot.holding?.kind === 'part' ? robot.holding.label : undefined;
-  const result = misplaced || !robot.op ? null : placeOnMover(p, cfg, rng, def, robot.op, robot.moverId, label);
+  const stroke = { duration: robot.pressTime, end: robot.pressEnd };
+  const result = misplaced || !robot.op ? null : placeOnMover(p, cfg, rng, def, robot.op, robot.moverId, label, stroke);
   if (result === null) p.scrap[def.id] = (p.scrap[def.id] ?? 0) + 1;
   // The PLC records the parts as placed either way: it can't see that one didn't seat.
   const partIds = robot.holding?.kind === 'part' ? robot.holding.ids : undefined;

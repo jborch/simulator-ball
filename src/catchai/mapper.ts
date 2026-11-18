@@ -17,17 +17,26 @@ const iso = (ms: number) => new Date(Math.round(ms)).toISOString();
  * same goes for device data per (device, timestamp). Parts placed in the same cycle share a
  * timestamp, so each key gets the next free millisecond.
  */
-class UniqueTimes {
-  private readonly used = new Map<string, Set<number>>();
+export class UniqueTimes {
+  private readonly used = new Map<string, { times: Set<number>; latest: number }>();
+
+  /**
+   * How long a used time is remembered. Times arrive a little out of order (a station's record
+   * comes before the curve its cycle recorded, which may end on the same millisecond), but never
+   * by more than a cycle, so everything older than this can be forgotten.
+   */
+  static readonly WINDOW_MS = 60_000;
 
   take(key: string, ms: number): number {
-    let set = this.used.get(key);
-    if (!set) this.used.set(key, (set = new Set()));
+    let k = this.used.get(key);
+    if (!k) this.used.set(key, (k = { times: new Set(), latest: -Infinity }));
     let t = Math.round(ms);
-    while (set.has(t)) t++;
-    set.add(t);
-    // Only recent times can collide; forget the oldest.
-    if (set.size > 256) set.delete(set.values().next().value!);
+    while (k.times.has(t)) t++;
+    k.times.add(t);
+    if (t > k.latest) k.latest = t;
+    if (k.times.size > 2048) {
+      for (const old of k.times) if (old < k.latest - UniqueTimes.WINDOW_MS) k.times.delete(old);
+    }
     return t;
   }
 }

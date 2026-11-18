@@ -24,6 +24,11 @@ const round = (x: number, digits: number) => Math.round(x * 10 ** digits) / 10 *
  */
 export function snapCurve(cfg: LineConfig, rng: RngState, peak: number, position: number, duration: number, end: number): SnapResult {
   const { stroke, sampleHz, noise } = cfg.snap;
+  // Keep to what the mechanics allow, however far quality shifts push the true values: the clip
+  // can't snap before the stroke starts or after it ends, and force is never negative.
+  position = Number.isFinite(position) ? Math.min(stroke, Math.max(0.05, position)) : stroke / 2;
+  peak = Number.isFinite(peak) ? Math.max(0, peak) : 0;
+  duration = Number.isFinite(duration) && duration > 0 ? duration : 2 / sampleHz;
   const engages = random(rng) >= cfg.snap.noSnap;
   const n = Math.max(2, Math.round(duration * sampleHz));
   const force: number[] = [];
@@ -62,7 +67,8 @@ export function judge(cfg: LineConfig, force: number[], displacement: number[]):
   const lim = cfg.stations.find((d) => d.snap)!.inspect!;
   const [from, to] = cfg.snap.position;
   let reason: string | null = null;
-  if (peak <= 0 || (peak - low) / peak < MIN_DROP) reason = 'No snap detected';
+  if (!force.every(Number.isFinite) || !displacement.every(Number.isFinite)) reason = 'Invalid force curve';
+  else if (peak <= 0 || (peak - low) / peak < MIN_DROP) reason = 'No snap detected';
   else if (peak > lim.upper) reason = lim.high ?? lim.cause;
   else if (peak < lim.lower) reason = lim.low ?? lim.cause;
   else if (position < from || position > to) reason = 'Snap position out of window';
