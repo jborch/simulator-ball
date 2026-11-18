@@ -86,24 +86,28 @@ describe('feeders, nest and tray', () => {
     expect(slow.perMin).toBeGreaterThan(5);
   }, 60_000);
 
-  test('each nest is changed after 24 cartridges; a slow change starves its station', () => {
-    // The robot pre-picks a spare cartridge, which covers the normal 4 s change; a 15 s one doesn't.
-    const s = sim((c) => (c.nestChange = 15));
-    let changes = 0;
-    let wasChanging = false;
-    let starvedDuringChange = false;
-    run(s, 600, () => {
-      const n = s.state.plant.nests.find((x) => x.station === 'EM41A')!;
-      if (n.changing > 0 && !wasChanging) changes++;
-      wasChanging = n.changing > 0;
-      if (wasChanging && s.state.plc.stations[idx('EM41A')].status === 'starved') starvedDuringChange = true;
-    });
-    const cartridges = s.state.plc.stations[idx('EM41A')].stats.cycles;
-    // The robot may hold one pre-picked cartridge not yet inserted.
-    expect(changes).toBeGreaterThanOrEqual(Math.floor(cartridges / LINE.nestSize));
-    expect(changes).toBeLessThanOrEqual(Math.floor((cartridges + 1) / LINE.nestSize));
-    expect(starvedDuringChange).toBe(true);
-  }, 60_000);
+  test('an empty nest (tub) of 160 is changed; the collets cover a normal change, but not a very slow one', () => {
+    const run10 = (change: number) => {
+      const s = sim((c) => (c.cartridges.tub.change = change));
+      const cell = s.state.plant.cartridges;
+      let changes = 0;
+      let was = false;
+      let starvedDuringChange = false;
+      run(s, 900, () => {
+        if (cell.changing > 0 && !was) changes++;
+        was = cell.changing > 0;
+        if (was && s.state.plc.stations[idx('EM41')].status === 'starved') starvedDuringChange = true;
+      });
+      return { changes, starvedDuringChange, cartridges: s.state.plc.stations[idx('EM41')].stats.cycles, tubs: cell.tubs };
+    };
+    const normal = run10(LINE.cartridges.tub.change);
+    expect(normal.changes).toBeGreaterThanOrEqual(1);
+    // Every change starts after the 160th cartridge (12 collets plus the robot's own may be ahead of EM41).
+    expect(normal.changes).toBeLessThanOrEqual(Math.floor((normal.cartridges + LINE.cartridges.collets.count + 1) / 160));
+    expect(normal.starvedDuringChange).toBe(false);
+    // A change much longer than 12 collets' worth of pens empties the loop.
+    expect(run10(120).starvedDuringChange).toBe(true);
+  }, 120_000);
 
   test('full trays index out; a tray never holds more than its size', () => {
     const s = sim();

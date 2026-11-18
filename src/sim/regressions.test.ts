@@ -75,7 +75,8 @@ test('a batch completes only after its last pen is physically in the tray or bin
         if (s.state.plc.machine !== 'Complete') return false;
         const p = s.state.plant;
         const packed = p.pensOut + p.tray.count;
-        const binned = Object.values(p.bins).reduce((a, b) => a + b, 0);
+        // Pen reject bins only; the sub-line chutes and bins hold parts.
+        const binned = s.cfg.stations.filter((d) => d.bin).reduce((a, d) => a + p.bins[d.bin!], 0);
         const b = s.state.plc.batch!;
         expect(packed).toBe(b.good);
         expect(binned).toBe(b.rejected);

@@ -132,15 +132,16 @@ export const LINE = {
   },
   /**
    * Part geometry along the pen axis: where each part's base sits above the fixture seat in the
-   * finished assembly, and its length. The body is an open tube: the spring, spring base and
-   * cartridge go inside it, and the housing (with its end cap) slides over it.
+   * finished assembly, and its length. The body is an open tube: the spring and spring base go
+   * inside it, the housing slides over it, and last the cartridge goes in through the top, its
+   * tip standing just proud of the housing.
    */
   parts: {
     body: { seat: 0, length: 0.11, radius: 0.0065 },
     spring: { seat: 0.006, length: 0.045, radius: 0.0048 },
     springBase: { seat: 0.051, length: 0.006, radius: 0.0048 },
     cartridge: { seat: 0.057, length: 0.073, radius: 0.0048 },
-    housing: { seat: 0.008, length: 0.155, radius: 0.009 },
+    housing: { seat: 0.008, length: 0.12, radius: 0.0085 },
   } satisfies Record<PartType, PartGeometry> as Record<PartType, PartGeometry>,
   plantDt: 0.001,
   plcScan: 0.01,
@@ -149,10 +150,29 @@ export const LINE = {
   /** After maxTries failed writes the station holds the mover and retries every stuckRetryDelay. */
   rfid: { readTime: 0.04, writeTime: 0.04, retryDelay: 0.3, maxTries: 3, stuckRetryDelay: 2 },
   dataMatrix: { readFailRate: 0.002 },
-  nestSize: 24,
   traySize: 12,
-  /** Swapping an empty cartridge nest for a full one. */
-  nestChange: 4,
+  /**
+   * EM41's cartridge supply, in EM41's station-local coordinates. Tubs ("nests") of 160
+   * cartridges come in on a conveyor; EM00 de-nests them one by one into collets that circulate
+   * on a small loop running out from the belt. Empty collets wait at the fill point (the far end)
+   * for EM00, full ones queue at the pick point (the end by the belt) for EM41's robot, so the
+   * loop is a buffer that covers a tub change.
+   */
+  cartridges: {
+    station: 'EM41',
+    tub: {
+      /** Pockets: cols along the belt, rows outward; tub centre and pocket floor height. */
+      cols: 10, rows: 16, pitch: 0.015, a: 0, r: 0.86, floor: 0.09,
+      /** Taking the empty tub out and the next full one in. */
+      change: 8,
+    },
+    collets: {
+      count: 12, pitch: 0.05, speed: 0.2,
+      /** Loop: pick apex by the belt, fill apex further out, end radius; collet base height. */
+      pick: 0.26, fill: 0.62, radius: 0.05, base: 0.12,
+    },
+    denest: { id: 'EM00', name: 'De-nest', unit: 'UN02' },
+  },
   /** Indexing a full tray out and an empty one in. */
   trayChange: 3,
   /** Bowl feeders push parts onto a linear track toward the robot's pick point (or the orienter). */
@@ -240,14 +260,13 @@ export const LINE = {
   layout: {
     feederR: 0.32,
     /** Each nest-fed station has its own nest, in station-local coordinates. */
-    nest: { a: 0, r: 0.34, cols: 6, rows: 4, pitch: 0.016 },
     tray: { station: 'EM60', a: 0.05, r: 0.3, cols: 4, rows: 3, pitch: 0.03 },
     bins: { BIN1: { a: 0, r: 0.3 }, BIN2: { a: -0.3, r: 0.3 }, BIN3: { a: 0, r: 0.3 } } as Record<string, { a: number; r: number }>,
     /**
      * Gripper tip heights above the belt surface. The gripper holds a part (or a pen) by its top,
      * so on the mover the tip height follows from the part geometry (see layout.ts).
      */
-    z: { safe: 0.36, nest: 0.073, bin: 0.2, tray: 0.159 },
+    z: { safe: 0.36, bin: 0.2, tray: 0.126 },
   },
   gs1: { gtin: '0571234500001', expiryYears: 3 },
   stations: [
@@ -285,22 +304,19 @@ export const LINE = {
     },
     { id: 'R2', name: 'Reject', unit: 'UN01', kind: 'reject', s: 4.6, mech: 0, fixed: 0, bin: 'BIN3', robots: [{ id: 'R2', home: 0, mech: 0 }] },
     {
-      id: 'EM41A', name: 'Insert cartridge A', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.6, mech: 0, fixed: 0, requires: ['hookInsp'], group: 'EM41',
-      robots: [{ id: 'EM41A', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
-    },
-    {
-      id: 'EM41B', name: 'Insert cartridge B', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.85, mech: 0, fixed: 0, requires: ['hookInsp'], group: 'EM41',
-      robots: [{ id: 'EM41B', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
-    },
-    {
       // Snaps the labelled housing over the pen and judges the snap from its force curve. Its
       // record goes on the housing, as in the original.
-      id: 'EM40', name: 'Mount housing', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.6, mech: 0, fixed: 0, requires: ['cartridge'], logOnSource: true, snap: true,
+      id: 'EM40', name: 'Mount housing', unit: 'UN02', kind: 'assemble', s: BOTTOM + 0.6, mech: 0, fixed: 0, requires: ['hookInsp'], logOnSource: true, snap: true,
       robots: [{ id: 'EM40', home: 0, source: 'dial', parts: ['housing'], step: 'housing', insert: 0.11, mech: 0.6 }],
       inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window', high: 'Peak force too high', low: 'Peak force too low' },
     },
     {
-      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
+      // After the housing, as in the original: the cartridge goes in through the top. It comes from a collet.
+      id: 'EM41', name: 'Insert cartridge', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.45, mech: 0, fixed: 0, requires: ['housing'],
+      robots: [{ id: 'EM41', home: 0, source: 'collet', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 0.8 }],
+    },
+    {
+      id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.25, mech: 0.4, fixed: 0.6, step: 'final', requires: ['cartridge'], readsCode: true,
       inspect: { key: 'seatDepth', lower: -0.3, upper: 0.3, noise: 0.02, unit: 'mm', cause: 'Cartridge seating depth' },
     },
     { id: 'EM60', name: 'Pen to tray', unit: 'UN03', kind: 'unload', s: BOTTOM + 3.3, mech: 0, fixed: 0, bin: 'BIN2', robots: [{ id: 'EM60', home: 0, mech: 0 }] },

@@ -32,12 +32,11 @@ export function deviceName(id: string, name: string): string {
 }
 
 /**
- * Process that supplies a robot's parts: its bowl feeder (e.g. "L07-UN01-SPRINGS") or, for
- * cartridges, the station's own nest (e.g. "L07-UN02-EM41A-NEST"). Parts are reported there
- * before they are merged into the pen, so every process has one item per cycle.
+ * Process that supplies a robot's parts when its sub-line doesn't track them: its bowl feeder
+ * (e.g. "L07-UN01-BODIES"). Tracked parts are reported where they are checked or made instead.
  */
-export function sourceProcessId(cfg: LineConfig, def: StationDef, robot: RobotDef): string {
-  return robot.source === 'nest' ? `${processId(cfg, def)}-NEST` : feederId(cfg, robot.source!);
+export function sourceProcessId(cfg: LineConfig, _def: StationDef, robot: RobotDef): string {
+  return feederId(cfg, robot.source!);
 }
 
 /** Feeder device id, e.g. "L07-UN01-SPRINGS". */

@@ -50,7 +50,6 @@ STEEL = lambda: mat("Steel", (0.75, 0.75, 0.78), metallic=1.0, rough=0.25)
 GLASS = lambda: mat("Glass", (0.85, 0.95, 1.0), rough=0.05, alpha=0.35, transmission=1.0)
 RUBBER = lambda: mat("Rubber", (0.15, 0.15, 0.17), rough=0.8)
 ALU = lambda: mat("Alu", (0.8, 0.8, 0.82), metallic=1.0, rough=0.4)
-ORANGE = lambda: mat("CapOrange", (0.95, 0.45, 0.05), rough=0.4)
 DARK = lambda: mat("MoverDark", (0.12, 0.13, 0.15), rough=0.6)
 YELLOW = lambda: mat("MoverTop", (0.95, 0.75, 0.1), rough=0.5)
 TRAY = lambda: mat("TrayPET", (0.35, 0.55, 0.75), rough=0.4)
@@ -220,20 +219,13 @@ def housing():
     return group("Housing", [shell, window, clip, *housing_label("housing")])
 
 
-def cap():
-    c = cyl(0.009, 0.035, 0.0, ORANGE(), "cap_body", verts=48)
-    ring = cyl(0.0092, 0.003, 0.0, ORANGE(), "cap_ring", verts=48)
-    return group("Cap", [c, ring])
-
-
 def assembled_pen():
-    """Labelled housing with its cap on, origin at the housing's base (8 mm above the body's base).
-    The app draws the body, spring, spring base and cartridge inside it."""
+    """Labelled housing, origin at the housing's base (8 mm above the body's base). The app draws
+    the body, spring, spring base and cartridge inside it; the cartridge tip stands just proud."""
     shell = housing_shell("pen_shell")
     window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "pen_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "pen_clip")
-    c = cyl(0.009, 0.035, 0.12, ORANGE(), "pen_cap", verts=48)
-    return group("AssembledPen", [shell, window, clip, c, *housing_label("pen")])
+    return group("AssembledPen", [shell, window, clip, *housing_label("pen")])
 
 
 
@@ -305,21 +297,6 @@ def tray(cols=4, rows=3, pitch=0.03):
     return group("Tray", [plate, rim, *pockets])
 
 
-def nest(cols=6, rows=4, pitch=0.016):
-    w, d = cols * pitch + 0.012, rows * pitch + 0.012
-    plate = bevel(box(w, d, 0.006, (0, 0, 0.003), NEST(), "nest_plate"), 0.001)
-    carts = []
-    for i in range(cols):
-        for j in range(rows):
-            g = cartridge()
-            g.location = ((i - (cols - 1) / 2) * pitch, (j - (rows - 1) / 2) * pitch, 0.006)
-            carts.append(g)
-    root = group("CartridgeNest", [plate])
-    for c in carts:
-        c.parent = root
-    return root
-
-
 def export(root, filename):
     bpy.ops.object.select_all(action="DESELECT")
     root.select_set(True)
@@ -337,11 +314,9 @@ assets = [
     (spring_base(), "spring_base.glb", "Spring base"),
     (cartridge(), "cartridge.glb", "Cartridge"),
     (housing(), "housing.glb", "Housing"),
-    (cap(), "cap.glb", "Cap"),
     (assembled_pen(), "pen.glb", "Assembled pen"),
     (mover(), "mover.glb", "Mover"),
     (tray(), "tray.glb", "Tray 3x4"),
-    (nest(), "nest.glb", "Nest 24"),
 ]
 for root, fn, _ in assets:
     export(root, fn)
@@ -351,10 +326,10 @@ if not RENDER:
     sys.exit(0)
 
 # Lay out in a row for the preview; small parts up front, carriers behind.
-small = assets[:7]
-big = assets[7:]
+small = assets[:6]
+big = assets[6:]
 for i, (root, _, label) in enumerate(small):
-    root.location = ((i - 3) * 0.045, 0.0, 0.0)
+    root.location = ((i - 2.5) * 0.045, 0.0, 0.0)
 for i, (root, _, label) in enumerate(big):
     root.location = ((i - 1) * 0.16, 0.15, 0.0)
 # Put a pen in the mover and on the tray to show fit.

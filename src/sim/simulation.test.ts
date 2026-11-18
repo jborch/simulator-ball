@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LINE } from './config';
 import { gtinWithCheck } from './gs1';
+import { tubSize } from './cartridges';
 import { processId, stationById, subProcessId } from './machine';
 import { Simulation } from './simulation';
 import { steadyConfig } from './testing';
@@ -90,12 +91,11 @@ describe('steady production (60 min)', () => {
     sim.drainEvents();
     events = collect(sim, minutes * 60);
     const { good, rejected, rejectsByCause } = sim.state.mes;
-    const a = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen').length;
-    const b = processed(events, 'EM41B').filter((e) => e.itemType === 'Pen').length;
-    console.log(`60 min: ${good} good, ${rejected} rejected (${((100 * rejected) / (good + rejected)).toFixed(2)} %), EM41A ${a} / EM41B ${b}`, rejectsByCause);
+    const presses = ['EM14A', 'EM14B', 'EM14C', 'EM14D'].map((id) => processed(events, id).length).join(' / ');
+    console.log(`60 min: ${good} good, ${rejected} rejected (${((100 * rejected) / (good + rejected)).toFixed(2)} %), EM14A–D ${presses}`, rejectsByCause);
   }, 120_000);
 
-  test('throughput is around 21 pens/min with the twin station as bottleneck', () => {
+  test('throughput is around 21 pens/min with the 4-up spring base presses as bottleneck', () => {
     const out = processed(events, 'EM60').length + processed(events, 'EM60-REJECT').length + processed(events, 'R1').length;
     const perMin = out / minutes;
     expect(perMin).toBeGreaterThan(19);
@@ -119,16 +119,14 @@ describe('steady production (60 min)', () => {
     expect(rate).toBeLessThan(0.22);
   });
 
-  test('twin stations share the work and process at the same time', () => {
-    const a = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen');
-    const b = processed(events, 'EM41B').filter((e) => e.itemType === 'Pen');
-    const share = a.length / (a.length + b.length);
-    expect(share).toBeGreaterThan(0.35);
-    expect(share).toBeLessThan(0.65);
-    const overlapping = a.filter((x) => b.some((y) => x.from < y.to && y.from < x.to));
-    expect(overlapping.length / a.length).toBeGreaterThan(0.8);
+  test('the four spring base presses share the work and process at the same time', () => {
+    const recs = ['EM14A', 'EM14B', 'EM14C', 'EM14D'].map((id) => processed(events, id));
+    const total = recs.reduce((n, r) => n + r.length, 0);
+    for (const r of recs) expect(r.length / total).toBeGreaterThan(0.2);
+    const [a, ...rest] = recs;
+    const overlapping = a.filter((x) => rest.every((ys) => ys.some((y) => x.from < y.to && y.from < x.to)));
+    expect(overlapping.length / a.length).toBeGreaterThan(0.6);
   });
-
   test('EM14B is the outlier of the four spring base presses, logged on the spring base', () => {
     const rate = (id: string) => {
       const xs = processed(events, id);
@@ -165,8 +163,15 @@ describe('steady production (60 min)', () => {
       expect(byTarget.get(g.scopedId)?.sort()).toEqual(['Cartridge', 'Housing', 'Spring', 'SpringBase']);
       expect(trayed.has(g.scopedId)).toBe(true);
     }
+    // Cartridges come from EM00, out of a nest of 160, each carried in a collet.
     const cartridges = processed(events).filter((e) => e.itemType === 'Cartridge');
-    expect(cartridges.every((c) => c.sourceScopedId !== undefined && c.sourcePosition! < LINE.nestSize)).toBe(true);
+    expect(cartridges.length).toBeGreaterThan(500);
+    for (const c of cartridges) {
+      expect(c.process).toBe(subProcessId(LINE, LINE.cartridges.denest));
+      expect(c.sourceType).toBe('Nest');
+      expect(c.sourcePosition).toBeLessThan(tubSize(LINE));
+      expect(c.carrier).toMatch(/^C\d\d$/);
+    }
   });
 
   test('EM31 labels the housing with a GS1 identifier; the pen wears it from EM40 and EM50 reads it back', () => {
@@ -188,8 +193,9 @@ describe('steady production (60 min)', () => {
   });
 
   test('event timestamps follow sim time and cycles take real time', () => {
-    const em41 = processed(events, 'EM41A').filter((e) => e.itemType === 'Pen');
-    for (const e of em41) expect(e.to - e.from).toBeGreaterThanOrEqual(stationById(LINE, 'EM41A').robots![0].mech * 1000 - 1);
+    const em41 = processed(events, 'EM41').filter((e) => e.itemType === 'Pen');
+    expect(em41.length).toBeGreaterThan(500);
+    for (const e of em41) expect(e.to - e.from).toBeGreaterThanOrEqual(stationById(LINE, 'EM41').robots![0].mech * 1000 - 1);
   });
 });
 

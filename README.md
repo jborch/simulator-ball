@@ -1,10 +1,13 @@
 # Pen Assembly Line Simulator
 
-A 3D simulation of a pharma (pen-injector) assembly line. Movers ride a friction belt, stop at
-gates, and get worked on by pick-and-place robots fed from bowl feeders and cartridge nests.
-Inspections reject about 5 % of pens. Every station reports `ItemProcessed` / `ItemsMerged`
-records with real timings. See [docs/PLAN.md](docs/PLAN.md) for the design and the reasoning
-behind it.
+A 3D simulation of a pharma (pen-injector) assembly line, modelled on the C# simulator's line
+(units UN01–UN03, stations EM00–EM61). Movers ride a friction belt, stop at gates, and get
+worked on by pick-and-place robots. Parts come from sub-lines with their own checks: springs
+(EM10), spring bases (EM13 onto a conveyor feeding four presses, EM14A–D), labelled housings
+from a dial (EM30–EM32) and cartridges de-nested into collets (EM00). Inspections reject about
+17–20 % of pens, as the original line's quality figures give. Every station reports
+`ItemProcessed` / `ItemsMerged` records with real timings. See [docs/PLAN.md](docs/PLAN.md) for the
+first version's design and [docs/PLAN-v2.md](docs/PLAN-v2.md) for the full line.
 
 The simulation runs on a Node server and is streamed to browsers over a WebSocket. The browser
 only renders the line in 3D and sends operator commands. Every browser sees the same line, and
@@ -105,7 +108,7 @@ The view has six monitoring cameras. Pick one with the bar at the bottom or with
 | 1 | Overview | The whole line, framed to the window |
 | 2 | Infeed | EM10 checking springs on their track, EM11 body load + spring (two arms on one gantry), EM12 spring angle |
 | 3 | Spring base | EM13 turning spring bases onto the distribution conveyor, the four EM14 presses side by side, EM15 |
-| 4 | Cartridge | Close-up of the twin EM41A/B robots inserting cartridges from their nests |
+| 4 | Cartridge | EM00 taking cartridges out of a 160-pocket nest into collets, the collet loop, EM41 inserting them |
 | 5 | Housing | The housing dial (EM30 load, EM31 label with the pen's DataMatrix, EM32 label check) and EM40 snapping the housing on |
 | 6 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
 
@@ -152,7 +155,7 @@ RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
 │ Plant (truth) ◄─ sensors / actuators ─► PLC  │ ──────────────────► │ FrameBuffer → three.js     │
 │  movers, belt, gates,              machine + │    events, status   │ view + HUD                 │
 │  robots, cameras, feeders,         stations  │ ──────────────────► │                            │
-│  nests, tray, faults               → MES ──► CATCH.AI reporter     │ ◄── commands (start, …)    │
+│  sub-lines, tray, faults           → MES ──► CATCH.AI reporter     │ ◄── commands (start, …)    │
 └──────────────────────────────────────────────┘ ◄────────────────── └───────────────────────────┘
 ```
 
@@ -202,7 +205,11 @@ backoff.
 | `simulation.ts` | `Simulation`: steps plant + PLC, applies commands, drains events |
 | `plant.ts` | Movers on the belt, gates, RFID readers, cameras; sensor image for the PLC |
 | `robot.ts` | Cartesian robots: job programs (prepick/place/pickMover/drop), axis motion, grip/release effects |
-| `devices.ts` | Bowl feeders, cartridge nests, tray outfeed, random-failure helpers |
+| `devices.ts` | Bowl feeders (with EM10's inline check), tray outfeed, random-failure helpers |
+| `sublines.ts` | EM13 spring base orienter and the distribution conveyor to EM14A–D |
+| `dial.ts` | The housing dial: EM30 load, EM31 label, EM32 label check |
+| `cartridges.ts` | Nests of 160, EM00 de-nesting into collets, the collet loop to EM41 |
+| `snap.ts` | EM40's snap curve and judging it |
 | `assembly.ts` | Physical effect of placing parts and of inspecting (true quality + sensor noise) |
 | `plc.ts` | PLC scan: machine states, batch run-out, fault reporting, station state machines |
 | `commands.ts` | Operator commands and which machine states accept them |
@@ -221,7 +228,8 @@ The browser uses only the config, geometry, protocol types and the command table
 | `interp.ts` | Buffers frames, renders ~150 ms in the past and interpolates |
 | `line.ts` | Table, belt, movers and stations |
 | `station.ts` | One station: gate pin, stack light, label and its equipment |
-| `devices.ts` | Robot, camera, feeder, nest, tray, bin and scrap views |
+| `devices.ts` | Robot, camera, feeder, tray, bin and scrap views |
+| `sublines.ts` | Spring base line (EM13, conveyor, cups), housing dial, cartridge cell (nests, EM00, collets) |
 | `movers.ts` | Movers with printed numbers, pen assemblies, parts held by grippers |
 | `build.ts`, `stage.ts`, `models.ts`, `textures.ts` | Materials and geometry helpers, renderer/camera/lights, glTF loading, canvas textures (numbers, DataMatrix) |
 | `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector, connection state |

@@ -7,9 +7,10 @@ import { moverById, placeOnMover } from './assembly';
 import type { LineConfig, RobotDef, StationDef } from './config';
 import { nextFailure, repairTime } from './devices';
 import { dialPick, takeFromDial } from './dial';
-import { nestPocket, seatedTip, trayPocket } from './layout';
+import { colletAtPick } from './cartridges';
+import { seatedTip, trayPocket } from './layout';
 import { type RngState, random } from './rng';
-import type { Distribution, Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
+import type { Distribution, Feeder, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
 
 export function createRobot(safeZ: number, home: number, nextFault: number): Robot {
   return {
@@ -50,12 +51,12 @@ interface Target {
 }
 
 /** A robot's part source sits at its home along the belt. */
-function sourcePos(cfg: LineConfig, rdef: RobotDef, robot: Robot): Target {
+function sourcePos(cfg: LineConfig, rdef: RobotDef): Target {
   if (rdef.source === 'cup') return { a: rdef.home, r: cfg.distribution.cupR, z: cfg.distribution.cupZ };
   if (rdef.source === 'dial') return { a: cfg.dial.a, r: cfg.dial.r - cfg.dial.radius, z: cfg.dial.pickZ };
-  if (rdef.source === 'nest') {
-    const p = nestPocket(cfg, robot.slot ?? 0);
-    return { a: rdef.home + p.a, r: p.r, z: cfg.layout.z.nest };
+  if (rdef.source === 'collet') {
+    const c = cfg.cartridges.collets;
+    return { a: rdef.home, r: c.pick, z: c.base + cfg.parts.cartridge.length };
   }
   const feeder = cfg.feeders.find((f) => f.id === rdef.source)!;
   return { a: rdef.home, r: feeder.r ?? cfg.layout.feederR, z: feeder.pickZ };
@@ -82,7 +83,7 @@ function height(p: PlantState, cfg: LineConfig, rdef: RobotDef, robot: Robot, to
     case 'mover':
       return moverHeight(p, cfg, rdef, robot);
     case 'source':
-      return sourcePos(cfg, rdef, robot).z;
+      return sourcePos(cfg, rdef).z;
     case 'drop':
       return dropPos(cfg, robot).z;
     case 'lift':
@@ -173,7 +174,10 @@ function laneOf(p: PlantState, cfg: LineConfig, def: StationDef, rdef: RobotDef)
 }
 
 /** Moves all axes toward their targets; true when every axis has arrived. */
-function moveAxes(robot: Robot, cfg: LineConfig, speed: number, dt: number, lane: Lane): boolean {
+/** Anything driven by three trapezoidal axes: a station robot or EM00's de-nest robot. */
+export type Axes = Pick<Robot, 'a' | 'r' | 'z' | 'va' | 'vr' | 'vz' | 'ta' | 'tr' | 'tz'>;
+
+export function moveAxes(robot: Axes, cfg: LineConfig, speed: number, dt: number, lane: Lane = { lo: -Infinity, hi: Infinity }): boolean {
   const { vH, aH, vZ, aZ } = cfg.robot;
   let atA: boolean;
   let atR: boolean;
@@ -191,9 +195,6 @@ function moveAxes(robot: Robot, cfg: LineConfig, speed: number, dt: number, lane
   return atA && atR && atZ;
 }
 
-function nestFor(p: PlantState, def: StationDef): Nest {
-  return p.nests.find((n) => n.station === def.id)!;
-}
 
 function feederFor(p: PlantState, rdef: RobotDef): Feeder {
   return p.feeders.find((f) => f.id === rdef.source)!;
@@ -252,7 +253,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
     case 'xy':
       if (!robot.stepStarted) {
         const t =
-          step.to === 'home' ? { a: rdef.home, r: 0 } : step.to === 'mover' ? { a: 0, r: 0 } : step.to === 'source' ? sourcePos(cfg, rdef, robot) : dropPos(cfg, robot);
+          step.to === 'home' ? { a: rdef.home, r: 0 } : step.to === 'mover' ? { a: 0, r: 0 } : step.to === 'source' ? sourcePos(cfg, rdef) : dropPos(cfg, robot);
         robot.ta = t.a;
         robot.tr = t.r;
         robot.tz = robot.z;
@@ -272,14 +273,8 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       break;
 
     case 'waitSource':
-      if (rdef.source === 'nest') {
-        const nest = nestFor(p, def);
-        const slot = nest.changing > 0 ? -1 : nest.slots.indexOf(1);
-        if (slot >= 0) {
-          nest.slots[slot] = 2;
-          robot.slot = slot;
-          finished = true;
-        }
+      if (rdef.source === 'collet') {
+        finished = colletAtPick(p.cartridges) !== undefined;
       } else if (rdef.source === 'cup') {
         finished = cupFor(p, def).full;
       } else if (rdef.source === 'dial') {
@@ -309,9 +304,11 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         const m = moverById(p, robot.moverId);
         robot.holding = m.load ? { kind: 'pen', load: m.load } : null;
         m.load = null;
-      } else if (rdef.source === 'nest') {
-        nestFor(p, def).slots[robot.slot!] = 0;
-        robot.holding = { kind: 'part', parts: ['cartridge'] };
+      } else if (rdef.source === 'collet') {
+        // The cartridge comes out of its collet; the empty collet goes back round to be refilled.
+        const collet = colletAtPick(p.cartridges)!;
+        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [collet.cartridge!.sr] };
+        collet.cartridge = null;
       } else if (rdef.source === 'dial') {
         const part = takeFromDial(p, cfg);
         robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [part.sr], label: part.label ?? undefined };
@@ -410,7 +407,7 @@ export function leftMover(robot: Robot): boolean {
   return robot.job === null || (robot.job === 'place' && robot.steps.every((st) => st.k === 'leave'));
 }
 
-/** The gripper is up at safe height, clear of nests, trays and movers. */
+/** The gripper is up at safe height, clear of trays and movers. */
 export function toolClear(cfg: LineConfig, robot: Robot | null): boolean {
   return !robot || robot.z >= cfg.layout.z.safe - 1e-6;
 }

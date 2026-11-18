@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import type { LineConfig, PartType, StationDef } from '../sim/config';
-import { heldLength, nestPocket, seatedTip, trayPocket } from '../sim/layout';
+import { heldLength, seatedTip, trayPocket } from '../sim/layout';
 import type { Frame, StationFrame } from '../sim/protocol';
 import { pose } from '../sim/track';
 import { BELT_Y, LIGHT_COLORS, type LightColor, M, RAIL_Y, type Reach, TABLE, cyl, label, lerp, local, v3 } from './build';
-import { BinView, FeederView, InspectionView, NestView, RobotView, ScrapView, TrayView, finishedPen } from './devices';
+import { BinView, FeederView, InspectionView, RobotView, ScrapView, TrayView, finishedPen } from './devices';
 import type { Models } from './models';
 import { AssemblyView } from './movers';
 
@@ -14,7 +14,6 @@ export class StationView {
   private readonly inspection: InspectionView | null = null;
   readonly robot: RobotView | null = null;
   readonly feeders: FeederView[] = [];
-  readonly nest: NestView | null = null;
   readonly tray: TrayView | null = null;
   readonly bin: BinView | null = null;
   private readonly pin: THREE.Mesh;
@@ -44,11 +43,8 @@ export class StationView {
     }
     // Each robot's part source sits at its home along the belt.
     for (const r of def.robots ?? []) {
-      if (r.source === 'nest') {
-        this.nest = new NestView(cfg, models);
-        this.nest.group.position.x = r.home;
-      } else if (r.source && r.source !== 'cup' && r.source !== 'dial') {
-        // (Cups and the dial are drawn with the sub-lines that fill them.)
+      if (r.source && r.source !== 'cup' && r.source !== 'dial' && r.source !== 'collet') {
+        // (Cups, the dial and the collets are drawn with the sub-lines that fill them.)
         const feeder = new FeederView(r.source, r.parts ?? [], cfg, models);
         feeder.group.position.x = r.home;
         this.feeders.push(feeder);
@@ -67,9 +63,9 @@ export class StationView {
     // What a robot drops when a part doesn't seat: the last part it places.
     const source = def.robots?.filter((r) => r.source).at(-1)?.source;
     const scrapPart =
-      source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'cup' ? models.spring_base : source === 'dial' ? models.housing : models.pen_body;
+      source === 'collet' ? models.cartridge : source === 'springs' ? models.spring : source === 'cup' ? models.spring_base : source === 'dial' ? models.housing : models.pen_body;
     this.scrap = new ScrapView(scrapPart);
-    for (const part of [this.nest, ...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
+    for (const part of [...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
     // Stop gate pin just ahead of a resting mover's leading face.
     this.pin = cyl(0.008, 0.03, M.pin, 12);
@@ -110,7 +106,7 @@ export class StationView {
     const tips = [z.safe];
     for (const r of def.robots ?? []) {
       if (r.parts) tips.push(seatedTip(cfg, r.parts));
-      if (r.source === 'nest') tips.push(z.nest);
+      if (r.source === 'collet') tips.push(cfg.cartridges.collets.base + cfg.parts.cartridge.length);
       else if (r.source === 'cup') tips.push(cfg.distribution.cupZ);
       else if (r.source === 'dial') tips.push(cfg.dial.pickZ);
       else if (r.source) tips.push(cfg.feeders.find((f) => f.id === r.source)!.pickZ);
@@ -138,7 +134,8 @@ export class StationView {
     const pts: { a: number; r: number }[] = [{ a: 0, r: 0 }];
     for (const r of def.robots ?? []) {
       pts.push({ a: r.home, r: 0 });
-      if (r.source === 'nest') for (let i = 0; i < cfg.nestSize; i++) pts.push({ ...nestPocket(cfg, i), a: r.home + nestPocket(cfg, i).a });
+      // The collet loop runs out under the arm: keep the legs clear of it on either side.
+      if (r.source === 'collet') pts.push({ a: r.home, r: cfg.cartridges.collets.pick }, { a: -0.09, r: 0 }, { a: 0.09, r: 0 });
       else if (r.source === 'cup') pts.push({ a: r.home, r: cfg.distribution.cupR });
       else if (r.source === 'dial') pts.push({ a: cfg.dial.a, r: cfg.dial.r - cfg.dial.radius });
       else if (r.source) pts.push({ a: r.home, r: cfg.layout.feederR });
@@ -160,8 +157,6 @@ export class StationView {
       const fd = fa.feeders.find((x) => x.id === feeder.id);
       feeder.update(fd?.items ?? [], fd?.jam ?? 0, t, fa.counters.bins);
     }
-    const nest = this.nest && fa.nests.find((x) => x.station === this.def.id);
-    if (nest) this.nest!.update(nest.slots, nest.changing);
     this.tray?.update(fa.tray.count, fa.tray.changing, fa.tray.queue, fa.counters.traysOut);
     this.bin?.setCount(fa.counters.bins[this.def.bin!] ?? 0);
     this.scrap.setCount(f.scrap);

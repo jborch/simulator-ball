@@ -5,7 +5,8 @@
 // beltRunning, ...).
 import { inspectMover, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
-import { createFeeder, createNest, nextFailure, stepFeeder, stepNest, stepTray } from './devices';
+import { createCartridgeCell, stepCartridgeCell } from './cartridges';
+import { createFeeder, nextFailure, stepFeeder, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
 import { createRobot, stepRobot, toolClear } from './robot';
 import { createDial, stepDial } from './dial';
@@ -95,7 +96,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     ]),
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
-    nests: cfg.stations.filter((d) => d.robots?.some((r) => r.source === 'nest')).map((d) => createNest(cfg, d.id)),
+    cartridges: createCartridgeCell(cfg),
     tray: { count: 0, changing: 0, discharge: false },
     traysOut: 0,
     pensOut: 0,
@@ -133,8 +134,8 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   stepOrienter(p, cfg, rng, dt);
   stepDistribution(p, cfg, dt);
   stepDial(p, cfg, rng, dt);
+  stepCartridgeCell(p, cfg, dt);
   const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
-  for (const n of p.nests) stepNest(n, cfg, clear(n.station), dt);
   stepTray(p, cfg, clear(cfg.layout.tray.station), dt);
 }
 

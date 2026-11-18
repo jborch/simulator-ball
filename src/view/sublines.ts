@@ -6,10 +6,11 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { heldLength } from '../sim/layout';
 import type { Frame } from '../sim/protocol';
+import { colletLoopLength, colletPoint, denestHeights, tubPocket, tubSize } from '../sim/cartridges';
 import { pose } from '../sim/track';
-import { BELT_Y, M, TABLE, cyl, label, local, mat, span, v3 } from './build';
-import { FeederView } from './devices';
-import { housingWithCap, showLabel } from './movers';
+import { BELT_Y, M, TABLE, cyl, label, lerp, local, mat, span, v3 } from './build';
+import { FeederView, RobotView } from './devices';
+import { housingPart, showLabel } from './movers';
 import type { Models } from './models';
 
 export class SpringBaseLineView {
@@ -181,7 +182,7 @@ export class HousingDialView {
     this.group.add(column, this.disc);
 
     for (let i = 0; i < d.nests; i++) {
-      const h = housingWithCap(models);
+      const h = housingPart(models);
       h.visible = false;
       this.housings.push(h);
       this.group.add(h);
@@ -276,5 +277,146 @@ export class HousingDialView {
     const [ia, ir] = this.at(d.positions.eject, -0.01);
     this.ejector.position.set(active.eject ? ia : home.x, 0, active.eject ? -ir : home.z);
     this.rejects.textContent = `${d.inspect.id} rejects: ${f.counters.bins[d.inspect.id] ?? 0}`;
+  }
+}
+
+/** A tub (nest) of cartridges: white tray with pockets, cartridges drawn as one instanced mesh. */
+class TubView {
+  readonly group = new THREE.Group();
+  private readonly carts: THREE.InstancedMesh;
+  private shown = -1;
+
+  constructor(private readonly cfg: LineConfig) {
+    const t = cfg.cartridges.tub;
+    const w = t.cols * t.pitch + 0.012;
+    const d = t.rows * t.pitch + 0.012;
+    this.group.add(span(-w / 2, w / 2, t.floor - 0.012, t.floor, -d / 2, d / 2, M.nest));
+    const len = cfg.parts.cartridge.length;
+    const geo = new THREE.CylinderGeometry(cfg.parts.cartridge.radius, cfg.parts.cartridge.radius, len, 10);
+    geo.translate(0, len / 2, 0);
+    this.carts = new THREE.InstancedMesh(geo, mat(0xdfeaf2, { roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 }), tubSize(cfg));
+    this.carts.castShadow = true;
+    this.group.add(this.carts);
+    this.fill(tubSize(cfg));
+  }
+
+  /** Shows the cartridges still in the tub: pockets are emptied in order, so the last `left`. */
+  fill(left: number): void {
+    if (left === this.shown) return;
+    this.shown = left;
+    const n = tubSize(this.cfg);
+    const t = this.cfg.cartridges.tub;
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < n; i++) {
+      const p = tubPocket(this.cfg, i);
+      const scale = i >= n - left ? 1 : 0;
+      m.makeScale(scale, scale, scale).setPosition(p.a - t.a, t.floor, -(p.r - t.r));
+      this.carts.setMatrixAt(i, m);
+    }
+    this.carts.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/**
+ * EM41's cartridge supply in EM41's station-local frame: the tub conveyor, EM00's gantry
+ * reaching from the tub to the fill point, and the collet loop that brings full collets to the
+ * pick point by the belt.
+ */
+export class CartridgeCellView {
+  readonly group = new THREE.Group();
+  private readonly current: TubView;
+  private readonly next: TubView;
+  private readonly robot: RobotView;
+  private readonly collets: { root: THREE.Group; cart: THREE.Object3D }[] = [];
+  private readonly tubLabel: HTMLElement;
+
+  constructor(
+    private readonly cfg: LineConfig,
+    models: Models,
+  ) {
+    const c = cfg.cartridges;
+    const station = cfg.stations.find((s) => s.id === c.station)!;
+    const p = pose(cfg.track, station.s);
+    this.group.position.copy(v3(p.x, p.y, BELT_Y));
+    this.group.rotation.y = p.heading;
+
+    // Collet loop: a guide rail along the loop on a plate, with a stop at each end.
+    const col = c.collets;
+    const pts = Array.from({ length: 96 }, (_, i) => {
+      const q = colletPoint(cfg, (colletLoopLength(cfg) * i) / 96);
+      return local(q.a, col.base - 0.004, q.r);
+    });
+    const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 192, 0.004, 6, true), M.rail);
+    this.group.add(rail);
+    this.group.add(span(-col.radius - 0.02, col.radius + 0.02, TABLE, col.base - 0.01, col.pick - 0.02, col.fill + 0.02, M.frame));
+    for (let i = 0; i < col.count; i++) {
+      const root = new THREE.Group();
+      const cup = cyl(0.008, 0.016, M.axis, 16);
+      cup.position.y = 0.008;
+      const cart = models.cartridge.clone(true);
+      root.add(cup, cart);
+      this.collets.push({ root, cart });
+      this.group.add(root);
+    }
+
+    // Tub conveyor along the belt, behind the collet loop; tubs come in from +a, empties leave to -a.
+    const t = c.tub;
+    const d = t.rows * t.pitch + 0.03;
+    this.group.add(span(t.a - 0.35, t.a + 0.5, TABLE, t.floor - 0.016, t.r - d / 2, t.r + d / 2, M.frame));
+    this.group.add(span(t.a - 0.35, t.a + 0.5, t.floor - 0.016, t.floor - 0.012, t.r - d / 2 + 0.005, t.r + d / 2 - 0.005, M.drive));
+    this.current = new TubView(cfg);
+    this.next = new TubView(cfg);
+    this.group.add(this.current.group, this.next.group);
+    const l = label('Nest', 'label feeder');
+    l.position.copy(local(t.a + 0.3, t.floor + 0.12, t.r));
+    this.tubLabel = l.element;
+    this.group.add(l);
+    const name = label(`${c.denest.id} ${c.denest.name}`, 'label feeder');
+    name.position.copy(local(t.a, cfg.layout.z.safe + 0.25, t.r));
+    this.group.add(name);
+
+    // EM00's gantry, turned so its travel axis runs outward from the fill point over the tub.
+    const h = denestHeights(cfg);
+    const far = t.r + (t.rows * t.pitch) / 2 - col.fill;
+    const reach = { aMin: -0.07, aMax: far + 0.07, rMin: -0.12, rMax: (t.cols * t.pitch) / 2 + 0.07 };
+    this.robot = new RobotView(reach, reach.rMax + 0.06, h.tub, cfg, models, 1, false);
+    this.robot.group.position.copy(local(0, 0, col.fill));
+    this.robot.group.rotation.y = Math.PI / 2;
+    this.group.add(this.robot.group);
+  }
+
+  private placeTub(tub: TubView, da: number, dy = 0): void {
+    const t = this.cfg.cartridges.tub;
+    tub.group.position.copy(local(t.a + da, dy, t.r));
+  }
+
+  update(fa: Frame, fb: Frame, alpha: number): void {
+    const c = this.cfg.cartridges;
+    const f = fa.cartridges;
+    const n = tubSize(this.cfg);
+    // A change slides the empty tub out (-a) while the next full one slides in from +a.
+    const k = f.changing > 0 ? 1 - f.changing / c.tub.change : 0;
+    this.placeTub(this.current, f.changing > 0 ? -0.3 * k : 0);
+    this.current.fill(n - f.used);
+    this.placeTub(this.next, f.changing > 0 ? 0.3 * (1 - k) : 0.3);
+    this.next.fill(n);
+    this.tubLabel.textContent = f.changing > 0 ? 'Nest change' : `Nest: ${n - f.used}/${n} left`;
+
+    const ra = f.robot;
+    const rb = fb.cartridges.robot;
+    this.robot.update([{ ...ra, a: lerp(ra.a, rb.a, alpha), r: lerp(ra.r, rb.r, alpha), z: lerp(ra.z, rb.z, alpha) }], false);
+
+    const L = colletLoopLength(this.cfg);
+    this.collets.forEach((x, i) => {
+      const [ua, full] = f.collets[i] ?? [0, 0];
+      // Interpolate along the loop, the short way round.
+      let ub = fb.cartridges.collets[i]?.[0] ?? ua;
+      if (ub - ua > L / 2) ub -= L;
+      if (ua - ub > L / 2) ub += L;
+      const q = colletPoint(this.cfg, lerp(ua, ub, alpha));
+      x.root.position.copy(local(q.a, c.collets.base - 0.004, q.r));
+      x.cart.visible = full === 1;
+      x.cart.position.y = 0.004;
+    });
   }
 }

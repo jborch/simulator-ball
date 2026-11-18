@@ -1,7 +1,7 @@
 // What the line looks like in CATCH.AI: devices, processes, properties, events and the batch
 // period type. Derived from the line config so it can't drift from what the sim reports.
 import type { LineConfig, PartType, SubProcessDef } from '../sim/config';
-import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, sourceProcessId, stationById, subProcessId, trayProcessId, unitId } from '../sim/machine';
+import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, stationById, subProcessId, trayProcessId, unitId } from '../sim/machine';
 import { SNAP_START } from '../sim/records';
 import type { StationCode } from '../sim/types';
 import { Severity, type Device, type EventDefinition, type ItemView, type Process, type PropertyDefinition } from './types';
@@ -22,6 +22,8 @@ export interface Catalogue {
 }
 
 export const CARRIER_TYPE = 'Mover';
+/** Collets carry cartridges from EM00 to EM41 (the original line's 12 collets). */
+export const COLLET_TYPE = 'Collet';
 
 export const PROPERTY = {
   scopedId: 'Item Scoped Id',
@@ -96,13 +98,10 @@ export function catalogue(cfg: LineConfig): Catalogue {
     devices.push(child(step.unit, subProcessId(cfg, step), step.name));
     process(subProcessId(cfg, step), 'Housing', { HasResult: step === cfg.dial.inspect });
   }
-  for (const def of cfg.stations) {
-    const robot = def.robots?.find((r) => r.source === 'nest');
-    if (!robot) continue;
-    const id = sourceProcessId(cfg, def, robot);
-    devices.push(child(def.unit, id, `Cartridge nest (${def.id})`));
-    process(id, 'Cartridge', { SourceItemType: 'Nest' });
-  }
+  // EM00 unpacks each nest (tub) of 160 into cartridges, each carried in a collet to EM41.
+  const denest = cfg.cartridges.denest;
+  devices.push(child(denest.unit, subProcessId(cfg, denest), denest.name));
+  process(subProcessId(cfg, denest), 'Cartridge', { SourceItemType: 'Nest', HasCarrier: true, CarrierType: COLLET_TYPE });
   const trayStation = stationById(cfg, cfg.layout.tray.station);
   devices.push(child(trayStation.unit, trayProcessId(cfg), 'Tray packing'));
   process(trayProcessId(cfg), 'Tray', { SourceItemType: 'Pen' });
@@ -155,9 +154,9 @@ export function catalogue(cfg: LineConfig): Catalogue {
     for (const r of placers(def)) {
       if (r.step === 'body') continue;
       for (const part of r.parts ?? []) relate(itemType(part), 'Pen', processId(cfg, def));
-      if (r.source === 'nest') relate('Nest', 'Cartridge', sourceProcessId(cfg, def, r));
     }
   }
+  relate('Nest', 'Cartridge', subProcessId(cfg, denest));
   relate('Pen', 'Tray', trayProcessId(cfg));
   const relations: ItemView['Relations'] = [...pairs.values()].map(({ processes, ...r }) =>
     processes.size === 1 ? { ...r, ProcessDeviceId: [...processes][0] } : r,

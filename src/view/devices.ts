@@ -1,11 +1,11 @@
 // Views of station equipment, each drawn in its station's local coordinates from frame data.
 import * as THREE from 'three';
 import type { FeederDef, LineConfig, PartType } from '../sim/config';
-import { gripRadius, heldLength, nestPocket, trayPocket } from '../sim/layout';
+import { gripRadius, heldLength, trayPocket } from '../sim/layout';
 import type { RobotFrame } from '../sim/protocol';
 import { M, RAIL_Y, type Reach, TABLE, box, cyl, label, local, mat, span } from './build';
 import type { Models } from './models';
-import { AssemblyView, HeldView, housingWithCap } from './movers';
+import { AssemblyView, HeldView, housingPart } from './movers';
 
 /** One arm of a gantry: travels along the beam (a), with a carriage (r) and a z column with the gripper. */
 class ArmView {
@@ -244,7 +244,7 @@ export class FeederView {
       if (def.part === 'body') return models.pen_body.clone(true);
       if (def.part === 'spring') return models.spring.clone(true);
       if (def.part === 'springBase') return models.spring_base.clone(true);
-      return housingWithCap(models);
+      return housingPart(models);
     };
     // Bulk parts lie on the bowl floor in a deterministic jumble, roughly along the wall.
     for (let i = 0; i < 12; i++) {
@@ -327,48 +327,6 @@ export class FeederView {
     const flash = jammed && Math.floor(t * 3) % 2 === 0;
     this.bowlMat.emissive.setHex(flash ? 0xc01818 : 0x000000);
     this.bowlMat.emissiveIntensity = flash ? 0.8 : 0;
-  }
-}
-
-export class NestView {
-  readonly group = new THREE.Group();
-  private readonly moving = new THREE.Group();
-  private readonly carts: THREE.Object3D[] = [];
-
-  constructor(
-    private readonly cfg: LineConfig,
-    models: Models,
-  ) {
-    const n = cfg.layout.nest;
-    const w = n.cols * n.pitch + 0.012;
-    const d = n.rows * n.pitch + 0.012;
-    // Fixed slide rails, and the nest plate with cartridges in pockets that slides out for a nest change.
-    this.group.add(span(n.a - w / 2, n.a + w / 2, TABLE, -0.014, n.r - d / 2, n.r + d / 2 + 0.3, M.frame));
-    for (const a of [n.a - w / 2 + 0.004, n.a + w / 2 - 0.004]) this.group.add(span(a - 0.003, a + 0.003, -0.014, -0.008, n.r - d / 2, n.r + d / 2 + 0.3, M.rail));
-    this.moving.add(span(n.a - w / 2, n.a + w / 2, -0.012, 0, n.r - d / 2, n.r + d / 2, M.nest));
-    const pocket = new THREE.CylinderGeometry(0.0058, 0.0058, 0.001, 16);
-    for (let i = 0; i < cfg.nestSize; i++) {
-      const p = nestPocket(cfg, i);
-      const hole = new THREE.Mesh(pocket, M.drive);
-      hole.position.copy(local(p.a, 0.0005, p.r));
-      this.moving.add(hole);
-      const c = models.cartridge.clone(true);
-      c.position.copy(local(p.a, 0, p.r));
-      this.carts.push(c);
-      this.moving.add(c);
-    }
-    this.group.add(this.moving);
-    const l = label('Cartridge nest', 'label feeder');
-    l.position.copy(local(n.a, 0.16, n.r + 0.1));
-    this.group.add(l);
-  }
-
-  update(slots: number[], changing: number): void {
-    const progress = changing > 0 ? 1 - changing / this.cfg.nestChange : 0;
-    const out = changing > 0 ? (progress < 0.5 ? progress : 1 - progress) * 0.5 : 0;
-    this.moving.position.z = -out;
-    // Out goes the empty nest, back comes a full one.
-    this.carts.forEach((c, i) => (c.visible = changing > 0 ? progress >= 0.5 : slots[i] !== 0));
   }
 }
 

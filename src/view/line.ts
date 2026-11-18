@@ -10,7 +10,7 @@ import type { Sample } from './interp';
 import type { Models } from './models';
 import { MoverView } from './movers';
 import { StationView } from './station';
-import { HousingDialView, SpringBaseLineView } from './sublines';
+import { CartridgeCellView, HousingDialView, SpringBaseLineView } from './sublines';
 import { beltTexture } from './textures';
 
 export class LineView {
@@ -19,6 +19,7 @@ export class LineView {
   private readonly stations: StationView[];
   private readonly springBases: SpringBaseLineView;
   private readonly dial: HousingDialView;
+  private readonly cartridges: CartridgeCellView;
   private readonly beltTex: THREE.Texture;
   private beltTravel = 0;
   private readonly L: number;
@@ -40,6 +41,8 @@ export class LineView {
     this.group.add(this.springBases.group);
     this.dial = new HousingDialView(cfg, models);
     this.group.add(this.dial.group);
+    this.cartridges = new CartridgeCellView(cfg, models);
+    this.group.add(this.cartridges.group);
     this.movers = Array.from({ length: cfg.mover.count }, (_, i) => {
       const mv = new MoverView(i + 1, cfg, models);
       this.group.add(mv.root);
@@ -123,6 +126,7 @@ export class LineView {
     for (const sv of this.stations) box.expandByObject(sv.group);
     box.expandByObject(this.springBases.group);
     box.expandByObject(this.dial.group);
+    box.expandByObject(this.cartridges.group);
     for (const mv of this.movers) box.expandByObject(mv.root);
     return box;
   }
@@ -137,5 +141,6 @@ export class LineView {
     this.stations.forEach((sv, i) => sv.update(sample.a, f, sample.alpha, i, sample.t));
     this.springBases.update(sample.a, sample.t);
     this.dial.update(sample.a, sample.t);
+    this.cartridges.update(sample.a, f, sample.alpha);
   }
 }

@@ -6,18 +6,12 @@ import type { Pose } from '../sim/track';
 import { type Models, findMesh } from './models';
 import { dataMatrixTexture, numberTexture } from './textures';
 
-/** Length of the housing tube in the models; its end cap sits on top of it. */
-const HOUSING_TUBE = 0.12;
-
 /**
- * Housing with its end cap, origin at the housing's base (as fed and as picked). Call
- * `showLabel` to show the label EM31 puts on it; a fresh housing has none.
+ * A housing, origin at its base (as fed and as picked). Call `showLabel` to show the label EM31
+ * puts on it; a fresh housing has none.
  */
-export function housingWithCap(models: Models): THREE.Object3D {
-  const g = new THREE.Group();
-  const cap = models.cap.clone(true);
-  cap.position.y = HOUSING_TUBE;
-  g.add(models.housing.clone(true), cap);
+export function housingPart(models: Models): THREE.Object3D {
+  const g = models.housing.clone(true);
   showLabel(g, null);
   return g;
 }
@@ -118,7 +112,7 @@ export class HeldView {
     this.springBase.position.y = -heldLength(cfg, ['springBase']);
     this.cartridge = models.cartridge.clone(true);
     this.cartridge.position.y = -heldLength(cfg, ['cartridge']);
-    this.housing.add(housingWithCap(models));
+    this.housing.add(housingPart(models));
     this.housing.position.y = -heldLength(cfg, ['housing']);
     this.root.add(this.assembly.root, this.spring, this.springBase, this.cartridge, this.housing);
     this.show(null);

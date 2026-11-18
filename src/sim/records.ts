@@ -84,16 +84,8 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
                 s.mes.identifiers[pen] = id;
                 delete s.mes.identifiers[tracked];
               }
-            } else if (part === 'cartridge') {
-              const source = sourceProcessId(cfg, def, robots[k]);
-              // Cartridges are unpacked from the station's nest (1 nest → N cartridges).
-              const nest = s.plc.nests[def.id];
-              if (nest.used >= cfg.nestSize) {
-                nest.srId = ++s.plc.srCounter;
-                nest.used = 0;
-              }
-              emit(s, { kind: 'processed', process: source, scopedId: partId, itemType: partType, from, to, sourceScopedId: nest.srId, sourceType: 'Nest', sourcePosition: nest.used++ });
             } else {
+              // A part its source didn't track gets its id here and is reported at its source.
               emit(s, { kind: 'processed', process: sourceProcessId(cfg, def, robots[k]), scopedId: partId, itemType: partType, from, to });
             }
             merges.push({ kind: 'merged', process, target: pen, targetType: 'Pen', source: partId, sourceType: partType, position: 0, logged: from });

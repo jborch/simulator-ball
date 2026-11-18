@@ -1,8 +1,7 @@
-// Station devices other than robots: bowl feeders with linear tracks, cartridge nests and the
-// tray outfeed, plus the random-failure helpers shared with the robots.
+// Station devices other than robots: bowl feeders with linear tracks and the tray outfeed, plus the random-failure helpers shared with the robots.
 import type { FeederDef, LineConfig } from './config';
 import { type RngState, normal, random, uniform } from './rng';
-import type { Feeder, FeederItem, Nest, PlantState } from './types';
+import type { Feeder, FeederItem, PlantState } from './types';
 
 /** Operating seconds until the next random fault, exponentially distributed around the MTBF. */
 export function nextFailure(rng: RngState, mtbf: number): number {
@@ -58,24 +57,6 @@ export function stepFeeder(p: PlantState, f: Feeder, def: FeederDef, cfg: LineCo
     f.fed++;
     f.nextIn = def.interval * uniform(rng, 0.6, 1.4);
     if (cfg.faults.enabled && random(rng) < cfg.faults.feederJamPerPart) f.jam = repairTime(rng, cfg.faults.feederRepair);
-  }
-}
-
-export function createNest(cfg: LineConfig, station: string): Nest {
-  return { station, slots: new Array(cfg.nestSize).fill(1), changing: 0, count: 1 };
-}
-
-/** Swaps an empty nest for a full one, once the robot's gripper is clear of it. */
-export function stepNest(n: Nest, cfg: LineConfig, toolClear: boolean, dt: number): void {
-  if (n.changing > 0) {
-    n.changing -= dt;
-    if (n.changing <= 0) {
-      n.changing = 0;
-      n.slots.fill(1);
-      n.count++;
-    }
-  } else if (toolClear && n.slots.every((s) => s === 0)) {
-    n.changing = cfg.nestChange;
   }
 }
 

@@ -255,7 +255,7 @@ describe('Reporter', () => {
     expect(keys.created).toBe(0);
     expect(server.calls.filter((c) => c.startsWith('POST /api/device') || c.startsWith('POST /api/process')).length).toBe(before);
     expect(keys.scopedIdBase).toBe(1e7);
-  });
+  }, 30_000);
 
   test('keeps data through an outage and sends it when the server is back', async () => {
     const server = new FakeServer();

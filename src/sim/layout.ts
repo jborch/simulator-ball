@@ -13,11 +13,6 @@ function grid(slot: number, g: { a: number; r: number; cols: number; rows: numbe
   return { a: g.a + (col - (g.cols - 1) / 2) * g.pitch, r: g.r + (row - (g.rows - 1) / 2) * g.pitch };
 }
 
-/** Pocket of a cartridge nest (each nest-fed station has its own nest at the same local spot). */
-export function nestPocket(cfg: LineConfig, slot: number): Point {
-  return grid(slot, cfg.layout.nest);
-}
-
 /** Pocket of the outfeed tray at the unload station. */
 export function trayPocket(cfg: LineConfig, slot: number): Point {
   return grid(slot, cfg.layout.tray);

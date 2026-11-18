@@ -239,14 +239,47 @@ export interface Distribution {
   cups: { station: string; sr: number | null; full: boolean; filling: number }[];
 }
 
-export interface Nest {
-  /** Station whose robot de-nests from it. */
-  station: string;
-  /** 0 = empty, 1 = full, 2 = reserved by the robot on its way. */
-  slots: number[];
-  /** Seconds left of a nest change, 0 when a nest is in place. */
+/** A collet on EM41's collet loop: where it is, and the cartridge in it (with its SR id once the PLC has it). */
+export interface Collet {
+  id: number;
+  /** Position along the loop, 0 = pick apex, increasing in the direction of travel. */
+  u: number;
+  cartridge: { sr: number | null } | null;
+}
+
+/** EM41's cartridge supply: the tub at the de-nest position, EM00's robot and the collet loop. */
+export interface CartridgeCell {
+  /** The tub being de-nested: its SR id (from the PLC) and how many pockets are taken; null while changing. */
+  tub: { sr: number | null; used: number } | null;
+  /** Seconds left of a tub change. */
   changing: number;
-  count: number;
+  tubs: number;
+  robot: DenestRobot;
+  collets: Collet[];
+  /** Cartridges placed in collets, for the PLC to record (sim times). */
+  results: { pocket: number; nest: number; collet: number; from: number; to: number }[];
+}
+
+/**
+ * EM00's gantry robot, in its own frame: `a` from the fill point out over the tub, `r` across
+ * (station-local -a), `z` height. It picks the next pocket, then puts the cartridge into the
+ * empty collet waiting at the fill point.
+ */
+export interface DenestRobot {
+  a: number;
+  r: number;
+  z: number;
+  va: number;
+  vr: number;
+  vz: number;
+  ta: number;
+  tr: number;
+  tz: number;
+  step: 'idle' | 'toPocket' | 'down' | 'grip' | 'up' | 'toCollet' | 'waitCollet' | 'place' | 'release' | 'clear';
+  timer: number;
+  /** The cartridge it holds: tub pocket, the tub's SR id and when it was picked. */
+  holding: { pocket: number; nest: number; from: number } | null;
+  phase: Robot['phase'];
 }
 
 export interface TrayState {
@@ -288,7 +321,7 @@ export interface PlantState {
   dial: Dial;
   bins: Record<string, number>;
   feeders: Feeder[];
-  nests: Nest[];
+  cartridges: CartridgeCell;
   /** Parts dropped or lost (didn't seat), by station. */
   scrap: Record<string, number>;
   tray: TrayState;
@@ -355,8 +388,6 @@ export interface PlcState {
   speedTarget: number;
   stations: PlcStation[];
   srCounter: number;
-  /** Nest currently being de-nested at each nest-fed station (for genealogy). */
-  nests: Record<string, { srId: number; used: number }>;
   /** Tray being filled at the unload station: tracking id, pens in it, and when its first pen went in. */
   tray: { srId: number; count: number; start: number };
   batch: Batch | null;

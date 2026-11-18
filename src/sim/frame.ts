@@ -1,7 +1,8 @@
 // Builds the compact per-frame view of the state that clients render (~30 Hz).
 import type { LineConfig } from './config';
 import type { Frame, RobotFrame, StationFrame } from './protocol';
-import type { Dial, Orienter, PlantStation, Robot, SimState } from './types';
+import { tubSize } from './cartridges';
+import type { CartridgeCell, Dial, Orienter, PlantStation, Robot, SimState } from './types';
 
 function robotFrame(r: Robot): RobotFrame {
   const held = r.holding;
@@ -35,6 +36,17 @@ function dialFrame(cfg: LineConfig, d: Dial): Frame['dial'] {
     labels: d.slots.map((x) => x?.label ?? null),
     turn: d.phase === 'index' ? 1 - Math.max(0, d.turn) / cfg.dial.index : 0,
     active: { load: running('load'), label: running('label'), inspect: running('inspect'), eject: running('eject') },
+  };
+}
+
+/** EM41's cartridge supply: tub, EM00's robot (as its gantry's frame) and the collets. */
+function cartridgeFrame(cfg: LineConfig, c: CartridgeCell): Frame['cartridges'] {
+  const r = c.robot;
+  return {
+    used: c.tub?.used ?? tubSize(cfg),
+    changing: c.changing,
+    robot: { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: r.holding && !['toPocket', 'down', 'grip'].includes(r.step) ? ['cartridge'] : null, label: null },
+    collets: c.collets.map((x) => [x.u, x.cartridge ? 1 : 0]),
   };
 }
 
@@ -77,7 +89,7 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     orienter: { phase: plant.orienter.phase, progress: orienterProgress(cfg, plant.orienter) },
     dial: dialFrame(cfg, plant.dial),
     distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
-    nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
+    cartridges: cartridgeFrame(cfg, plant.cartridges),
     tray: { count: plant.tray.count, changing: plant.tray.changing, queue: [...plant.trayQueue] },
     batch: plc.batch ? { ...plc.batch } : null,
     batchSettings: { size: plc.batchSize, autoNext: plc.autoNext },

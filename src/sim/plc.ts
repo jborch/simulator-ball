@@ -5,6 +5,7 @@ import type { LineConfig, RobotDef, StationDef } from './config';
 import { carrierId, emit, feederId, now, placers, processId, setMachine, stationSteps, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
+import { scanCartridgeCell } from './cartridges';
 import { scanDial } from './dial';
 import { scanSublines } from './sublines';
 import { leftMover, startJob } from './robot';
@@ -12,7 +13,6 @@ import { copyTag } from './tags';
 import type { Op, PlaceOp, PlcState, Robot, SimState, Tag } from './types';
 
 export function createPlc(cfg: LineConfig): PlcState {
-  const nestStations = cfg.stations.filter((d) => d.robots?.some((r) => r.source === 'nest'));
   return {
     machine: 'Stopped',
     stateSince: 0,
@@ -36,10 +36,9 @@ export function createPlc(cfg: LineConfig): PlcState {
       faulted: {},
       output: null,
     })),
-    // SR ids 1.. are taken by the first tray and the first nest of each nest-fed station.
-    srCounter: 1 + nestStations.length,
+    // SR id 1 is the first tray.
+    srCounter: 1,
     tray: { srId: 1, count: 0, start: 0 },
-    nests: Object.fromEntries(nestStations.map((d, i) => [d.id, { srId: 2 + i, used: 0 }])),
     batch: null,
     interrupted: false,
     batchSize: cfg.batch.size,
@@ -60,6 +59,7 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   if (plant.estop) return;
   scanSublines(s, cfg);
   scanDial(s, cfg);
+  scanCartridgeCell(s, cfg);
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
@@ -103,13 +103,12 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
   const { plant, plc } = s;
   const batch = plc.batch;
   // A station whose mover is only leaving has finished its work (the queue ahead may never move
-  // while stopping). Robots, nest and tray changes must have finished too, so nothing moves once
-  // stopped.
+  // while stopping). Robots and tray changes must have finished too, so nothing moves once
+  // stopped. (Sub-lines just pause where they are.)
   const allIdle =
     plc.stations.every((st) => st.step === 'idle' || st.step === 'leaving') &&
     plant.stations.every((ps) => ps.robots.every((r) => r.job === null || waitingForPart(r))) &&
-    plant.tray.changing === 0 &&
-    plant.nests.every((n) => n.changing === 0);
+    plant.tray.changing === 0;
   plant.beltRunning = !['Stopped', 'Held', 'Aborted', 'Complete'].includes(plc.machine);
   // Bowls and sub-line conveyors run with the line, so no part is fed or checked between batches.
   plant.feedersOn = plant.beltRunning;

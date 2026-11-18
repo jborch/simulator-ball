@@ -44,10 +44,10 @@ export const CAMERAS: CameraDef[] = [
   {
     id: 'cartridge',
     name: 'Cartridge',
-    title: 'Close-up · EM41A/B cartridge insertion',
-    fov: 38,
-    mount: { station: 'EM41A', a: 0.125, y: 0.13, r: -0.42 },
-    aim: { station: 'EM41A', a: 0.125, y: 0.13, r: 0.0 },
+    title: 'Cartridge · EM00 de-nesting into collets, EM41 cartridge insertion',
+    fov: 50,
+    mount: { station: 'EM41', a: 0.05, y: 0.17, r: -0.45 },
+    aim: { station: 'EM41', a: 0.05, y: 0.15, r: 0.45 },
   },
   {
     id: 'housing',
@@ -62,8 +62,8 @@ export const CAMERAS: CameraDef[] = [
     name: 'Outfeed',
     title: 'Outfeed · EM50 final inspection, EM60 tray packing and rejects',
     fov: 50,
-    mount: { station: 'EM60', a: -0.55, y: 0.17, r: -0.68 },
-    aim: { station: 'EM60', a: -0.55, y: 0.14, r: 0.05 },
+    mount: { station: 'EM60', a: -0.38, y: 0.17, r: -0.68 },
+    aim: { station: 'EM60', a: -0.38, y: 0.14, r: 0.05 },
   },
 ];
 

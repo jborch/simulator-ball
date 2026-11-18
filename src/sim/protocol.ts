@@ -78,7 +78,11 @@ export interface Frame {
   dial: { slots: number[]; labels: (string | null)[]; turn: number; active: { load: boolean; label: boolean; inspect: boolean; eject: boolean } };
   /** Spring base conveyor: part positions (loop coordinate) and each cup: 0 empty, 1 full, 2 filling. */
   distribution: { items: number[]; cups: number[] };
-  nests: { station: string; slots: number[]; changing: number }[];
+  /**
+   * EM41's cartridge supply: pockets taken from the tub (all of them while it's being changed),
+   * seconds left of a tub change, EM00's robot, and each collet's [loop position, full 0/1].
+   */
+  cartridges: { used: number; changing: number; robot: RobotFrame; collets: [number, number][] };
   /** Tray being filled, and the pen counts of the trays queued on the outfeed (newest first). */
   tray: { count: number; changing: number; queue: number[] };
   batch: Batch | null;

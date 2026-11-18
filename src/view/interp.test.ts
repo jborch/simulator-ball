@@ -15,7 +15,7 @@ const frame = (t: number, s: number): Frame => ({
     orienter: { phase: 'idle', progress: 0 },
     distribution: { items: [], cups: [] },
     dial: { slots: [], labels: [], turn: 0, active: { load: false, label: false, inspect: false, eject: false } },
-  nests: [],
+  cartridges: { used: 0, changing: 0, robot: { a: 0, r: 0, z: 0, phase: 'idle', holding: null, label: null }, collets: [] },
   tray: { count: 0, changing: 0, queue: [] },
   batch: null,
   batchSettings: { size: 300, autoNext: true },
