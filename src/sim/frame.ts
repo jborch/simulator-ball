@@ -35,6 +35,7 @@ function dialFrame(cfg: LineConfig, d: Dial): Frame['dial'] {
     slots: d.slots.map(state),
     labels: d.slots.map((x) => x?.label ?? null),
     turn: d.phase === 'index' ? 1 - Math.max(0, d.turn) / cfg.dial.index : 0,
+    roll: d.roll,
     active: { load: running('load'), label: running('label'), inspect: running('inspect'), eject: running('eject') },
   };
 }
@@ -88,6 +89,7 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     feeders: plant.feeders.map((f) => ({ id: f.id, items: f.items.map((it) => it.x), jam: f.jam })),
     orienter: { phase: plant.orienter.phase, progress: orienterProgress(cfg, plant.orienter) },
     dial: dialFrame(cfg, plant.dial),
+    alarms: { ...plant.alarms },
     distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
     cartridges: cartridgeFrame(cfg, plant.cartridges),
     tray: {
@@ -96,6 +98,7 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
       // Trays on the conveyor: [position, pens, state 0 moving, 1 being checked, 2 good, 3 rejected].
       line: plant.trayLine.trays.map((t) => [t.x, t.count, t.phase === 'checking' ? 1 : t.ok === null ? 0 : t.ok ? 2 : 3]),
       stacked: plant.trayLine.stacked,
+      stack: plant.tray.stack,
       rejected: plant.trayLine.rejected,
     },
     batch: plc.batch ? { ...plc.batch } : null,

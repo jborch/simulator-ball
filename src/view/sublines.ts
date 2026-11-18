@@ -22,6 +22,7 @@ export class SpringBaseLineView {
   private readonly pool: THREE.Object3D[] = [];
   private readonly cups: { part: THREE.Object3D; pusher: THREE.Object3D; a: number }[] = [];
   private readonly rejects: HTMLElement;
+  private readonly status: HTMLElement;
   private readonly conveyY: number;
 
   constructor(
@@ -72,6 +73,7 @@ export class SpringBaseLineView {
     this.group.add(l);
     const name = label(`${o.id} ${o.name}`, 'label feeder');
     name.position.copy(local(0, y + 0.14, d.r));
+    this.status = name.element;
     this.group.add(name);
 
     // Conveyor: frame on legs, belt on top, guides either side.
@@ -118,6 +120,9 @@ export class SpringBaseLineView {
     if (turning) this.chuck.rotation.y = progress * Math.PI * 3;
     this.ring.emissiveIntensity = phase === 'measuring' && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
     this.rejects.textContent = `${this.cfg.orienter.id} rejects: ${f.counters.bins[this.cfg.orienter.id] ?? 0}`;
+    const fault = f.alarms.orienter;
+    this.status.classList.toggle('jam', fault > 0);
+    this.status.textContent = fault > 0 ? `${this.cfg.orienter.id}: FAULT (${Math.ceil(fault)} s)` : `${this.cfg.orienter.id} ${this.cfg.orienter.name}`;
 
     const items = f.distribution.items;
     this.pool.forEach((o, i) => {
@@ -149,6 +154,7 @@ export class HousingDialView {
   private readonly ring: THREE.MeshStandardMaterial;
   private readonly ejector: THREE.Object3D;
   private readonly rejects: HTMLElement;
+  private readonly status: HTMLElement;
   private readonly nestY: number;
 
   constructor(
@@ -242,6 +248,7 @@ export class HousingDialView {
     this.group.add(l);
     const name = label(`${d.load.id}–${d.inspect.id} housing dial`, 'label feeder');
     name.position.copy(local(d.a, y + 0.24, d.r));
+    this.status = name.element;
     this.group.add(name);
   }
 
@@ -277,6 +284,16 @@ export class HousingDialView {
     const [ia, ir] = this.at(d.positions.eject, -0.01);
     this.ejector.position.set(active.eject ? ia : home.x, 0, active.eject ? -ir : home.z);
     this.rejects.textContent = `${d.inspect.id} rejects: ${f.counters.bins[d.inspect.id] ?? 0}`;
+    // The dial's state: jammed, waiting for a new label roll, or labels left on the roll.
+    const { dialJam, labelRoll } = f.alarms;
+    const alarm = dialJam > 0 || labelRoll > 0;
+    this.status.classList.toggle('jam', alarm);
+    this.status.textContent =
+      dialJam > 0
+        ? `Housing dial: JAM (${Math.ceil(dialJam)} s)`
+        : labelRoll > 0
+          ? `${d.label.id}: label roll change (${Math.ceil(labelRoll)} s)`
+          : `${d.load.id}–${d.inspect.id} housing dial · roll ${f.dial.roll}`;
   }
 }
 

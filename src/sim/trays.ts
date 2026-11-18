@@ -3,6 +3,7 @@
 // empty one into place. The conveyor stops each tray under EM61's camera, then takes it to the
 // outfeed stack, or pushes it into the reject rack. The PLC tracks each tray by its SR id (shift
 // register), records EM61 and counts the batch's output in trays, as the original's last process.
+import { raise } from './alarms';
 import type { LineConfig } from './config';
 import { emit, subProcessId } from './machine';
 import { evaluate } from './records';
@@ -29,6 +30,12 @@ export function stepTray(p: PlantState, cfg: LineConfig, rng: RngState, toolClea
   } else if (toolClear && (t.count >= cfg.traySize || (t.discharge && t.count > 0))) {
     const room = p.trayLine.trays.every((x) => x.x - packAt >= cfg.trays.pitch);
     if (!room) return;
+    // No empty tray to follow: the destacker waits for the operator to refill it.
+    if (cfg.faults.enabled && (t.stack <= 0 || p.alarms.destacker > 0)) {
+      raise(p, cfg, rng, 'destacker');
+      return;
+    }
+    if (cfg.faults.enabled) t.stack--;
     const q = cfg.quality.trayCheck;
     p.trayLine.trays.push({ sr: t.sr, count: t.count, x: packAt, phase: 'toCheck', mechLeft: 0, fixedLeft: 0, from: 0, quality: normal(rng, q.mean, q.sd), ok: null });
     p.pensOut += t.count;

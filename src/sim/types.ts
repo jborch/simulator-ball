@@ -161,6 +161,8 @@ export interface Robot {
   dropped: boolean;
   /** Seconds until an axis fault is repaired; 0 when healthy. The robot is frozen meanwhile. */
   fault: number;
+  /** What stopped it: an axis fault, or a press overload (EM14). */
+  faultKind: 'axis' | 'overload';
   /** Operating (busy) seconds left until the next random axis fault. */
   nextFault: number;
 }
@@ -200,6 +202,8 @@ export interface Orienter {
   fixedLeft: number;
   /** Sim time the current part was taken. */
   start: number;
+  /** Operating seconds left until its next random fault. */
+  nextFault: number;
   /** Measured angle once phase is 'decide'. */
   result: number | null;
   /** Set by the PLC: push the part on (true) or into the reject chute (false). */
@@ -232,6 +236,8 @@ export interface Dial {
   /** Finished operations for the PLC to record (sim times). */
   results: { op: Exclude<DialOp, 'eject'>; uid: number; from: number; to: number; value?: number; code?: string | null }[];
   nextUid: number;
+  /** Labels left on EM31's roll. */
+  roll: number;
 }
 
 /** Spring base distribution conveyor with a diverter and pick cup per station. */
@@ -260,6 +266,9 @@ export interface CartridgeCell {
   tubs: number;
   robot: DenestRobot;
   collets: Collet[];
+  /** Cartridges EM00 has dropped picking them (scrapped), and whether the next pick is forced to miss (fault injection). */
+  misses: number;
+  missNext: boolean;
   /** Cartridges placed in collets, for the PLC to record (sim times). */
   results: { pocket: number; nest: number; collet: number; from: number; to: number }[];
 }
@@ -294,6 +303,8 @@ export interface TrayState {
   changing: number;
   /** PLC request to send out a partly filled tray (end of batch). Cleared when it has gone. */
   discharge: boolean;
+  /** Empty trays left in the destacker. */
+  stack: number;
 }
 
 /** A filled tray on the conveyor from EM60 through EM61's check to the stack or reject rack. */
@@ -350,6 +361,8 @@ export interface PlantState {
   orienter: Orienter;
   distribution: Distribution;
   dial: Dial;
+  /** Seconds until each sub-line alarm is cleared by the operator, 0 when clear. */
+  alarms: Record<AlarmId, number>;
   bins: Record<string, number>;
   feeders: Feeder[];
   cartridges: CartridgeCell;
@@ -386,8 +399,9 @@ export interface PlcStation {
   /** What the station measured during the cycle (a camera, or the robot that measures). */
   result: CycleResult | null;
   stats: { cycles: number; passes: number; busy: number; noReads: number; faults: number; faultTime: number };
-  /** Last seen fault input of each robot (by robot id), to emit events on change. */
+  /** Last seen fault input of each robot (by robot id), to emit events on change, and its kind. */
   faulted: Record<string, boolean>;
+  faultKind: Record<string, 'axis' | 'overload'>;
   /** A pen picked off a mover that hasn't been dropped in its tray or bin yet; recorded when it has. */
   output: PendingOutput | null;
 }
@@ -433,6 +447,9 @@ export interface PlcState {
   autoNext: boolean;
   /** Feeder jam state last seen, to emit events on change. */
   jammed: Record<string, boolean>;
+  /** Sub-line alarms and EM00's drop count last seen, to emit events on change. */
+  alarms: Record<string, boolean>;
+  misses: number;
 }
 
 export interface ItemProcessedEvent {
@@ -487,7 +504,28 @@ export interface BatchEvent {
   logged: number;
 }
 
-export type StationCode = 'axisFault' | 'axisFaultCleared' | 'feederJam' | 'feederJamCleared' | 'rfidNoRead' | 'rfidWriteFailed' | 'rfidWriteRecovered';
+export type StationCode =
+  | 'axisFault'
+  | 'axisFaultCleared'
+  | 'feederJam'
+  | 'feederJamCleared'
+  | 'rfidNoRead'
+  | 'rfidWriteFailed'
+  | 'rfidWriteRecovered'
+  | 'pressOverload'
+  | 'pressOverloadCleared'
+  | 'pickMiss'
+  | 'dialJam'
+  | 'dialJamCleared'
+  | 'labelRollEmpty'
+  | 'labelRollChanged'
+  | 'orienterFault'
+  | 'orienterFaultCleared'
+  | 'destackerEmpty'
+  | 'destackerRefilled';
+
+/** Sub-line equipment that stops on a fault or an empty consumable until the operator has seen to it. */
+export type AlarmId = 'dialJam' | 'labelRoll' | 'orienter' | 'destacker';
 
 export interface StationEvent {
   kind: 'station';

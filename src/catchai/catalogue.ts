@@ -46,6 +46,17 @@ export const STATION_EVENTS: Record<StationCode, EventSpec> = {
   rfidNoRead: { Name: 'RFID No Read', Severity: Severity.Warning },
   rfidWriteFailed: { Name: 'RFID Write Failed', Severity: Severity.Error },
   rfidWriteRecovered: { Name: 'RFID Write Recovered', Severity: Severity.Info },
+  pressOverload: { Name: 'Press Overload', Severity: Severity.Error },
+  pressOverloadCleared: { Name: 'Press Overload Cleared', Severity: Severity.Info },
+  pickMiss: { Name: 'Pick Miss', Severity: Severity.Warning },
+  dialJam: { Name: 'Dial Jam', Severity: Severity.Error },
+  dialJamCleared: { Name: 'Dial Jam Cleared', Severity: Severity.Info },
+  labelRollEmpty: { Name: 'Label Roll Empty', Severity: Severity.Warning },
+  labelRollChanged: { Name: 'Label Roll Changed', Severity: Severity.Info },
+  orienterFault: { Name: 'Orienter Fault', Severity: Severity.Error },
+  orienterFaultCleared: { Name: 'Orienter Fault Cleared', Severity: Severity.Info },
+  destackerEmpty: { Name: 'Destacker Empty', Severity: Severity.Warning },
+  destackerRefilled: { Name: 'Destacker Refilled', Severity: Severity.Info },
 };
 
 const itemType = (part: PartType) => part[0].toUpperCase() + part.slice(1);

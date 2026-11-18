@@ -7,6 +7,7 @@
 import type { LineConfig } from './config';
 import { emit, subProcessId } from './machine';
 import { moveAxes } from './robot';
+import { type RngState, random } from './rng';
 import type { CartridgeCell, Collet, DenestRobot, PlantState, SimState } from './types';
 
 /** Length of the collet loop: two straights and two half circles. */
@@ -78,7 +79,7 @@ export function createCartridgeCell(cfg: LineConfig): CartridgeCell {
   const collets: Collet[] = Array.from({ length: c.count }, (_, i) => ({ id: i + 1, u: (L * (i + 0.5)) / c.count, cartridge: null, hold: null }));
   const z = cfg.layout.z.safe;
   const robot: DenestRobot = { a: 0, r: 0, z, va: 0, vr: 0, vz: 0, ta: 0, tr: 0, tz: z, step: 'idle', timer: 0, holding: null, phase: 'idle' };
-  return { tub: { sr: null, used: 0 }, changing: 0, tubs: 0, robot, collets, results: [] };
+  return { tub: { sr: null, used: 0 }, changing: 0, tubs: 0, robot, collets, results: [], misses: 0, missNext: false };
 }
 
 /** EM00 robot coordinates of a station-local point (its frame starts at the fill apex). */
@@ -97,11 +98,11 @@ export function colletAtPick(cell: CartridgeCell): Collet | undefined {
   return cell.collets.find((c) => c.cartridge?.sr != null && c.u === 0);
 }
 
-export function stepCartridgeCell(p: PlantState, cfg: LineConfig, dt: number): void {
+export function stepCartridgeCell(p: PlantState, cfg: LineConfig, rng: RngState, dt: number): void {
   if (!p.feedersOn) return;
   const cell = p.cartridges;
   stepTub(p, cfg, cell, dt);
-  stepDenest(p, cfg, cell, dt);
+  stepDenest(p, cfg, rng, cell, dt);
   stepCollets(p, cfg, cell, dt);
 }
 
@@ -126,7 +127,7 @@ function stepTub(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: number
   }
 }
 
-function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: number): void {
+function stepDenest(p: PlantState, cfg: LineConfig, rng: RngState, cell: CartridgeCell, dt: number): void {
   const r = cell.robot;
   const h = denestHeights(cfg);
   const safe = cfg.layout.z.safe;
@@ -168,6 +169,13 @@ function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: num
       if (r.step === 'grip') {
         cell.tub!.used++;
         r.step = 'up';
+        // Now and then the cartridge slips out of the gripper and is scrapped.
+        if (cell.missNext || (cfg.faults.enabled && random(rng) < cfg.faults.pickMiss)) {
+          cell.missNext = false;
+          cell.misses++;
+          p.scrap[cfg.cartridges.denest.id] = (p.scrap[cfg.cartridges.denest.id] ?? 0) + 1;
+          r.holding = null;
+        }
       } else {
         const collet = colletAtFill(cfg, cell)!;
         collet.cartridge = { sr: null };
@@ -178,7 +186,7 @@ function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: num
       }
       return;
     case 'up':
-      if (move(r.a, r.r, safe)) r.step = 'toCollet';
+      if (move(r.a, r.r, safe)) r.step = r.holding ? 'toCollet' : 'idle';
       return;
     case 'toCollet':
       if (move(0, 0, safe)) r.step = 'waitCollet';

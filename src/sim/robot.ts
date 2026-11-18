@@ -40,6 +40,7 @@ export function createRobot(safeZ: number, home: number, nextFault: number): Rob
     result: null,
     dropped: false,
     fault: 0,
+    faultKind: 'axis',
     nextFault,
   };
 }
@@ -220,6 +221,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
     robot.fault -= dt;
     if (robot.fault <= 0) {
       robot.fault = 0;
+      robot.faultKind = 'axis';
       robot.nextFault = nextFailure(rng, cfg.faults.robotMtbf);
     }
     return;
@@ -335,6 +337,12 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       break;
 
     case 'press': {
+      // An EM14 press stroke can overload: the press stops until the operator resets it.
+      if (!robot.stepStarted && cfg.faults.enabled && rdef.step === 'springBase' && random(rng) < cfg.faults.pressOverload) {
+        robot.fault = repairTime(rng, cfg.faults.overloadRepair);
+        robot.faultKind = 'overload';
+        return;
+      }
       if (!robot.stepStarted) {
         robot.dwellMech = step.mech;
         robot.pressFrom = robot.z;

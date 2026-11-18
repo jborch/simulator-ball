@@ -5,6 +5,7 @@
 // beltRunning, ...).
 import { inspectMover, moverById } from './assembly';
 import type { LineConfig, MoverProfile } from './config';
+import { createAlarms, stepAlarms } from './alarms';
 import { createCartridgeCell, stepCartridgeCell } from './cartridges';
 import { createFeeder, nextFailure, stepFeeder } from './devices';
 import { createTrayLine, stepTray, stepTrayLine } from './trays';
@@ -88,6 +89,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     orienter: createOrienter(),
     distribution: createDistribution(cfg),
     dial: createDial(cfg),
+    alarms: createAlarms(),
     // Reject bins of the loop stations, and the chutes of the sub-line inspections.
     bins: Object.fromEntries([
       ...cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0]),
@@ -98,7 +100,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
     cartridges: createCartridgeCell(cfg),
-    tray: { count: 0, sr: null, changing: 0, discharge: false },
+    tray: { count: 0, sr: null, changing: 0, discharge: false, stack: cfg.faults.trayStack },
     trayLine: createTrayLine(),
     traysOut: 0,
     pensOut: 0,
@@ -132,10 +134,11 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
     ps.robots.forEach((r, k) => stepRobot(p, cfg, rng, def, def.robots![k], r, dt));
   });
   p.feeders.forEach((f, i) => stepFeeder(p, f, cfg.feeders[i], cfg, rng, dt));
+  stepAlarms(p, cfg, dt);
   stepOrienter(p, cfg, rng, dt);
   stepDistribution(p, cfg, dt);
   stepDial(p, cfg, rng, dt);
-  stepCartridgeCell(p, cfg, dt);
+  stepCartridgeCell(p, cfg, rng, dt);
   const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
   stepTray(p, cfg, rng, clear(cfg.layout.tray.station), dt);
   stepTrayLine(p, cfg, rng, dt);

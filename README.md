@@ -19,6 +19,7 @@ npm run dev        # http://localhost:5173: server + simulation, frontend with h
 npm test           # headless simulation, streaming and server tests
 npm run build      # typecheck + production build into dist/client and dist/server
 npm start          # run the production build on http://localhost:3000
+npx tsx tools/scripts/calibrate.ts   # headless calibration runs: throughput, faults, reject rates
 ```
 
 `npm run dev` runs the server with [tsx](https://tsx.is) in watch mode, with Vite inside it for

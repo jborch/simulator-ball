@@ -190,7 +190,23 @@ commands, faults, batches, CATCH.AI, cameras, RTSP) and includes its own 3D work
    - **Trays of 32** (4 × 8). A full tray indexes out onto the conveyor at once while the destacker slides the next empty one in (the 3 s change). The tray's SR id goes with it (shift register). EM61 checks each tray (original: 10 ± 1.2 in 6–14, "packing incomplete" / "seal defect"); a short tray always fails as "Tray packing incomplete". Good trays go onto the outfeed stack, rejected ones into the rack.
    - **Batches count trays at EM61** (the original's last process). **Fill to count:** EM11 loads while the pens not yet rejected can't fill the batch's trays, so it tops up as rejects happen, and the batch ends on full trays with exactly `trays × 32` good pens. Its body arm only pre-picks while loading is still needed (a test caught it fetching bodies for pens that might never come). A batch ended early sends a short tray, which EM61 rejects.
    - Tests that sized batches in pens now use small trays (`traySize` 4–8) to keep their run time.
-6. **Quality and calibration:** fragile/badness rule, reject causes, the new faults. Headless runs over several seeds to tune timings, then documented results (throughput, bottleneck, per-station and per-mover reject rates), as in v1 §5.
+6. ✅ **Quality and calibration:** fragile/badness rule, reject causes, the new faults. Headless runs over several seeds to tune timings, then documented results (throughput, bottleneck, per-station and per-mover reject rates), as in v1 §5. Notes:
+   - The fragile/badness rule and the original's reject causes came in milestones 2–5. New here: **sub-line faults**, each reported as a station event on its own device and injectable from the HUD. Random: dial jam (per turn, EM30), EM13 orienter fault (operating-time MTBF), EM00 pick miss (the cartridge is scrapped; per pick), EM14 press overload (per stroke; stops that press until reset). Consumables: EM31's label roll (500 labels) and the tray destacker (20 trays) run out and are changed or refilled by the operator, while labelling or EM60 waits.
+   - **Fault rates rescaled to the bigger line:** with 17 robots and four bowls, v1's rates gave ~37 stops an hour. Robot MTBF went from 30 to 50 min of operating time and feeder jams from 1 in 450 to 1 in 600 parts, back to about v1's stop frequency per line.
+   - **Calibration** (`npx tsx tools/scripts/calibrate.ts`, default line with batches of 10 trays, 4 seeds × 60 min):
+
+     | | Result |
+     | --- | --- |
+     | Throughput, faults off / on | 20.1 / 16.7 pens/min (≈ 83 % availability); 22/min without batch run-outs and pauses |
+     | Rejects | 17.2 % of pens (mostly EM14B and the bad movers); 1 % of pens retested at EM50 |
+     | Output | ≈ 25 good trays an hour, 2 batches |
+     | Stops per hour | axis 7.8, feeder jam 7.3, pick miss 3.5, press overload 3.3, roll change 1.0, destacker refill 1.0, dial jam 0.8, orienter 0.8 |
+     | Fail rate per process | EM10 1.2 %, EM12 2.1 %, EM13 0.3 %, EM14A/B/C/D 7.8/30.3/6.3/7.3 %, EM15 0.4 %, EM32 3.3 %, EM40 1.4 %, EM50 1.0 %, EM61 0.0 % |
+     | Rejects per mover | mover 2 100 %, mover 24 37 %, the others 13 % on average |
+     | Busiest stations | EM11 53 % busy (+ 4 % fault), EM14A–D 43–50 % each (+ 1–5 % fault), EM41 36 %, EM40 31 % |
+
+     The rates follow the original's rules. EM12 and EM14A/C/D fail more often than their own σ alone would give because of the bad carriers, as they would in the original. Mover 2 (badness 22) loses every pen; the analytics should find it at once.
+   - The pace is set by EM11 (two arms on one gate) and the 4-up EM14 group (the batch fill and travel into the group); neither is saturated, since both lose time to waiting on each other through the loop.
 7. **CATCH.AI parity:** processes, properties, item view, time series, time offset, load test against the demo server.
 8. **HUD and cameras:** new cameras, unit KPIs, buffer gauges, snap chart, inspector, frame-size check, README and PLAN update.
 

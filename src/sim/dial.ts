@@ -2,6 +2,7 @@
 // unload to EM40). The plant turns the dial and does the work at each position; the PLC gives
 // each housing its SR id and the identifier to print when it is loaded, records each step and
 // decides at EM32 whether the housing goes on to EM40 or is pushed off (shift-register tracking).
+import { raise } from './alarms';
 import type { LineConfig } from './config';
 import { makeIdentifier } from './gs1';
 import { emit, now, subProcessId } from './machine';
@@ -10,7 +11,7 @@ import { type RngState, normal, random } from './rng';
 import type { Dial, DialOp, DialPart, PlantState, SimState } from './types';
 
 export function createDial(cfg: LineConfig): Dial {
-  return { slots: new Array(cfg.dial.nests).fill(null), phase: 'dwell', turn: 0, jobs: { load: null, label: null, inspect: null, eject: null }, results: [], nextUid: 1 };
+  return { slots: new Array(cfg.dial.nests).fill(null), phase: 'dwell', turn: 0, jobs: { load: null, label: null, inspect: null, eject: null }, results: [], nextUid: 1, roll: cfg.faults.labelRoll };
 }
 
 /** The housing at the unload position, if it is ready for EM40's robot to take. */
@@ -31,10 +32,13 @@ export function takeFromDial(p: PlantState, cfg: LineConfig): DialPart {
  * do; the dial turns once every job is done and the unload position is empty.
  */
 export function stepDial(p: PlantState, cfg: LineConfig, rng: RngState, dt: number): void {
-  if (!p.feedersOn) return;
+  if (!p.feedersOn || p.alarms.dialJam > 0) return;
   const def = cfg.dial;
   const d = p.dial;
   const pos = def.positions;
+  // An empty label roll stops labelling until the operator has changed it.
+  if (d.roll <= 0 && cfg.faults.enabled) raise(p, cfg, rng, 'labelRoll');
+  const rollReady = !cfg.faults.enabled || (d.roll > 0 && p.alarms.labelRoll === 0);
   if (d.phase === 'index') {
     d.turn -= dt * p.speed;
     if (d.turn > 0) return;
@@ -50,7 +54,7 @@ export function stepDial(p: PlantState, cfg: LineConfig, rng: RngState, dt: numb
   const wants: Record<DialOp, boolean | 'wait'> = {
     load: !at('load') && p.feeders.find((f) => f.id === def.feeder)!.items[0]?.x === 0,
     // A housing is labelled once the PLC has given it its identifier.
-    label: !!at('label') && !at('label')!.label ? (at('label')!.print ? true : 'wait') : false,
+    label: !!at('label') && !at('label')!.label ? (at('label')!.print && rollReady ? true : 'wait') : false,
     inspect: !!at('inspect')?.label && !at('inspect')!.inspected,
     // A checked housing waits for the PLC's verdict before it can be pushed off or go on.
     eject: at('eject')?.inspected ? (at('eject')!.ok === null ? 'wait' : !at('eject')!.ok) : false,
@@ -79,6 +83,8 @@ export function stepDial(p: PlantState, cfg: LineConfig, rng: RngState, dt: numb
   if (busy || d.slots[pos.unload]) return;
   d.phase = 'index';
   d.turn = def.index;
+  // Now and then the dial jams on the turn and waits for the operator.
+  if (cfg.faults.enabled && random(rng) < cfg.faults.dialJamPerIndex) raise(p, cfg, rng, 'dialJam');
 }
 
 function finish(p: PlantState, cfg: LineConfig, rng: RngState, op: DialOp, from: number): void {
@@ -95,6 +101,7 @@ function finish(p: PlantState, cfg: LineConfig, rng: RngState, op: DialOp, from:
       const part = d.slots[pos.label]!;
       const q = cfg.quality.labelQuality;
       part.label = part.print;
+      if (cfg.faults.enabled) d.roll--;
       part.quality = normal(rng, q.mean, q.sd);
       d.results.push({ op, uid: part.uid, from, to: p.t });
       return;

@@ -2,7 +2,7 @@
 // browser), sent as JSON text over a WebSocket at /ws.
 import type { ReporterStatus } from '../catchai/reporter';
 import type { PartType } from './config';
-import type { Batch, MachineState, Orienter, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
+import type { AlarmId, Batch, MachineState, Orienter, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
 
 export type Command =
   | { type: 'start' }
@@ -75,7 +75,9 @@ export interface Frame {
    * Housing dial: each position's housing (0 none, 1 loaded, 2 labelled, 3 checked OK, 4 NOK)
    * and the label printed on it, 0..1 through an index turn, and which positions are working.
    */
-  dial: { slots: number[]; labels: (string | null)[]; turn: number; active: { load: boolean; label: boolean; inspect: boolean; eject: boolean } };
+  dial: { slots: number[]; labels: (string | null)[]; turn: number; roll: number; active: { load: boolean; label: boolean; inspect: boolean; eject: boolean } };
+  /** Seconds until each sub-line alarm (dial jam, label roll, orienter, destacker) is cleared, 0 when clear. */
+  alarms: Record<AlarmId, number>;
   /** Spring base conveyor: part positions (loop coordinate) and each cup: 0 empty, 1 full, 2 filling. */
   distribution: { items: number[]; cups: number[] };
   /**
@@ -87,7 +89,7 @@ export interface Frame {
    * Tray being filled, the trays on the conveyor ([position, pens, state 0 moving, 1 being checked
    * by EM61, 2 good, 3 rejected]), and how many went onto the stack and into the reject rack.
    */
-  tray: { count: number; changing: number; line: [number, number, number][]; stacked: number; rejected: number };
+  tray: { count: number; changing: number; line: [number, number, number][]; stacked: number; rejected: number; stack: number };
   batch: Batch | null;
   /** Applies to the next batch. */
   batchSettings: { size: number; autoNext: boolean };

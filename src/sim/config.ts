@@ -251,14 +251,34 @@ export const LINE = {
   /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
   faults: {
     enabled: true,
-    /** Probability that feeding one part jams the bowl. */
-    feederJamPerPart: 1 / 450,
+    /** Probability that feeding one part jams the bowl (four bowls: about 6 jams an hour in all). */
+    feederJamPerPart: 1 / 600,
     feederRepair: [20, 60] as [number, number],
-    /** Mean operating seconds (robot busy) between axis faults, per robot. */
-    robotMtbf: 1800,
+    /**
+     * Mean operating seconds (robot busy) between axis faults, per robot. With 17 robots that is
+     * about 7 axis faults an hour on the line, as v1 had with half as many robots.
+     */
+    robotMtbf: 3000,
     robotRepair: [30, 90] as [number, number],
     /** Probability that a placed part doesn't seat and is lost. */
     misplaceRate: 0.003,
+    /** Probability that the housing dial jams on a turn, and the time to clear it. */
+    dialJamPerIndex: 1 / 2500,
+    dialRepair: [20, 60] as [number, number],
+    /** Labels on a roll at EM31; changing an empty roll. */
+    labelRoll: 500,
+    rollChange: [30, 60] as [number, number],
+    /** Mean operating seconds between EM13 orienter faults, and the repair time. */
+    orienterMtbf: 2400,
+    orienterRepair: [20, 60] as [number, number],
+    /** Probability that EM00 drops a cartridge it picks from the nest (it is scrapped). */
+    pickMiss: 0.003,
+    /** Empty trays the destacker holds; refilling it once empty. */
+    trayStack: 20,
+    stackRefill: [30, 60] as [number, number],
+    /** Probability that an EM14 press stroke overloads (the press stops until reset), and the reset time. */
+    pressOverload: 0.002,
+    overloadRepair: [30, 90] as [number, number],
   },
   batch: {
     /**

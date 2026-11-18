@@ -90,16 +90,22 @@ test('fill to count: a batch ends on full trays, each checked by EM61, despite r
 }, 60_000);
 
 test('a tray EM61 rejects is replaced: the batch still ends with all its trays good', () => {
-  // Limits so tight that about half of the trays fail.
   const s = sim((c) => {
     c.traySize = 4;
     c.batch.size = 2;
-    c.trays.check.inspect.upper = 10;
   });
-  const events = untilComplete(s, 900);
+  // The first tray that reaches the conveyor is bad: EM61 must reject it.
+  let spoiled = false;
+  const events = untilComplete(s, 900, () => {
+    const first = s.state.plant.trayLine.trays[0];
+    if (!spoiled && first) {
+      first.quality = 100;
+      spoiled = true;
+    }
+  });
   const b = s.state.plc.batch!;
   expect(s.state.plc.machine).toBe('Complete');
-  expect(b.traysRejected).toBeGreaterThan(0);
+  expect(b.traysRejected).toBe(1);
   expect(b.trays).toBe(2);
   expect(b.good).toBe((2 + b.traysRejected) * 4);
   const checks = trayRecords(events, 'EM61');

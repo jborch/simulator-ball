@@ -368,6 +368,8 @@ export class TrayView {
   private readonly ring: THREE.MeshStandardMaterial;
   private readonly outLabel: HTMLElement;
   private readonly rackLabel: HTMLElement;
+  private readonly destacker: HTMLElement;
+  private readonly empties: THREE.Object3D[] = [];
   private readonly trayY: number;
   private static readonly STACK = 6;
 
@@ -403,8 +405,13 @@ export class TrayView {
     for (let k = 0; k < TrayView.STACK; k++) {
       const empty = models.tray.clone(true);
       empty.position.copy(local(tl.destack, y + 0.03 + k * 0.012, t.r));
+      this.empties.push(empty);
       this.group.add(empty);
     }
+    const ds = label('Destacker', 'label feeder');
+    ds.position.copy(local(tl.destack, y + 0.16, t.r));
+    this.destacker = ds.element;
+    this.group.add(ds);
 
     // EM61: camera on a post outside the conveyor, looking down at the tray it stops.
     const check = tl.check;
@@ -445,7 +452,11 @@ export class TrayView {
     load.group.position.copy(local(a, this.trayY + dy, this.cfg.layout.tray.r));
   }
 
-  update(tray: Frame['tray'], t: number): void {
+  update(tray: Frame['tray'], t: number, refill = 0): void {
+    // The destacker's stack goes down as trays are used; empty, it waits for the operator.
+    this.empties.forEach((e, i) => (e.visible = i < Math.min(tray.stack, TrayView.STACK)));
+    this.destacker.classList.toggle('jam', refill > 0);
+    this.destacker.textContent = refill > 0 ? `Destacker empty: refilling (${Math.ceil(refill)} s)` : `Destacker: ${tray.stack} trays`;
     const pack = this.cfg.layout.tray.a;
     const tl = this.cfg.trays;
     // During a change the destacker slides the next empty tray from under its stack into place.

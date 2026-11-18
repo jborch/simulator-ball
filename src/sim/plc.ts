@@ -5,6 +5,7 @@ import type { LineConfig, RobotDef, StationDef } from './config';
 import { carrierId, emit, feederId, now, placers, processId, setMachine, stationSteps, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
+import { scanAlarms } from './alarms';
 import { scanCartridgeCell } from './cartridges';
 import { scanDial } from './dial';
 import { scanSublines } from './sublines';
@@ -35,6 +36,7 @@ export function createPlc(cfg: LineConfig): PlcState {
       result: null,
       stats: { cycles: 0, passes: 0, busy: 0, noReads: 0, faults: 0, faultTime: 0 },
       faulted: {},
+      faultKind: {},
       output: null,
     })),
     // SR id 1 is the first tray.
@@ -45,6 +47,8 @@ export function createPlc(cfg: LineConfig): PlcState {
     batchSize: cfg.batch.size,
     autoNext: cfg.batch.autoNext,
     jammed: {},
+    alarms: {},
+    misses: 0,
   };
 }
 
@@ -62,6 +66,7 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   scanDial(s, cfg);
   scanCartridgeCell(s, cfg);
   scanTrays(s, cfg);
+  scanAlarms(s, cfg);
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
@@ -195,7 +200,12 @@ function scanFaults(s: SimState, cfg: LineConfig, dt: number): void {
       if (faulted) st.stats.faults++;
       // Single-robot stations share their id with the robot, so only name the robot where it helps.
       const which = id === def.id ? '' : ` (${id})`;
-      emit(s, { kind: 'station', process: processId(cfg, def), code: faulted ? 'axisFault' : 'axisFaultCleared', message: faulted ? `Axis fault${which}: operator called` : `Axis fault cleared${which}`, logged: now(s) });
+      // The kind is remembered from when the fault came, for its clearing message.
+      if (faulted) st.faultKind[id] = robot.faultKind;
+      const overload = st.faultKind[id] === 'overload';
+      const code = overload ? (faulted ? 'pressOverload' : 'pressOverloadCleared') : faulted ? 'axisFault' : 'axisFaultCleared';
+      const what = overload ? 'Press overload' : 'Axis fault';
+      emit(s, { kind: 'station', process: processId(cfg, def), code, message: faulted ? `${what}${which}: operator called` : `${what} cleared${which}`, logged: now(s) });
     });
   });
   cfg.feeders.forEach((f, i) => {

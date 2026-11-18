@@ -1,5 +1,5 @@
 import type { LineConfig } from '../sim/config';
-import { ACCEPTS } from '../sim/commands';
+import { ACCEPTS, SUBLINE_FAULTS, overloadTargets } from '../sim/commands';
 import type { ReporterStatus } from '../catchai/reporter';
 import type { ConnectionState } from '../sim/client';
 import { describeCatchAi } from './catchaiStatus';
@@ -46,6 +46,8 @@ export class Hud {
     const targets = [
       ...cfg.stations.flatMap((d) => (d.robots ?? []).map((r) => ({ id: r.id, text: `${r.id} robot: axis fault` }))),
       ...cfg.feeders.map((f) => ({ id: f.id, text: `Feeder ${f.id}: jam` })),
+      ...overloadTargets(cfg).map((id) => ({ id, text: `${id.replace(/-OVERLOAD$/, '')} press: overload` })),
+      ...Object.entries(SUBLINE_FAULTS).map(([id, text]) => ({ id, text })),
     ];
     $('#fault-target').innerHTML = targets.map((t) => `<option value="${t.id}">${t.text}</option>`).join('');
     $('#fault-inject').addEventListener('click', () => this.send({ type: 'fault', target: $<HTMLSelectElement>('#fault-target').value }));

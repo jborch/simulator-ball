@@ -1,6 +1,7 @@
 // Operator commands. Any client may send them; only the host applies them, after checking
 // them against the machine state, and every command is logged with its origin.
 import type { LineConfig } from './config';
+import { raise } from './alarms';
 import { repairTime } from './devices';
 import { emit, now, setMachine, startBatch } from './machine';
 import type { Command } from './protocol';
@@ -92,8 +93,50 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
   return accepted;
 }
 
-/** Makes a robot or a feeder fail now, as if it had happened on the real line. */
+/** Sub-line faults that can be injected, by target id. */
+export const SUBLINE_FAULTS: Record<string, string> = {
+  'EM13-ORIENTER': 'EM13 orienter: fault',
+  'EM30-DIAL': 'Housing dial: jam',
+  'EM31-ROLL': 'EM31 label roll: empty',
+  'EM00-PICK': 'EM00: drop the next cartridge',
+  'EM60-DESTACKER': 'Tray destacker: empty',
+};
+
+/** Robots whose stroke can overload (EM14 presses): injected as "<robot>-OVERLOAD". */
+export function overloadTargets(cfg: LineConfig): string[] {
+  return cfg.stations.flatMap((d) => (d.robots ?? []).filter((r) => r.step === 'springBase').map((r) => `${r.id}-OVERLOAD`));
+}
+
+/** Makes a robot, feeder or sub-line fail now, as if it had happened on the real line. */
 function injectFault(s: SimState, cfg: LineConfig, target: string): boolean {
+  const p = s.plant;
+  switch (target) {
+    case 'EM13-ORIENTER':
+      raise(p, cfg, s.rng, 'orienter');
+      return true;
+    case 'EM30-DIAL':
+      raise(p, cfg, s.rng, 'dialJam');
+      return true;
+    case 'EM31-ROLL':
+      p.dial.roll = 0;
+      raise(p, cfg, s.rng, 'labelRoll');
+      return true;
+    case 'EM00-PICK':
+      p.cartridges.missNext = true;
+      return true;
+    case 'EM60-DESTACKER':
+      p.tray.stack = 0;
+      raise(p, cfg, s.rng, 'destacker');
+      return true;
+  }
+  if (overloadTargets(cfg).includes(target)) {
+    const id = target.replace(/-OVERLOAD$/, '');
+    const i = cfg.stations.findIndex((d) => d.robots?.some((r) => r.id === id));
+    const robot = p.stations[i].robots[cfg.stations[i].robots!.findIndex((r) => r.id === id)];
+    robot.fault = repairTime(s.rng, cfg.faults.overloadRepair);
+    robot.faultKind = 'overload';
+    return true;
+  }
   const fi = cfg.feeders.findIndex((f) => f.id === target);
   if (fi >= 0) {
     s.plant.feeders[fi].jam = repairTime(s.rng, cfg.faults.feederRepair);

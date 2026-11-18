@@ -2,14 +2,16 @@
 // spring base orienter (EM13) and the distribution conveyor that brings spring bases to the four
 // EM14 presses. The plant side moves parts and takes measurements; the PLC side gives each part
 // its SR id, records the inspection and decides where the part goes (shift-register tracking).
+import { raise } from './alarms';
 import type { LineConfig, SubProcessDef } from './config';
+import { nextFailure } from './devices';
 import { emit, now, subProcessId } from './machine';
 import { evaluate } from './records';
 import { type RngState, normal } from './rng';
 import type { Distribution, Orienter, PlantState, SimState } from './types';
 
 export function createOrienter(): Orienter {
-  return { item: null, phase: 'idle', mechLeft: 0, fixedLeft: 0, start: 0, result: null, pass: null };
+  return { item: null, phase: 'idle', mechLeft: 0, fixedLeft: 0, start: 0, nextFault: Number.NaN, result: null, pass: null };
 }
 
 export function createDistribution(cfg: LineConfig): Distribution {
@@ -20,8 +22,18 @@ export function createDistribution(cfg: LineConfig): Distribution {
 export function stepOrienter(p: PlantState, cfg: LineConfig, rng: RngState, dt: number): void {
   const def = cfg.orienter;
   const o = p.orienter;
-  // It stops with the line, mid-part if need be, and carries on when the line restarts.
-  if (!p.feedersOn) return;
+  // It stops with the line, mid-part if need be, and carries on when the line restarts; it
+  // also stops on a fault until repaired. Faults come with operating time.
+  if (!p.feedersOn || p.alarms.orienter > 0) return;
+  if (Number.isNaN(o.nextFault)) o.nextFault = nextFailure(rng, cfg.faults.orienterMtbf);
+  if (cfg.faults.enabled && o.phase !== 'idle') {
+    o.nextFault -= dt;
+    if (o.nextFault <= 0) {
+      o.nextFault = nextFailure(rng, cfg.faults.orienterMtbf);
+      raise(p, cfg, rng, 'orienter');
+      return;
+    }
+  }
   switch (o.phase) {
     case 'idle': {
       const f = p.feeders.find((x) => x.id === def.feeder)!;

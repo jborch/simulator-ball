@@ -158,7 +158,7 @@ export class StationView {
       const fd = fa.feeders.find((x) => x.id === feeder.id);
       feeder.update(fd?.items ?? [], fd?.jam ?? 0, t, fa.counters.bins);
     }
-    this.tray?.update(fa.tray, t);
+    this.tray?.update(fa.tray, t, fa.alarms.destacker);
     this.bin?.setCount(fa.counters.bins[this.def.bin!] ?? 0);
     this.scrap.setCount(f.scrap);
 
