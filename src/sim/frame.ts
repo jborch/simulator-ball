@@ -4,10 +4,17 @@ import type { Frame, RobotFrame, StationFrame } from './protocol';
 import { tubSize } from './cartridges';
 import type { CartridgeCell, Dial, Orienter, PlantStation, Robot, SimState } from './types';
 
+/**
+ * Positions go out to 0.1 mm and speeds to 1 mm/s: far finer than anyone can see, and it keeps
+ * a frame (30 a second, per viewer) about a third smaller than full-precision floats.
+ */
+const mm = (x: number) => Math.round(x * 1e4) / 1e4;
+const r3 = (x: number) => Math.round(x * 1e3) / 1e3;
+
 function robotFrame(r: Robot): RobotFrame {
   const held = r.holding;
   const label = held?.kind === 'pen' ? held.load.mark || null : held?.kind === 'part' ? (held.label ?? null) : null;
-  return { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null, label };
+  return { a: mm(r.a), r: mm(r.r), z: mm(r.z), phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null, label };
 }
 
 /** 0..1 through the camera's current cycle, or null when it isn't inspecting. */
@@ -46,8 +53,8 @@ function cartridgeFrame(cfg: LineConfig, c: CartridgeCell): Frame['cartridges'] 
   return {
     used: c.tub?.used ?? tubSize(cfg),
     changing: c.changing,
-    robot: { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: r.holding && !['toPocket', 'down', 'grip'].includes(r.step) ? ['cartridge'] : null, label: null },
-    collets: c.collets.map((x) => [x.u, x.cartridge ? 1 : 0]),
+    robot: { a: mm(r.a), r: mm(r.r), z: mm(r.z), phase: r.phase, holding: r.holding && !['toPocket', 'down', 'grip'].includes(r.step) ? ['cartridge'] : null, label: null },
+    collets: c.collets.map((x) => [mm(x.u), x.cartridge ? 1 : 0]),
   };
 }
 
@@ -76,27 +83,27 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     beltSpeed: plant.beltSpeed,
     movers: plant.movers.map((m) => ({
       id: m.id,
-      s: m.s,
-      v: m.v,
+      s: mm(m.s),
+      v: r3(m.v),
       status: m.tag.status,
       parts: m.load ? [...m.load.parts] : [],
       srId: m.load?.srId ?? null,
       mark: m.load?.mark || null,
       laps: m.laps,
-      lastLap: m.lastLap,
+      lastLap: m.lastLap === null ? null : Math.round(m.lastLap * 100) / 100,
     })),
     stations,
-    feeders: plant.feeders.map((f) => ({ id: f.id, items: f.items.map((it) => it.x), jam: f.jam })),
+    feeders: plant.feeders.map((f) => ({ id: f.id, items: f.items.map((it) => mm(it.x)), jam: f.jam })),
     orienter: { phase: plant.orienter.phase, progress: orienterProgress(cfg, plant.orienter) },
     dial: dialFrame(cfg, plant.dial),
     alarms: { ...plant.alarms },
-    distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
+    distribution: { items: plant.distribution.items.map((it) => mm(it.x)), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
     cartridges: cartridgeFrame(cfg, plant.cartridges),
     tray: {
       count: plant.tray.count,
       changing: plant.tray.changing,
       // Trays on the conveyor: [position, pens, state 0 moving, 1 being checked, 2 good, 3 rejected].
-      line: plant.trayLine.trays.map((t) => [t.x, t.count, t.phase === 'checking' ? 1 : t.ok === null ? 0 : t.ok ? 2 : 3]),
+      line: plant.trayLine.trays.map((t) => [mm(t.x), t.count, t.phase === 'checking' ? 1 : t.ok === null ? 0 : t.ok ? 2 : 3]),
       stacked: plant.trayLine.stacked,
       stack: plant.tray.stack,
       rejected: plant.trayLine.rejected,

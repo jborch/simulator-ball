@@ -211,7 +211,12 @@ commands, faults, batches, CATCH.AI, cameras, RTSP) and includes its own 3D work
    - Processes, item view and the snap time series came with milestones 2–5. New here: **`Inspection Result`**, the original's integer property (Failed 0, Passed 1, Inconclusive 2), on every inspection record next to `Inspection Passed`; a test checks it always matches the item result.
    - **`CATCHAI_TIME_OFFSET_HOURS`**, the original's `HoursToSubtractFromLoggedTime`: every reported time (items, merges, device data, batch periods, and the setup's look-back for scoped ids) moves that much earlier. A test reports the same run with and without a 3 h offset and compares every timestamp.
    - **Load:** ≈ 250 device data rows a second while running, nearly all snap samples. Against the in-memory server, ticking once a second as the host does, the reporter delivered every one of > 60 000 samples in 10 min with never more than ≈ 2 000 rows waiting (the cap is 100 000). **Not yet run against the demo server:** that publishes data and needs a key, so it's left for an explicit go-ahead. If its bulk endpoints turn out slower, `snap.sampleHz` can go down (D7).
-8. **HUD and cameras:** new cameras, unit KPIs, buffer gauges, snap chart, inspector, frame-size check, README and PLAN update.
+8. ✅ **HUD and cameras:** new cameras, unit KPIs, buffer gauges, snap chart, inspector, frame-size check, README and PLAN update. Notes:
+   - **Cameras:** six, each on a part of the line: overview, infeed (EM10–EM12), spring base (EM13–EM15), cartridge (EM00, collets, EM41), housing (dial EM30–EM32, EM40), outfeed (EM60, EM61, stack and rack). All are RTSP ids too.
+   - **HUD, Sub-lines:** a gauge per buffer (checked springs, spring bases on the conveyor and in the cups, labelled housings, label roll, full collets, cartridges left in the nest, empty trays), red with the reason when the equipment or consumable is down.
+   - **HUD, Quality:** first-pass yield per unit and the four presses' fail rates on one scale (the EM14B outlier shows as the longest bar), counted from events since connecting; and EM40's last snap curve with its peak and verdict, with a hover readout. Single series in the palette's dark-surface blue, values as direct labels.
+   - **Mover inspector:** rejects and retests per mover since connecting, and its condition (e.g. mover 2: worn fixture, badness 22, every check reads 3.3 σ low; flaky RFID tag).
+   - **Frames:** positions rounded to 0.1 mm and speeds to 1 mm/s took a frame from 10.7 to 8.6 KB on average (within the ≈ 10 KB budget of §4.9). Each snap curve adds ≈ 8 KB once per pen; late viewers don't get old curves.
 
 ## 8. Risks
 

@@ -1,4 +1,4 @@
-import type { LineConfig } from '../sim/config';
+import type { LineConfig, MoverProfile } from '../sim/config';
 import { ACCEPTS, SUBLINE_FAULTS, overloadTargets } from '../sim/commands';
 import type { ReporterStatus } from '../catchai/reporter';
 import type { ConnectionState } from '../sim/client';
@@ -10,6 +10,18 @@ const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)
 
 /** Commands without arguments, sent by buttons with a data-cmd attribute. */
 type SimpleCommand = 'start' | 'stop' | 'hold' | 'unhold' | 'abort' | 'reset' | 'endBatch';
+
+/** A worn mover's deliberate faults, as an operator would note them. */
+function describeWear(w: Partial<MoverProfile>, shift: number): string {
+  const parts: string[] = [];
+  if (w.badness) parts.push(`worn fixture (badness ${w.badness}: every check reads ${(w.badness * shift).toFixed(1)} σ low)`);
+  if (w.rfidOk !== undefined) parts.push(`flaky RFID tag (${(100 * w.rfidOk).toFixed(0)} % first reads)`);
+  if (w.mu !== undefined) parts.push(`worn drive pad (μ ${w.mu})`);
+  if (w.settle !== undefined) parts.push(`bounces at gates (settles in ${w.settle} s)`);
+  if (w.slip !== undefined) parts.push(`slips ${(100 * w.slip).toFixed(0)} % on the belt`);
+  if (w.fixtureOffset !== undefined) parts.push(`fixture ${w.fixtureOffset} mm off`);
+  return parts.join('; ');
+}
 
 const STATUS_TEXT: Record<string, string> = {
   waiting: 'Waiting',
@@ -33,6 +45,14 @@ export class Hud {
   onReportingOff?: () => void;
   /** Problem the user dismissed; the alert comes back when the problem changes. */
   private dismissed: string | null = null;
+  /** Tallies from the events since connecting: pass/fail per unit and per EM14 press, per mover. */
+  private units: Record<string, { n: number; failed: number }> = {};
+  private presses: Record<string, { n: number; failed: number }> = {};
+  private movers: Record<string, { rejects: number; retests: number }> = {};
+  /** EM40's latest snap curve, and the verdicts of recent EM40 records by item. */
+  private snap: { force: number[]; displacement: number[]; item: number } | null = null;
+  private readonly snapVerdicts = new Map<number, { result: string; reason?: string; peak?: number; position?: number }>();
+  private frames = 0;
 
   constructor(
     private readonly cfg: LineConfig,
@@ -121,8 +141,13 @@ export class Hud {
   /** Connection to the server. Frames stop while it's down, so show that instead of a stale state. */
   connection(state: ConnectionState): void {
     if (state === 'open') {
-      // The server sends its recent events again on connect.
+      // The server sends its recent events again on connect: start the tallies afresh.
       this.log.length = 0;
+      this.units = {};
+      this.presses = {};
+      this.movers = {};
+      this.snapVerdicts.clear();
+      this.renderQuality();
       return;
     }
     const machine = $('#machine');
@@ -184,6 +209,109 @@ export class Hud {
     $<HTMLInputElement>('#b-auto').checked = f.batchSettings.autoNext;
 
     this.updateInspector(f);
+    // Buffers change slowly; a few times a second is plenty.
+    if (this.frames++ % 6 === 0) this.renderBuffers(f);
+  }
+
+  /** How full each sub-line buffer is, and whether its consumable or equipment is down. */
+  private renderBuffers(f: Frame): void {
+    const c = this.cfg;
+    const springs = c.feeders.find((x) => x.inline)!;
+    const checked = f.feeders.find((x) => x.id === springs.id)?.items.filter((x) => x < springs.inline!.at).length ?? 0;
+    const springRoom = Math.floor(springs.inline!.at / springs.pitch) + 1;
+    const cups = f.distribution.cups.filter((x) => x === 1).length;
+    const labelled = f.dial.slots.filter((x) => x === 3).length;
+    const collets = f.cartridges.collets.filter(([, full]) => full === 1).length;
+    const pockets = c.cartridges.tub.cols * c.cartridges.tub.rows;
+    const a = f.alarms;
+    const rows: [string, number, number, string, boolean][] = [
+      ['Checked springs', checked, springRoom, `${checked}/${springRoom}`, false],
+      ['Spring bases', f.distribution.items.length + cups, 30, a.orienter > 0 ? 'EM13 fault' : `${f.distribution.items.length} + ${cups}/4`, a.orienter > 0],
+      ['Labelled housings', labelled, c.dial.nests, a.dialJam > 0 ? 'dial jam' : `${labelled}/${c.dial.nests}`, a.dialJam > 0],
+      ['Label roll', f.dial.roll, c.faults.labelRoll, a.labelRoll > 0 ? 'changing' : String(f.dial.roll), a.labelRoll > 0],
+      ['Full collets', collets, c.cartridges.collets.count, `${collets}/${c.cartridges.collets.count}`, false],
+      ['Cartridges in nest', pockets - f.cartridges.used, pockets, f.cartridges.changing > 0 ? 'changing' : String(pockets - f.cartridges.used), false],
+      ['Empty trays', f.tray.stack, c.faults.trayStack, a.destacker > 0 ? 'refilling' : String(f.tray.stack), a.destacker > 0],
+    ];
+    $('#buffers').innerHTML = rows
+      .map(([name, v, cap, text, alarm]) => `<div class="gauge${alarm ? ' alarm' : ''}"><span>${name}</span><span class="g-bar"><i style="width:${Math.min(100, (100 * v) / cap)}%"></i></span><b>${text}</b></div>`)
+      .join('');
+  }
+
+  /** Yield per unit, the four presses side by side, and EM40's last snap curve. */
+  private renderQuality(): void {
+    const pct = (x: number) => `${(100 * x).toFixed(1)} %`;
+    $('#fpy').innerHTML = this.cfg.units
+      .map((u) => {
+        const t = this.units[u.id];
+        const y = t && t.n > 0 ? 1 - t.failed / t.n : null;
+        return `<div class="gauge" title="${u.name}: ${t ? `${t.n - t.failed} of ${t.n} checks passed` : 'no checks yet'}"><span>${u.id}</span><span class="g-bar"><i style="width:${y === null ? 0 : 100 * y}%"></i></span><b>${y === null ? '–' : pct(y)}</b></div>`;
+      })
+      .join('');
+    const ids = this.cfg.stations.filter((d) => d.group === 'EM14').map((d) => d.id);
+    const rates = ids.map((id) => {
+      const t = this.presses[id];
+      return t && t.n > 0 ? t.failed / t.n : null;
+    });
+    // One scale for all four, so the outlier shows as the longest bar.
+    const top = Math.max(0.4, ...rates.map((r) => r ?? 0));
+    $('#presses').innerHTML = ids
+      .map((id, i) => {
+        const r = rates[i];
+        const t = this.presses[id];
+        return `<div class="gauge" title="${t ? `${t.failed} of ${t.n} spring bases failed` : 'no cycles yet'}"><span>${id}</span><span class="g-bar"><i style="width:${r === null ? 0 : (100 * r) / top}%"></i></span><b>${r === null ? '–' : pct(r)}</b></div>`;
+      })
+      .join('');
+    this.renderSnap();
+  }
+
+  private renderSnap(): void {
+    const svg = $('#snap') as unknown as SVGSVGElement;
+    const snap = this.snap;
+    if (!snap) {
+      svg.innerHTML = '';
+      return;
+    }
+    const v = this.snapVerdicts.get(snap.item);
+    const verdict = !v ? '' : v.result === 'Passed' ? ' · passed' : ` · ${v.reason ?? 'failed'}`;
+    const peakText = v?.peak !== undefined ? `: ${v.peak.toFixed(1)} N at ${v.position!.toFixed(2)} mm` : '';
+    $('#snap-title').textContent = `EM40 snap, housing ${snap.item}${peakText}${verdict}`;
+    const W = 276;
+    const H = 120;
+    const [L, R, T, B] = [32, 8, 6, 16];
+    const xmax = this.cfg.snap.stroke;
+    const ymax = Math.max(10, Math.ceil(Math.max(...snap.force) / 10) * 10);
+    const sx = (x: number) => L + (x / xmax) * (W - L - R);
+    const sy = (y: number) => T + (1 - y / ymax) * (H - T - B);
+    const step = ymax > 60 ? 20 : 10;
+    let g = '<g class="grid">';
+    // Units ride on the outermost tick labels, so nothing overlaps.
+    for (let y = 0; y <= ymax; y += step) g += `<line x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}"/><text x="${L - 4}" y="${sy(y) + 3}" text-anchor="end">${y}${y + step > ymax ? ' N' : ''}</text>`;
+    for (let x = 0; x <= xmax; x += 2) g += `<text x="${sx(x)}" y="${H - 4}" text-anchor="${x === xmax ? 'end' : 'middle'}">${x}${x === xmax ? ' mm' : ''}</text>`;
+    g += '</g>';
+    // At most ~300 points: plenty for 250 px.
+    const every = Math.max(1, Math.floor(snap.force.length / 300));
+    const pts = snap.force.filter((_, i) => i % every === 0).map((y, i) => `${sx(snap.displacement[i * every]).toFixed(1)},${sy(y).toFixed(1)}`);
+    g += `<polyline class="curve" points="${pts.join(' ')}"/>`;
+    if (v?.peak !== undefined) g += `<circle class="peak" cx="${sx(v.position!)}" cy="${sy(v.peak)}" r="4"/>`;
+    g += `<line class="xh" y1="${T}" y2="${H - B}" visibility="hidden"/>`;
+    svg.innerHTML = g;
+    const xh = svg.querySelector('.xh')!;
+    const tip = $('#snap-tip');
+    svg.onmousemove = (e) => {
+      const r = svg.getBoundingClientRect();
+      const x = (((e.clientX - r.left) / r.width) * W - L) / (W - L - R);
+      const i = Math.max(0, Math.min(snap.force.length - 1, Math.round(x * (snap.force.length - 1))));
+      xh.setAttribute('x1', String(sx(snap.displacement[i])));
+      xh.setAttribute('x2', String(sx(snap.displacement[i])));
+      xh.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.textContent = `${snap.displacement[i].toFixed(2)} mm · ${snap.force[i].toFixed(1)} N`;
+    };
+    svg.onmouseleave = () => {
+      xh.setAttribute('visibility', 'hidden');
+      tip.hidden = true;
+    };
   }
 
   private updateInspector(f: Frame): void {
@@ -193,6 +321,8 @@ export class Hud {
     if (!m) return;
     const station = f.stations.find((s) => s.moverId === m.id);
     const row = (k: string, v: string) => `<div><span>${k}</span><b>${v}</b></div>`;
+    const id = String(m.id).padStart(2, '0');
+    const worn = this.cfg.moverProfiles.worn[m.id];
     $('#inspector-title').textContent = `Mover ${String(m.id).padStart(2, '0')}`;
     $('#inspector-body').innerHTML = [
       row('Tag', m.status.toUpperCase()),
@@ -202,17 +332,60 @@ export class Hud {
       row('Speed', `${m.v.toFixed(3)} m/s`),
       row('Laps', String(m.laps)),
       row('Last lap', m.lastLap === null ? '–' : `${m.lastLap.toFixed(1)} s`),
+      row('Rejected / retested', `${this.movers[id]?.rejects ?? 0} / ${this.movers[id]?.retests ?? 0} (since connect)`),
+      row('Condition', worn ? describeWear(worn, this.cfg.fragileShift) : 'normal'),
       m.mark ? `<div class="mark"><span>Identifier</span><code>${m.mark}</code></div>` : '',
     ].join('');
   }
 
   addEvents(events: SimEvent[]): void {
+    let quality = false;
     for (const e of events) {
       const entry = this.describe(e);
       if (entry) this.log.unshift(entry);
+      quality = this.tally(e) || quality;
     }
+    if (quality) this.renderQuality();
     if (this.log.length > 12) this.log.length = 12;
     $('#log').innerHTML = this.log.map((l) => `<div class="${l.cls}"><time>${l.time}</time>${l.text}</div>`).join('');
+  }
+
+  /** Adds an event to the quality tallies; true if it changed them. */
+  private tally(e: SimEvent): boolean {
+    if (e.kind === 'series') {
+      this.snap = { force: e.values.Force, displacement: e.values.Displacement, item: e.scopedId };
+      return true;
+    }
+    if (e.kind !== 'processed') return false;
+    let changed = false;
+    if (e.result === 'Passed' || e.result === 'Failed') {
+      const unit = e.process.split('-')[1];
+      const u = (this.units[unit] ??= { n: 0, failed: 0 });
+      u.n++;
+      if (e.result === 'Failed') u.failed++;
+      const press = this.cfg.stations.find((d) => d.group === 'EM14' && e.process.endsWith(`-${d.id}`));
+      if (press) {
+        const p = (this.presses[press.id] ??= { n: 0, failed: 0 });
+        p.n++;
+        if (e.result === 'Failed') p.failed++;
+      }
+      if (e.properties?.['Peak Force'] !== undefined) {
+        this.snapVerdicts.set(e.scopedId, {
+          result: e.result,
+          reason: e.properties['Failure Reason'] as string | undefined,
+          peak: e.properties['Peak Force'] as number,
+          position: e.properties['Snap Position'] as number,
+        });
+        if (this.snapVerdicts.size > 50) this.snapVerdicts.delete(this.snapVerdicts.keys().next().value!);
+      }
+      changed = true;
+    }
+    if (e.carrier) {
+      const m = (this.movers[e.carrier] ??= { rejects: 0, retests: 0 });
+      if (e.properties?.['Reject Cause'] && e.properties.Bin) m.rejects++;
+      if (e.result === 'Inconclusive') m.retests++;
+    }
+    return changed;
   }
 
   private describe(e: SimEvent): { time: string; text: string; cls: string } | null {

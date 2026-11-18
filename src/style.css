@@ -608,3 +608,110 @@ body.capture .labels {
 body.capture #view {
   cursor: none;
 }
+
+/* Sub-line buffers and quality charts (dark panel: palette dark-surface tokens). */
+#side {
+  --viz-series: #3987e5;
+  --viz-ink: #f0efec;
+  --viz-ink-2: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-grid: #2c2c2a;
+}
+
+.gauge {
+  display: grid;
+  grid-template-columns: 104px 1fr 64px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin: 3px 0;
+  color: var(--viz-ink-2);
+}
+
+.gauge .g-bar {
+  height: 6px;
+  background: var(--viz-grid);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gauge .g-bar i {
+  display: block;
+  height: 100%;
+  background: var(--viz-series);
+  border-radius: 3px;
+}
+
+.gauge b {
+  text-align: right;
+  font-weight: 500;
+  color: var(--viz-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge.alarm b {
+  color: #ff6b5e;
+}
+
+.q-title {
+  font-size: 11px;
+  color: var(--viz-ink-2);
+  margin: 8px 0 4px;
+}
+
+#fpy .gauge,
+#presses .gauge {
+  grid-template-columns: 52px 1fr 64px;
+}
+
+#snap-wrap {
+  position: relative;
+}
+
+#snap {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+#snap .grid line {
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+}
+
+#snap text {
+  fill: var(--viz-muted);
+  font-size: 9px;
+}
+
+#snap .curve {
+  fill: none;
+  stroke: var(--viz-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+#snap .peak {
+  fill: var(--viz-series);
+  stroke: #1a1a19;
+  stroke-width: 2;
+}
+
+#snap .xh {
+  stroke: var(--viz-muted);
+  stroke-width: 1;
+}
+
+#snap-tip {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 11px;
+  color: var(--viz-ink);
+  background: #1a1a19;
+  border: 1px solid var(--viz-grid);
+  border-radius: 4px;
+  padding: 2px 6px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}

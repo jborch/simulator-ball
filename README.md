@@ -89,7 +89,7 @@ Notes for deploying:
   }
   ```
 
-- **Bandwidth:** about 30 frames a second of roughly 6.5 KB JSON each, so under 200 KB/s per viewer before compression. Messages are compressed with `permessage-deflate`. If a viewer falls behind, frames are skipped for it. A viewer more than 16 MB behind is disconnected.
+- **Bandwidth:** about 30 frames a second of roughly 9 KB JSON each, so under 300 KB/s per viewer before compression, plus EM40's snap curve (≈ 8 KB) for every pen. Messages are compressed with `permessage-deflate`. If a viewer falls behind, frames are skipped for it. A viewer more than 16 MB behind is disconnected.
 - **Use a process manager** that restarts the server on failure, such as systemd or pm2. Example systemd unit:
 
   ```ini

@@ -55,6 +55,20 @@
           <label class="chk"><input id="b-auto" type="checkbox" checked /> Auto next</label>
         </div>
       </section>
+      <h3>Sub-lines</h3>
+      <section id="buffers"></section>
+      <h3>Quality</h3>
+      <section id="quality">
+        <div class="q-title">First-pass yield by unit (since connect)</div>
+        <div id="fpy"></div>
+        <div class="q-title">Spring base presses EM14A–D: fail rate</div>
+        <div id="presses"></div>
+        <div class="q-title" id="snap-title">EM40 snap: no curve yet</div>
+        <div id="snap-wrap">
+          <svg id="snap" viewBox="0 0 276 120" role="img" aria-label="Force against displacement of the last EM40 press stroke"></svg>
+          <div id="snap-tip" hidden></div>
+        </div>
+      </section>
       <h3>Faults</h3>
       <section id="faults">
         <select id="fault-target"></select>
