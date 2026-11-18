@@ -1,8 +1,8 @@
 // Line configuration. SI units throughout: metres, seconds, m/s.
 
 export type Step = 'body' | 'spring' | 'springInsp' | 'springBase' | 'hookInsp' | 'cartridge' | 'housing' | 'final';
-export type PartType = 'body' | 'spring' | 'springBase' | 'cartridge' | 'housing' | 'cap';
-export type QualityKey = 'springTension' | 'springAngle' | 'baseAngle' | 'seatForce' | 'hook' | 'seatDepth' | 'snapForce';
+export type PartType = 'body' | 'spring' | 'springBase' | 'cartridge' | 'housing';
+export type QualityKey = 'springTension' | 'springAngle' | 'baseAngle' | 'seatForce' | 'hook' | 'labelQuality' | 'seatDepth' | 'snapForce' | 'snapPosition';
 export type StationKind = 'load' | 'assemble' | 'inspect' | 'reject' | 'unload';
 
 export interface Limits {
@@ -93,6 +93,8 @@ export interface StationDef {
    * LogProcessedDataOnSourceItem: EM14 on the spring base, EM40 on the housing).
    */
   logOnSource?: boolean;
+  /** Records the force/displacement curve of its press stroke and judges the snap from it (EM40). */
+  snap?: boolean;
   /** Also verifies the DataMatrix identifier against tracking. */
   readsCode?: boolean;
   bin?: string;
@@ -130,16 +132,15 @@ export const LINE = {
   },
   /**
    * Part geometry along the pen axis: where each part's base sits above the fixture seat in the
-   * finished assembly, and its length. The body is an open tube: the spring and the cartridge go
-   * inside it, the housing slides over it and the cap closes the housing.
+   * finished assembly, and its length. The body is an open tube: the spring, spring base and
+   * cartridge go inside it, and the housing (with its end cap) slides over it.
    */
   parts: {
     body: { seat: 0, length: 0.11, radius: 0.0065 },
     spring: { seat: 0.006, length: 0.045, radius: 0.0048 },
     springBase: { seat: 0.051, length: 0.006, radius: 0.0048 },
     cartridge: { seat: 0.057, length: 0.073, radius: 0.0048 },
-    housing: { seat: 0.008, length: 0.12, radius: 0.0085 },
-    cap: { seat: 0.128, length: 0.035, radius: 0.009 },
+    housing: { seat: 0.008, length: 0.155, radius: 0.009 },
   } satisfies Record<PartType, PartGeometry> as Record<PartType, PartGeometry>,
   plantDt: 0.001,
   plcScan: 0.01,
@@ -166,7 +167,8 @@ export const LINE = {
       },
     },
     { id: 'bases', unit: 'UN01', part: 'springBase', interval: 0.8, track: 0.2, pitch: 0.012, speed: 0.12, pickZ: 0.2 },
-    { id: 'housings', unit: 'UN02', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3 },
+    // Housings go onto the dial at EM30: the track ends at the dial's load position.
+    { id: 'housings', unit: 'UN02', part: 'housing', interval: 1.1, track: 0.24, pitch: 0.03, speed: 0.12, pickZ: 0.3, r: 0.61 },
   ] as FeederDef[],
   /**
    * EM13 takes spring bases off the end of their feeder track, turns each to the right angle and
@@ -182,6 +184,26 @@ export const LINE = {
    * coordinates, along the straight). A diverter at each station pushes a passing part into the
    * station's pick cup when the cup is empty; parts nobody takes queue at the end stop.
    */
+  /**
+   * The housing line (EM30–EM32) on an indexing dial beside EM40 (station-local a, r of its
+   * centre). Every dwell each position does its work at once, then the dial turns one pitch:
+   * EM30 loads a housing from the feeder, EM31 prints the pen's GS1 identifier on a label and
+   * wraps it on, EM32 checks the label and reads the code back, rejects are pushed off, and
+   * EM40's robot picks good housings at the unload position, the one nearest the belt.
+   */
+  dial: {
+    station: 'EM40', a: 0, r: 0.47, radius: 0.14, nests: 8, feeder: 'housings', index: 0.5, eject: 0.2,
+    /** Positions around the dial, counted in the direction it turns from the one facing outward... */
+    positions: { load: 2, label: 3, inspect: 4, eject: 5, unload: 6 },
+    /** ...so position 6 faces the belt, where the robot picks. Gripper tip height there. */
+    pickZ: 0.3,
+    load: { id: 'EM30', name: 'Housing infeed', unit: 'UN02', mech: 0.5 },
+    label: { id: 'EM31', name: 'Label assembly', unit: 'UN02', mech: 1.0 },
+    inspect: {
+      id: 'EM32', name: 'Label inspection', unit: 'UN02', fixed: 0.3,
+      inspect: { key: 'labelQuality', lower: 0.6, upper: 1.0, noise: 0.01, unit: '', cause: 'Label unreadable', high: 'Label damaged', low: 'Label misaligned' } as Limits,
+    },
+  },
   distribution: { from: 2.2, speed: 0.12, pitch: 0.012, r: 0.3, cupR: 0.24, divert: 0.3, cupZ: 0.21, stations: ['EM14A', 'EM14B', 'EM14C', 'EM14D'] },
   /** Random faults, all drawn from the seeded RNG. Repair times are uniform in [min, max] seconds. */
   faults: {
@@ -232,7 +254,7 @@ export const LINE = {
     {
       id: 'EM11', name: 'Load body + mount spring', unit: 'UN01', kind: 'load', s: 0.6, mech: 0, fixed: 0,
       robots: [
-        { id: 'EM11-BODY', home: -0.15, source: 'bodies', parts: ['body'], step: 'body', insert: 0.03, mech: 0, laser: 0.3 },
+        { id: 'EM11-BODY', home: -0.15, source: 'bodies', parts: ['body'], step: 'body', insert: 0.03, mech: 0 },
         { id: 'EM11-SPRING', home: 0.15, source: 'springs', parts: ['spring'], step: 'spring', insert: 0.11, mech: 0.3 },
       ],
     },
@@ -271,9 +293,11 @@ export const LINE = {
       robots: [{ id: 'EM41B', home: 0, source: 'nest', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 3.0 }],
     },
     {
-      id: 'EM40', name: 'Mount housing + cap', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.6, mech: 0, fixed: 0, requires: ['cartridge'],
-      robots: [{ id: 'EM40', home: 0, source: 'housings', parts: ['housing', 'cap'], step: 'housing', insert: 0.11, mech: 0.6 }],
-      inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window' },
+      // Snaps the labelled housing over the pen and judges the snap from its force curve. Its
+      // record goes on the housing, as in the original.
+      id: 'EM40', name: 'Mount housing', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.6, mech: 0, fixed: 0, requires: ['cartridge'], logOnSource: true, snap: true,
+      robots: [{ id: 'EM40', home: 0, source: 'dial', parts: ['housing'], step: 'housing', insert: 0.11, mech: 0.6 }],
+      inspect: { key: 'snapForce', lower: 25, upper: 39, noise: 0.3, unit: 'N', cause: 'Snap force out of window', high: 'Peak force too high', low: 'Peak force too low' },
     },
     {
       id: 'EM50', name: 'Final inspection', unit: 'UN02', kind: 'inspect', s: BOTTOM + 2.2, mech: 0.4, fixed: 0.6, step: 'final', requires: ['housing'], readsCode: true,
@@ -292,13 +316,21 @@ export const LINE = {
     seatForce: { mean: 2.1, sd: 0.3, perMmOffset: 0.3 },
     hook: { mean: 1.0, sd: 0.15, perMmOffset: 0.1 },
     seatDepth: { mean: 0, sd: 0.1, perMmOffset: 0.3 },
+    labelQuality: { mean: 0.85, sd: 0.08, perMmOffset: 0 },
     snapForce: { mean: 32, sd: 2.5, perMmOffset: 4 },
+    snapPosition: { mean: 4.2, sd: 0.15, perMmOffset: 0.3 },
   } satisfies Record<QualityKey, { mean: number; sd: number; perMmOffset: number }>,
   /**
    * Each pass through a fragile station, and each point of the mover's badness, shifts every
    * later measurement of the pen down by this many σ (the original line's rule).
    */
   fragileShift: 0.15,
+  /**
+   * EM40's snap curve: force over the last `stroke` mm of the press, sampled at `sampleHz` (the
+   * original samples every ms). The snap must come within `position` (mm), and a housing whose
+   * clip doesn't engage (rate `noSnap`) shows no drop at all.
+   */
+  snap: { stroke: 6, position: [3.6, 4.8] as [number, number], sampleHz: 1000, noSnap: 0.003, noise: 0.25 },
   moverProfiles: {
     mu: [0.115, 0.125] as [number, number],
     slip: [0, 0.02] as [number, number],
@@ -353,6 +385,8 @@ export interface FeederDef {
   speed: number;
   /** Gripper height when picking from the end of the track; feeders sit on stands so parts are near safe height. */
   pickZ: number;
+  /** Where the track's pick end is (station-local r), if not at `layout.feederR`. */
+  r?: number;
   /** Inline inspection on the track: camera at `at`, air jet at `jetAt` (track positions, 0 = pick end). */
   inline?: SubProcessDef & { at: number; jetAt: number; exposure: number };
 }

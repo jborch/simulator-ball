@@ -55,8 +55,24 @@ export type Op =
 
 export type InspectOp = Extract<Op, { kind: 'inspect' }>;
 
+/** EM40's snap: the force curve of the press stroke and what was judged from it. */
+export interface SnapResult {
+  peak: number;
+  /** Displacement (mm into the stroke) where the force peaked and the clip snapped. */
+  position: number;
+  accepted: boolean;
+  reason: string | null;
+  /** Samples, `interval` ms apart from the start of the stroke. */
+  force: number[];
+  displacement: number[];
+  interval: number;
+  /** Sim time the stroke ended (the last sample). */
+  end: number;
+}
+
 export interface CycleResult {
   measurement: number | null;
+  snap?: SnapResult;
   /** SR ids of the parts a robot placed, where they were tracked before (null where not). */
   partIds?: (number | null)[];
   /** Decoded DataMatrix, or null if unreadable. Undefined when not read. */
@@ -82,8 +98,11 @@ export interface Reader {
   data: Tag | null;
 }
 
-/** What a robot gripper holds. A part carries the SR id it was tracked by on its sub-line, if any. */
-export type Held = { kind: 'part'; parts: PartType[]; ids?: (number | null)[] } | { kind: 'pen'; load: Load };
+/**
+ * What a robot gripper holds. A part carries the SR id it was tracked by on its sub-line, if any,
+ * and a housing the label printed on it.
+ */
+export type Held = { kind: 'part'; parts: PartType[]; ids?: (number | null)[]; label?: string } | { kind: 'pen'; load: Load };
 
 export type RobotJob = 'prepick' | 'place' | 'pickMover' | 'drop';
 
@@ -182,6 +201,34 @@ export interface Orienter {
   pass: boolean | null;
 }
 
+/** A housing on the dial. */
+export interface DialPart {
+  uid: number;
+  /** PLC shift register: SR id and the identifier to print (set once loaded), and EM32's verdict. */
+  sr: number | null;
+  print: string | null;
+  ok: boolean | null;
+  /** What is physically on it: the printed label (GS1 element string) and the label's true quality. */
+  label: string | null;
+  quality: number | null;
+  inspected: boolean;
+}
+
+export type DialOp = 'load' | 'label' | 'inspect' | 'eject';
+
+/** The housing dial (EM30–EM32): parts by position, and each position's job in this dwell. */
+export interface Dial {
+  slots: (DialPart | null)[];
+  phase: 'dwell' | 'index';
+  /** Seconds left of the index turn. */
+  turn: number;
+  /** Per position job: seconds left while running (from = start time), 'done' once done this dwell. */
+  jobs: Record<DialOp, { left: number; from: number } | 'done' | null>;
+  /** Finished operations for the PLC to record (sim times). */
+  results: { op: Exclude<DialOp, 'eject'>; uid: number; from: number; to: number; value?: number; code?: string | null }[];
+  nextUid: number;
+}
+
 /** Spring base distribution conveyor with a diverter and pick cup per station. */
 export interface Distribution {
   /** Parts on the conveyor (loop coordinate x), front first, with their SR ids. */
@@ -235,6 +282,7 @@ export interface PlantState {
   feedersOn: boolean;
   orienter: Orienter;
   distribution: Distribution;
+  dial: Dial;
   bins: Record<string, number>;
   feeders: Feeder[];
   nests: Nest[];
@@ -380,7 +428,22 @@ export interface StationEvent {
   logged: number;
 }
 
-export type SimEvent = ItemProcessedEvent | ItemsMergedEvent | MachineEvent | CommandEvent | StationEvent | BatchEvent;
+/** A time series of device data (EM40's snap curve), sent to CATCH.AI one row per sample. */
+export interface SeriesEvent {
+  kind: 'series';
+  process: string;
+  /** Item the series belongs to, for the start event. */
+  scopedId: number;
+  /** Wall-clock ms of the first sample, and ms between samples. */
+  start: number;
+  interval: number;
+  /** One array of samples per property name. */
+  values: Record<string, number[]>;
+  /** Event logged with the first sample. */
+  startEvent: string;
+}
+
+export type SimEvent = ItemProcessedEvent | ItemsMergedEvent | MachineEvent | CommandEvent | StationEvent | BatchEvent | SeriesEvent;
 
 export interface MesState {
   /** Identifier marked on each pen still on the line, by SR id. */

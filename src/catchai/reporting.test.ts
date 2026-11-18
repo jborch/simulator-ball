@@ -160,15 +160,23 @@ describe('CATCH.AI mapping', () => {
     const onMovers = new Set(cat.processes.filter((p) => p.HasCarrier).map((p) => p.DeviceId));
     const pens = items.filter((i) => i.ItemType === 'Pen');
     expect(pens.length).toBeGreaterThan(300);
+    const gs1 = /^\(01\)\d{14}\(17\)\d{6}\(10\)B\d{6}\(21\)[0-9A-Z]{12}$/;
+    // A pen wears its identifier from EM40 on, where the labelled housing goes onto it.
+    const labelled = new Set([`${cfg.id}-UN02-EM50`, `${cfg.id}-UN03-EM60`, `${cfg.id}-UN03-EM60-REJECT`]);
     for (const p of pens) {
       expect(onMovers.has(p.Process)).toBe(true);
       expect(p.CarrierIdentifier).toMatch(/^\d\d$/);
-      expect(p.ItemIdentifier).toMatch(/^\(01\)\d{14}\(17\)\d{6}\(10\)B\d{6}\(21\)[0-9A-Z]{12}$/);
+      if (labelled.has(p.Process)) expect(p.ItemIdentifier).toMatch(gs1);
       expect(p.ScopedId).toBeGreaterThan(5000);
     }
+    // The housing gets the identifier at EM31 (the original's AddIdentifier).
+    const em31 = items.filter((i) => i.Process === `${cfg.id}-UN02-EM31`);
+    expect(em31.length).toBeGreaterThan(30);
+    for (const h of em31) expect(h.ItemType === 'Housing' && gs1.test(h.ItemIdentifier ?? '')).toBe(true);
     // One pen keeps one identifier through the line.
     const byPen = new Map<number, Set<string>>();
-    for (const p of pens) byPen.set(p.ScopedId, (byPen.get(p.ScopedId) ?? new Set()).add(p.ItemIdentifier!));
+    for (const p of pens.filter((x) => x.ItemIdentifier)) byPen.set(p.ScopedId, (byPen.get(p.ScopedId) ?? new Set()).add(p.ItemIdentifier!));
+    expect(byPen.size).toBeGreaterThan(30);
     for (const ids of byPen.values()) expect(ids.size).toBe(1);
     // Inspections report a result, using the server's codes (Failed 0, Passed 1).
     const em12 = items.filter((i) => i.Process === `${cfg.id}-UN01-EM12`);
@@ -186,7 +194,7 @@ describe('CATCH.AI mapping', () => {
       expect(reported.has(x.SourceItemScopedId), `source ${x.SourceItemType} ${x.SourceItemScopedId}`).toBe(true);
       expect(types.get(x.SourceItemScopedId)).toBe(x.SourceItemType);
     }
-    expect(new Set(merges.map((x) => x.SourceItemType))).toEqual(new Set(['Spring', 'SpringBase', 'Cartridge', 'Housing', 'Cap', 'Pen']));
+    expect(new Set(merges.map((x) => x.SourceItemType))).toEqual(new Set(['Spring', 'SpringBase', 'Cartridge', 'Housing', 'Pen']));
     // Pens go into trays; the tray is reported when it leaves.
     const trays = items.filter((i) => i.ItemType === 'Tray');
     for (const x of merges.filter((x) => x.TargetItemType === 'Tray').slice(0, -12)) expect(trays.map((t) => t.ScopedId)).toContain(x.TargetItemScopedId);

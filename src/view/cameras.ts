@@ -52,10 +52,10 @@ export const CAMERAS: CameraDef[] = [
   {
     id: 'housing',
     name: 'Housing',
-    title: 'Close-up · EM40 housing + cap snap',
-    fov: 34,
-    mount: { station: 'EM40', a: 0.0, y: 0.11, r: -0.36 },
-    aim: { station: 'EM40', a: 0.0, y: 0.1, r: 0.0 },
+    title: 'Housing · EM30–EM32 label dial, EM40 snap',
+    fov: 46,
+    mount: { station: 'EM40', a: -0.05, y: 0.17, r: -0.5 },
+    aim: { station: 'EM40', a: -0.05, y: 0.15, r: 0.3 },
   },
   {
     id: 'outfeed',

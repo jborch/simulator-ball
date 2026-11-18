@@ -14,6 +14,7 @@ const frame = (t: number, s: number): Frame => ({
   feeders: [],
     orienter: { phase: 'idle', progress: 0 },
     distribution: { items: [], cups: [] },
+    dial: { slots: [], labels: [], turn: 0, active: { load: false, label: false, inspect: false, eject: false } },
   nests: [],
   tray: { count: 0, changing: 0, queue: [] },
   batch: null,

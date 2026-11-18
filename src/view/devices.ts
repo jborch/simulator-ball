@@ -45,7 +45,7 @@ class ArmView {
     this.arm.position.x = r.a;
     this.carriage.position.z = -r.r;
     this.column.position.y = r.z;
-    this.held.show(r.holding);
+    this.held.show(r.holding, r.label);
     // Jaws close on the held part's top; open a few mm wider when empty.
     const half = r.holding ? gripRadius(this.cfg, r.holding) + 0.0025 : 0.014;
     this.fingers[0].position.z = half;
@@ -180,7 +180,7 @@ export class FeederView {
     models: Models,
   ) {
     const def = cfg.feeders.find((f) => f.id === id)!;
-    this.feederR = cfg.layout.feederR;
+    this.feederR = def.r ?? cfg.layout.feederR;
     // Parts queue on the track at the height the gripper takes them from.
     const trackY = def.pickZ - heldLength(cfg, parts);
     const r0 = this.feederR - 0.02;
@@ -233,7 +233,7 @@ export class FeederView {
 
     if (def.inline) this.inline = this.buildInline(def.inline, trackY);
 
-    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings (capped)' };
+    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings' };
     this.name = names[def.part] ?? def.id;
     const l = label(this.name, 'label feeder');
     l.position.copy(local(0, rimY + 0.08, bowlC));
@@ -244,7 +244,7 @@ export class FeederView {
       if (def.part === 'body') return models.pen_body.clone(true);
       if (def.part === 'spring') return models.spring.clone(true);
       if (def.part === 'springBase') return models.spring_base.clone(true);
-      return housingWithCap(cfg, models);
+      return housingWithCap(models);
     };
     // Bulk parts lie on the bowl floor in a deterministic jumble, roughly along the wall.
     for (let i = 0; i < 12; i++) {
@@ -414,7 +414,7 @@ export class TrayView {
   ) {
     const t = cfg.layout.tray;
     // The gripper lets go with the pen's base just above the tray floor.
-    const fullPen = heldLength(cfg, ['body', 'spring', 'cartridge', 'housing', 'cap']);
+    const fullPen = heldLength(cfg, ['body', 'spring', 'springBase', 'cartridge', 'housing']);
     const penBase = cfg.layout.z.tray - fullPen;
     this.trayY = penBase - 0.006;
     // Conveyor: frame on the table with a dark belt on top, side guides at tray height.
@@ -471,10 +471,17 @@ export class TrayView {
   }
 }
 
-/** A finished pen (all parts, body and code visible through the housing's window), origin at the body's base. */
+/**
+ * Code printed on the labels of finished pens in trays and bins. Those don't track which pen is
+ * which, so they all show this sample; pens on movers and in grippers show their own.
+ */
+const SAMPLE_CODE = '(01)05712345000014(17)291114(10)B261114(21)A7K2P9X4Q1RZ';
+
+/** A finished, labelled pen, origin at the body's base. */
 export function finishedPen(cfg: LineConfig, models: Models): THREE.Object3D {
   const a = new AssemblyView(cfg, models);
-  a.show(['body', 'spring', 'cartridge', 'housing', 'cap']);
+  a.show(['body', 'spring', 'springBase', 'cartridge', 'housing']);
+  a.setMark(SAMPLE_CODE);
   return a.root;
 }
 

@@ -6,6 +6,7 @@
 import { moverById, placeOnMover } from './assembly';
 import type { LineConfig, RobotDef, StationDef } from './config';
 import { nextFailure, repairTime } from './devices';
+import { dialPick, takeFromDial } from './dial';
 import { nestPocket, seatedTip, trayPocket } from './layout';
 import { type RngState, random } from './rng';
 import type { Distribution, Feeder, Nest, PlaceOp, PlantState, Robot, RobotJob, RobotStep } from './types';
@@ -49,12 +50,13 @@ interface Target {
 /** A robot's part source sits at its home along the belt. */
 function sourcePos(cfg: LineConfig, rdef: RobotDef, robot: Robot): Target {
   if (rdef.source === 'cup') return { a: rdef.home, r: cfg.distribution.cupR, z: cfg.distribution.cupZ };
+  if (rdef.source === 'dial') return { a: cfg.dial.a, r: cfg.dial.r - cfg.dial.radius, z: cfg.dial.pickZ };
   if (rdef.source === 'nest') {
     const p = nestPocket(cfg, robot.slot ?? 0);
     return { a: rdef.home + p.a, r: p.r, z: cfg.layout.z.nest };
   }
   const feeder = cfg.feeders.find((f) => f.id === rdef.source)!;
-  return { a: rdef.home, r: cfg.layout.feederR, z: feeder.pickZ };
+  return { a: rdef.home, r: feeder.r ?? cfg.layout.feederR, z: feeder.pickZ };
 }
 
 function dropPos(cfg: LineConfig, robot: Robot): Target {
@@ -278,6 +280,8 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         }
       } else if (rdef.source === 'cup') {
         finished = cupFor(p, def).full;
+      } else if (rdef.source === 'dial') {
+        finished = dialPick(p, cfg) !== null;
       } else {
         const f = feederFor(p, rdef);
         finished = f.items.length > 0 && f.items[0].x === 0;
@@ -306,6 +310,9 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
       } else if (rdef.source === 'nest') {
         nestFor(p, def).slots[robot.slot!] = 0;
         robot.holding = { kind: 'part', parts: ['cartridge'] };
+      } else if (rdef.source === 'dial') {
+        const part = takeFromDial(p, cfg);
+        robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [part.sr], label: part.label ?? undefined };
       } else if (rdef.source === 'cup') {
         const cup = cupFor(p, def);
         robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [cup.sr] };
@@ -366,7 +373,8 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
 /** Lets go of a part on the mover. A part that doesn't seat, or has nothing to go onto, is scrap. */
 function release(p: PlantState, cfg: LineConfig, rng: RngState, def: StationDef, robot: Robot): void {
   const misplaced = cfg.faults.enabled && random(rng) < cfg.faults.misplaceRate;
-  const result = misplaced || !robot.op ? null : placeOnMover(p, cfg, rng, def, robot.op, robot.moverId);
+  const label = robot.holding?.kind === 'part' ? robot.holding.label : undefined;
+  const result = misplaced || !robot.op ? null : placeOnMover(p, cfg, rng, def, robot.op, robot.moverId, label);
   if (result === null) p.scrap[def.id] = (p.scrap[def.id] ?? 0) + 1;
   // The PLC records the parts as placed either way: it can't see that one didn't seat.
   const partIds = robot.holding?.kind === 'part' ? robot.holding.ids : undefined;

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LINE } from './config';
 import { gtinWithCheck } from './gs1';
-import { processId, stationById } from './machine';
+import { processId, stationById, subProcessId } from './machine';
 import { Simulation } from './simulation';
 import { steadyConfig } from './testing';
 import { forward, pose, trackLength } from './track';
@@ -151,7 +151,7 @@ describe('steady production (60 min)', () => {
     expect(rate(2)).toBeGreaterThan(0.5);
   });
 
-  test('each good pen has full genealogy: spring, spring base, cartridge (from a nest), housing, cap and a tray', () => {
+  test('each good pen has full genealogy: spring, spring base, cartridge (from a nest), housing and a tray', () => {
     const merged = events.filter((e): e is ItemsMergedEvent => e.kind === 'merged');
     const goods = processed(events, 'EM60').filter((e) => e.itemType === 'Pen' && e.properties?.['Tray Position'] !== undefined);
     const byTarget = new Map<number, string[]>();
@@ -162,20 +162,29 @@ describe('steady production (60 min)', () => {
     const inside = goods.filter((g) => loaded.has(g.scopedId));
     expect(inside.length).toBeGreaterThan(500);
     for (const g of inside) {
-      expect(byTarget.get(g.scopedId)?.sort()).toEqual(['Cap', 'Cartridge', 'Housing', 'Spring', 'SpringBase']);
+      expect(byTarget.get(g.scopedId)?.sort()).toEqual(['Cartridge', 'Housing', 'Spring', 'SpringBase']);
       expect(trayed.has(g.scopedId)).toBe(true);
     }
     const cartridges = processed(events).filter((e) => e.itemType === 'Cartridge');
     expect(cartridges.every((c) => c.sourceScopedId !== undefined && c.sourcePosition! < LINE.nestSize)).toBe(true);
   });
 
-  test('EM11 marks a GS1 identifier and EM50 reads it back', () => {
-    const marks = new Map(processed(events, 'EM11').map((e) => [e.scopedId, e.identifier]));
+  test('EM31 labels the housing with a GS1 identifier; the pen wears it from EM40 and EM50 reads it back', () => {
+    const em31 = events.filter((e): e is ItemProcessedEvent => e.kind === 'processed' && e.process === subProcessId(LINE, LINE.dial.label));
     const gtin = gtinWithCheck(LINE.gs1.gtin);
-    for (const id of marks.values()) expect(id).toMatch(new RegExp(`^\\(01\\)${gtin}\\(17\\)\\d{6}\\(10\\)B\\d{6}\\(21\\)[0-9A-Z]{12}$`));
-    const reads = processed(events, 'EM50').filter((e) => marks.has(e.scopedId) && e.properties?.['Code Read']);
+    const labels = new Map(em31.map((e) => [e.scopedId, e.identifier!]));
+    for (const id of labels.values()) expect(id).toMatch(new RegExp(`^\\(01\\)${gtin}\\(17\\)\\d{6}\\(10\\)B\\d{6}\\(21\\)[0-9A-Z]{12}$`));
+    // The housing EM40 put on each pen tells which label the pen wears.
+    const housingOf = new Map(
+      events.filter((e): e is ItemsMergedEvent => e.kind === 'merged' && e.sourceType === 'Housing').map((m) => [m.target, m.source]),
+    );
+    const reads = processed(events, 'EM50').filter((e) => labels.has(housingOf.get(e.scopedId)!) && e.properties?.['Code Read']);
     expect(reads.length).toBeGreaterThan(500);
-    for (const r of reads) expect(r.properties!['Code Read']).toBe(marks.get(r.scopedId));
+    for (const r of reads) {
+      const label = labels.get(housingOf.get(r.scopedId)!);
+      expect(r.properties!['Code Read']).toBe(label);
+      expect(r.identifier).toBe(label);
+    }
   });
 
   test('event timestamps follow sim time and cycles take real time', () => {

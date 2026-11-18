@@ -2,6 +2,7 @@
 // period type. Derived from the line config so it can't drift from what the sim reports.
 import type { LineConfig, PartType, SubProcessDef } from '../sim/config';
 import { deviceName, feederId, measurementName, placers, processId, rejectProcessId, sourceProcessId, stationById, subProcessId, trayProcessId, unitId } from '../sim/machine';
+import { SNAP_START } from '../sim/records';
 import type { StationCode } from '../sim/types';
 import { Severity, type Device, type EventDefinition, type ItemView, type Process, type PropertyDefinition } from './types';
 
@@ -47,7 +48,7 @@ export const STATION_EVENTS: Record<StationCode, EventSpec> = {
 
 const itemType = (part: PartType) => part[0].toUpperCase() + part.slice(1);
 
-const FEEDER_NAMES: Record<string, string> = { body: 'Body', spring: 'Spring', springBase: 'Spring base', housing: 'Housing + cap' };
+const FEEDER_NAMES: Record<string, string> = { body: 'Body', spring: 'Spring', springBase: 'Spring base', housing: 'Housing' };
 
 export function catalogue(cfg: LineConfig): Catalogue {
   const line = cfg.id;
@@ -76,12 +77,13 @@ export function catalogue(cfg: LineConfig): Catalogue {
 
   // Part sources. Bodies become the pen itself at the load station. Springs and spring bases are
   // reported where they are inspected (EM10, EM13), so only the other feeders report their parts.
-  const subs: SubProcessDef[] = [...cfg.feeders.flatMap((f) => (f.inline ? [f.inline] : [])), cfg.orienter];
+  const subs: SubProcessDef[] = [...cfg.feeders.flatMap((f) => (f.inline ? [f.inline] : [])), cfg.orienter, cfg.dial.inspect];
   for (const f of cfg.feeders) {
     const id = feederId(cfg, f.id);
     devices.push(child(f.unit, id, `${FEEDER_NAMES[f.part] ?? itemType(f.part)} bowl feeder`));
+    // Housings are reported by the dial's EM30 when it loads them.
     const used = cfg.stations.some((d) => d.robots?.some((r) => r.source === f.id));
-    if (f.part !== 'body' && used && !f.inline) process(id, itemType(f.part));
+    if (f.part !== 'body' && used && !f.inline && f.id !== cfg.dial.feeder) process(id, itemType(f.part));
     if (f.inline) {
       devices.push(child(f.inline.unit, subProcessId(cfg, f.inline), f.inline.name));
       process(subProcessId(cfg, f.inline), itemType(f.part), { HasResult: true });
@@ -89,6 +91,11 @@ export function catalogue(cfg: LineConfig): Catalogue {
   }
   devices.push(child(cfg.orienter.unit, subProcessId(cfg, cfg.orienter), cfg.orienter.name));
   process(subProcessId(cfg, cfg.orienter), itemType(cfg.feeders.find((f) => f.id === cfg.orienter.feeder)!.part), { HasResult: true });
+  // The housing dial: infeed, label (the identifier) and label inspection, all on the housing.
+  for (const step of [cfg.dial.load, cfg.dial.label, cfg.dial.inspect]) {
+    devices.push(child(step.unit, subProcessId(cfg, step), step.name));
+    process(subProcessId(cfg, step), 'Housing', { HasResult: step === cfg.dial.inspect });
+  }
   for (const def of cfg.stations) {
     const robot = def.robots?.find((r) => r.source === 'nest');
     if (!robot) continue;
@@ -109,6 +116,11 @@ export function catalogue(cfg: LineConfig): Catalogue {
     { Name: 'Inspection Passed', Type: 'Boolean' },
     { Name: 'Reject Cause', Type: 'String' },
     { Name: 'Code Read', Type: 'String', Description: 'DataMatrix content read by final vision' },
+    { Name: 'Peak Force', Type: 'Float', Unit: 'N', NumberOfDecimals: 3, Description: 'Highest force before the housing snapped (EM40)' },
+    { Name: 'Snap Position', Type: 'Float', Unit: 'mm', NumberOfDecimals: 3, Description: 'Displacement where the housing snapped (EM40)' },
+    { Name: 'Failure Reason', Type: 'String', Description: 'Why the snap was rejected (EM40)' },
+    { Name: 'Force', Type: 'Float', Unit: 'N', NumberOfDecimals: 3, Description: 'Snap curve sample (EM40)' },
+    { Name: 'Displacement', Type: 'Float', Unit: 'mm', NumberOfDecimals: 4, Description: 'Snap curve sample (EM40)' },
     { Name: 'Tray Position', Type: 'Integer' },
     { Name: 'Tray Count', Type: 'Integer', Description: 'Pens in the tray when it left' },
     { Name: 'Bin', Type: 'String', Description: 'Reject bin' },
@@ -127,6 +139,7 @@ export function catalogue(cfg: LineConfig): Catalogue {
     { Name: EVENT.machineState, Severity: Severity.Info, Description: 'Machine changed state' },
     { Name: EVENT.command, Severity: Severity.Debug, Description: 'Operator command' },
     { Name: EVENT.batchStarted, Severity: Severity.Info },
+    { Name: SNAP_START, Severity: Severity.Debug, Description: 'Start of a snap curve at EM40' },
     { Name: EVENT.batchCompleted, Severity: Severity.Info },
     ...Object.values(STATION_EVENTS),
   ];

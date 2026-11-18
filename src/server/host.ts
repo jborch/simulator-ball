@@ -85,7 +85,8 @@ export class LineHost {
     if (events.length > 0) {
       this.reporter?.push(events);
       this.pending.push(...events);
-      this.recent.push(...events);
+      // A late viewer gets the recent log, not every snap curve (each is hundreds of samples).
+      this.recent.push(...events.filter((e) => e.kind !== 'series'));
       if (this.recent.length > RECENT_EVENTS * 2) this.recent = this.recent.slice(-RECENT_EVENTS);
     }
     if (now - this.lastFrame >= this.opts.frameMs) {

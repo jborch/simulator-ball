@@ -56,6 +56,7 @@ YELLOW = lambda: mat("MoverTop", (0.95, 0.75, 0.1), rough=0.5)
 TRAY = lambda: mat("TrayPET", (0.35, 0.55, 0.75), rough=0.4)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
+LABEL = lambda: mat("MoverLabel", (0.97, 0.97, 0.95), rough=0.6)
 BASE = lambda: mat("SpringBaseTeal", (0.05, 0.55, 0.5), rough=0.45)
 # Pen bodies are frosted translucent plastic, so the spring and cartridge show through.
 BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
@@ -147,17 +148,16 @@ def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
 # Geometry along the pen axis matches LINE.parts in src/sim/config.ts: the spring sits in the body
 # from 6 mm, the spring base on top of it from 51 mm, the cartridge on that from 57 mm, and the
 # housing slides over the body from 8 mm.
-DM_Z = 0.045  # centre of the laser-marked code on the body
+# The pen's GS1 DataMatrix is printed on a wrap label on the housing (EM31), facing the inside of
+# the loop, centred this high above the housing's base (45 mm above the body's base).
+LABEL_Z = 0.037
 
 
 def pen_body():
     # Open tube with a closed bottom; the spring and cartridge go in from the top.
     core = tube(0.0065, 0.0053, 0.11, 0.0, BODY(), "body_core", floor=0.006)
     flange = cyl(0.0078, 0.004, 0.0, WHITE(), "body_flange")
-    # Laser-marked GS1 DataMatrix with the item identifier, 6 x 6 mm, on a white marking field.
-    field = wrapped_patch(0.0065, 0.008, 0.008, DM_Z, "dm_field", WHITE())
-    dm = wrapped_patch(0.00652, 0.006, 0.006, DM_Z, "dm_mark", dm_material())
-    return group("PenBody", [core, flange, field, dm])
+    return group("PenBody", [core, flange])
 
 
 def spring(z0=0.0):
@@ -202,17 +202,22 @@ def cartridge():
 
 
 def housing_shell(name):
-    """Housing tube that slides over the body, with a code window over the body's DataMatrix."""
-    shell = tube(0.0085, 0.0068, 0.12, 0.0, BLUE(), name, verts=48)
-    cut(shell, box(0.01, 0.006, 0.01, (0, -0.0078, DM_Z - 0.008), BLUE(), name + "_code_window"))
-    return shell
+    """Housing tube that slides over the body."""
+    return tube(0.0085, 0.0068, 0.12, 0.0, BLUE(), name, verts=48)
+
+
+def housing_label(prefix):
+    """Wrap label (EM31) with the GS1 DataMatrix patch the app paints the pen's identifier on."""
+    paper = wrapped_patch(0.0085, 0.04, 0.026, LABEL_Z, prefix + "_label", LABEL(), segments=24)
+    dm = wrapped_patch(0.00856, 0.007, 0.007, LABEL_Z, "dm_label", dm_material())
+    return [paper, dm]
 
 
 def housing():
     shell = housing_shell("housing_shell")
     window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "housing_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "housing_clip")
-    return group("Housing", [shell, window, clip])
+    return group("Housing", [shell, window, clip, *housing_label("housing")])
 
 
 def cap():
@@ -222,16 +227,15 @@ def cap():
 
 
 def assembled_pen():
-    """Housing with its cap on, origin at the housing's base (8 mm above the body's base). The app
-    draws the body, spring and cartridge inside it; the body's code shows through the code window."""
+    """Labelled housing with its cap on, origin at the housing's base (8 mm above the body's base).
+    The app draws the body, spring, spring base and cartridge inside it."""
     shell = housing_shell("pen_shell")
     window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "pen_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "pen_clip")
     c = cyl(0.009, 0.035, 0.12, ORANGE(), "pen_cap", verts=48)
-    return group("AssembledPen", [shell, window, clip, c])
+    return group("AssembledPen", [shell, window, clip, c, *housing_label("pen")])
 
 
-LABEL = lambda: mat("MoverLabel", (0.97, 0.97, 0.95), rough=0.6)
 
 
 def label_plane(w, h, loc, rot, name):

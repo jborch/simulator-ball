@@ -106,7 +106,7 @@ The view has six monitoring cameras. Pick one with the bar at the bottom or with
 | 2 | Infeed | EM10 checking springs on their track, EM11 body load + spring (two arms on one gantry), EM12 spring angle |
 | 3 | Spring base | EM13 turning spring bases onto the distribution conveyor, the four EM14 presses side by side, EM15 |
 | 4 | Cartridge | Close-up of the twin EM41A/B robots inserting cartridges from their nests |
-| 5 | Housing | Close-up of EM40 placing and snapping housing + cap |
+| 5 | Housing | The housing dial (EM30 load, EM31 label with the pen's DataMatrix, EM32 label check) and EM40 snapping the housing on |
 | 6 | Outfeed | EM50 final inspection, EM60 tray packing and the reject bin |
 
 The fixed cameras are defined in `src/view/cameras.ts`, in each station's own coordinates, so

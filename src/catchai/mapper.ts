@@ -99,6 +99,14 @@ export class Mapper {
         const text = e.carrier ? `${e.message} (mover ${e.carrier})` : e.message;
         return [this.data(e.process, e.logged, { [STATION_EVENTS[e.code].Name]: text })];
       }
+      case 'series': {
+        // One device data row per sample, like the original's snap curve; the first carries the start event.
+        const names = Object.keys(e.values);
+        const n = e.values[names[0]].length;
+        return Array.from({ length: n }, (_, i) =>
+          this.data(e.process, e.start + i * e.interval, i === 0 ? { [e.startEvent]: `ID: ${this.id(e.scopedId)}` } : {}, Object.fromEntries(names.map((k) => [k, e.values[k][i]]))),
+        );
+      }
       case 'batch': {
         const text = e.state === 'started' ? `${e.name}: target ${e.target}` : `${e.name}: ${e.good} good, ${e.rejected} rejected`;
         const name = e.state === 'started' ? EVENT.batchStarted : EVENT.batchCompleted;

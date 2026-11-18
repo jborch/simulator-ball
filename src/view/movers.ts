@@ -6,13 +6,45 @@ import type { Pose } from '../sim/track';
 import { type Models, findMesh } from './models';
 import { dataMatrixTexture, numberTexture } from './textures';
 
-/** Housing with its cap on, origin at the housing's base (as fed and as picked). */
-export function housingWithCap(cfg: LineConfig, models: Models): THREE.Object3D {
+/** Length of the housing tube in the models; its end cap sits on top of it. */
+const HOUSING_TUBE = 0.12;
+
+/**
+ * Housing with its end cap, origin at the housing's base (as fed and as picked). Call
+ * `showLabel` to show the label EM31 puts on it; a fresh housing has none.
+ */
+export function housingWithCap(models: Models): THREE.Object3D {
   const g = new THREE.Group();
   const cap = models.cap.clone(true);
-  cap.position.y = cfg.parts.cap.seat - cfg.parts.housing.seat;
+  cap.position.y = HOUSING_TUBE;
   g.add(models.housing.clone(true), cap);
+  showLabel(g, null);
   return g;
+}
+
+/**
+ * Shows or hides the wrap label on a housing (or a finished pen) and paints the label's
+ * DataMatrix with `gs1`. Each object gets its own code material the first time.
+ */
+export function showLabel(root: THREE.Object3D, gs1: string | null): void {
+  root.traverse((o) => {
+    if (!(o as THREE.Mesh).isMesh) return;
+    const name = o.name || o.parent?.name || '';
+    if (!name.endsWith('_label')) return;
+    o.visible = gs1 !== null;
+    if (name !== 'dm_label' && o.parent?.name !== 'dm_label') return;
+    const mesh = o as THREE.Mesh;
+    if (!mesh.userData.ownMaterial) {
+      mesh.material = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
+      mesh.userData.ownMaterial = true;
+    }
+    const m = mesh.material as THREE.MeshStandardMaterial;
+    const map = gs1 ? dataMatrixTexture(gs1) : null;
+    if (m.map !== map) {
+      m.map = map;
+      m.needsUpdate = true;
+    }
+  });
 }
 
 /** A pen in any state of assembly, origin at the body's base. */
@@ -23,8 +55,8 @@ export class AssemblyView {
   private readonly springBase: THREE.Object3D;
   private readonly cartridge: THREE.Object3D;
   private readonly pen: THREE.Object3D;
-  readonly dmMaterial = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
   private key = '';
+  private mark: string | null = null;
 
   constructor(cfg: LineConfig, models: Models) {
     const at = (o: THREE.Object3D, part: PartType) => {
@@ -35,10 +67,9 @@ export class AssemblyView {
     this.spring = at(models.spring.clone(true), 'spring');
     this.springBase = at(models.spring_base.clone(true), 'springBase');
     this.cartridge = at(models.cartridge.clone(true), 'cartridge');
-    // The finished-pen model is the housing with its cap; the body stays inside it.
+    // The finished-pen model is the labelled housing with its cap; the body stays inside it.
     this.pen = at(models.pen.clone(true), 'housing');
-    const dm = findMesh(this.body, 'dm_mark');
-    if (dm) dm.material = this.dmMaterial;
+    showLabel(this.pen, null);
     for (const o of [this.body, this.spring, this.springBase, this.cartridge, this.pen]) {
       o.visible = false;
       this.root.add(o);
@@ -49,13 +80,20 @@ export class AssemblyView {
     const key = parts.join(',');
     if (key === this.key) return;
     this.key = key;
-    // Every part is drawn where it sits: the spring and cartridge show through the translucent
-    // body, and the body's code through the housing's code window.
+    // Every part is drawn where it sits: the spring, spring base and cartridge show through the
+    // translucent body.
     this.pen.visible = parts.includes('housing');
     this.body.visible = parts.includes('body');
     this.cartridge.visible = parts.includes('cartridge');
     this.spring.visible = parts.includes('spring');
     this.springBase.visible = parts.includes('springBase');
+  }
+
+  /** The identifier printed on the pen's housing label (null while it has none). */
+  setMark(mark: string | null): void {
+    if (mark === this.mark) return;
+    this.mark = mark;
+    showLabel(this.pen, mark);
   }
 }
 
@@ -80,14 +118,15 @@ export class HeldView {
     this.springBase.position.y = -heldLength(cfg, ['springBase']);
     this.cartridge = models.cartridge.clone(true);
     this.cartridge.position.y = -heldLength(cfg, ['cartridge']);
-    this.housing.add(housingWithCap(cfg, models));
-    this.housing.position.y = -heldLength(cfg, ['housing', 'cap']);
+    this.housing.add(housingWithCap(models));
+    this.housing.position.y = -heldLength(cfg, ['housing']);
     this.root.add(this.assembly.root, this.spring, this.springBase, this.cartridge, this.housing);
     this.show(null);
   }
 
-  show(parts: PartType[] | null): void {
-    const key = parts ? parts.join(',') : '';
+  /** `label`: what is printed on the held housing or pen, if anything. */
+  show(parts: PartType[] | null, label: string | null = null): void {
+    const key = parts ? `${parts.join(',')}|${label ?? ''}` : '';
     if (key === this.key) return;
     this.key = key;
     const has = (p: PartType) => !!parts?.includes(p);
@@ -95,7 +134,10 @@ export class HeldView {
     this.assembly.root.visible = isPen;
     if (isPen) {
       this.assembly.show(parts!);
+      this.assembly.setMark(label);
       this.assembly.root.position.y = -heldLength(this.cfg, parts!);
+    } else if (has('housing')) {
+      showLabel(this.housing, label);
     }
     this.spring.visible = !isPen && has('spring');
     this.springBase.visible = !isPen && has('springBase');
@@ -114,7 +156,6 @@ export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
   private readonly led: THREE.Mesh;
-  private mark: string | null = null;
 
   constructor(
     readonly id: number,
@@ -146,11 +187,6 @@ export class MoverView {
     this.root.rotation.y = p.heading;
     this.led.material = LED[f.status];
     this.assembly.show(f.parts);
-    if (f.mark !== this.mark) {
-      this.mark = f.mark;
-      const m = this.assembly.dmMaterial;
-      m.map = f.mark ? dataMatrixTexture(f.mark) : null;
-      m.needsUpdate = true;
-    }
+    this.assembly.setMark(f.mark);
   }
 }

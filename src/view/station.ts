@@ -47,8 +47,8 @@ export class StationView {
       if (r.source === 'nest') {
         this.nest = new NestView(cfg, models);
         this.nest.group.position.x = r.home;
-      } else if (r.source && r.source !== 'cup') {
-        // (A cup is drawn with the distribution conveyor that fills it.)
+      } else if (r.source && r.source !== 'cup' && r.source !== 'dial') {
+        // (Cups and the dial are drawn with the sub-lines that fill them.)
         const feeder = new FeederView(r.source, r.parts ?? [], cfg, models);
         feeder.group.position.x = r.home;
         this.feeders.push(feeder);
@@ -59,7 +59,7 @@ export class StationView {
       // Early rejects are pens as built so far; the unload station only rejects finished ones.
       const built = StationView.builtBefore(cfg, def);
       const rejected = def.kind === 'reject' ? StationView.partBuilt(cfg, models, built) : finishedPen(cfg, models);
-      const length = def.kind === 'reject' ? heldLength(cfg, built) : heldLength(cfg, ['body', 'housing', 'cap']);
+      const length = def.kind === 'reject' ? heldLength(cfg, built) : heldLength(cfg, ['body', 'housing']);
       this.bin = new BinView(def.bin, rejected, length);
       const b = cfg.layout.bins[def.bin];
       this.bin.group.position.copy(local(b.a, TABLE, b.r));
@@ -67,7 +67,7 @@ export class StationView {
     // What a robot drops when a part doesn't seat: the last part it places.
     const source = def.robots?.filter((r) => r.source).at(-1)?.source;
     const scrapPart =
-      source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'cup' ? models.spring_base : source === 'housings' ? models.housing : models.pen_body;
+      source === 'nest' ? models.cartridge : source === 'springs' ? models.spring : source === 'cup' ? models.spring_base : source === 'dial' ? models.housing : models.pen_body;
     this.scrap = new ScrapView(scrapPart);
     for (const part of [this.nest, ...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
@@ -112,6 +112,7 @@ export class StationView {
       if (r.parts) tips.push(seatedTip(cfg, r.parts));
       if (r.source === 'nest') tips.push(z.nest);
       else if (r.source === 'cup') tips.push(cfg.distribution.cupZ);
+      else if (r.source === 'dial') tips.push(cfg.dial.pickZ);
       else if (r.source) tips.push(cfg.feeders.find((f) => f.id === r.source)!.pickZ);
     }
     if (def.kind === 'reject' || def.kind === 'unload') tips.push(seatedTip(cfg, ['body']));
@@ -125,6 +126,8 @@ export class StationView {
     let outer = reach.rMax;
     // Stand clear of the distribution conveyor that passes under the presses.
     if (def.robots?.some((r) => r.source === 'cup')) outer = Math.max(outer, cfg.distribution.r + 0.04);
+    // ...and behind the housing dial, whose unload position the robot reaches over.
+    if (def.robots?.some((r) => r.source === 'dial')) outer = Math.max(outer, cfg.dial.r + cfg.dial.radius + 0.06);
     if (def.bin) outer = Math.max(outer, cfg.layout.bins[def.bin].r + 0.1);
     if (def.kind === 'unload') outer = Math.max(outer, cfg.layout.tray.r + 0.07);
     return outer + 0.04;
@@ -137,6 +140,7 @@ export class StationView {
       pts.push({ a: r.home, r: 0 });
       if (r.source === 'nest') for (let i = 0; i < cfg.nestSize; i++) pts.push({ ...nestPocket(cfg, i), a: r.home + nestPocket(cfg, i).a });
       else if (r.source === 'cup') pts.push({ a: r.home, r: cfg.distribution.cupR });
+      else if (r.source === 'dial') pts.push({ a: cfg.dial.a, r: cfg.dial.r - cfg.dial.radius });
       else if (r.source) pts.push({ a: r.home, r: cfg.layout.feederR });
     }
     if (def.bin) pts.push(cfg.layout.bins[def.bin]);

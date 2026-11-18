@@ -8,6 +8,7 @@ import type { LineConfig, MoverProfile } from './config';
 import { createFeeder, createNest, nextFailure, stepFeeder, stepNest, stepTray } from './devices';
 import { type RngState, normal, random, uniform } from './rng';
 import { createRobot, stepRobot, toolClear } from './robot';
+import { createDial, stepDial } from './dial';
 import { createDistribution, createOrienter, stepDistribution, stepOrienter } from './sublines';
 import { copyTag, emptyTag } from './tags';
 import { forward, trackLength } from './track';
@@ -84,11 +85,13 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     feedersOn: false,
     orienter: createOrienter(),
     distribution: createDistribution(cfg),
+    dial: createDial(cfg),
     // Reject bins of the loop stations, and the chutes of the sub-line inspections.
     bins: Object.fromEntries([
       ...cfg.stations.filter((d) => d.bin).map((d) => [d.bin!, 0]),
       ...cfg.feeders.filter((f) => f.inline).map((f) => [f.inline!.id, 0]),
       [cfg.orienter.id, 0],
+      [cfg.dial.inspect.id, 0],
     ]),
     feeders: cfg.feeders.map(createFeeder),
     scrap: {},
@@ -129,6 +132,7 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   p.feeders.forEach((f, i) => stepFeeder(p, f, cfg.feeders[i], cfg, rng, dt));
   stepOrienter(p, cfg, rng, dt);
   stepDistribution(p, cfg, dt);
+  stepDial(p, cfg, rng, dt);
   const clear = (id: string) => p.stations.find((s) => s.id === id)!.robots.every((r) => toolClear(cfg, r));
   for (const n of p.nests) stepNest(n, cfg, clear(n.station), dt);
   stepTray(p, cfg, clear(cfg.layout.tray.station), dt);

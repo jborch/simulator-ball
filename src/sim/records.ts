@@ -2,6 +2,9 @@
 // ItemsMerged), and keeps counters (good, rejected, batch, tray, nest) up to date.
 import type { Limits, LineConfig } from './config';
 import { type RngState, random } from './rng';
+
+/** Event logged with the first sample of a snap curve. */
+export const SNAP_START = 'Snap Start';
 import { carrierId, emit, measurementName, now, placers, processId, rejectProcessId, sourceProcessId, trayProcessId } from './machine';
 import { copyTag, emptyTag } from './tags';
 import type { CycleResult, ItemsMergedEvent, SimState, Tag } from './types';
@@ -75,7 +78,12 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
             const partId = tracked ?? ++s.plc.srCounter;
             sourceIds.push({ id: partId, type: partType });
             if (tracked !== null) {
-              // Nothing more to report until it is merged.
+              // Reported on its sub-line already. A labelled housing gives the pen its identifier.
+              const id = s.mes.identifiers[tracked];
+              if (id && part === 'housing') {
+                s.mes.identifiers[pen] = id;
+                delete s.mes.identifiers[tracked];
+              }
             } else if (part === 'cartridge') {
               const source = sourceProcessId(cfg, def, robots[k]);
               // Cartridges are unpacked from the station's nest (1 nest → N cartridges).
@@ -96,7 +104,21 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
       const pen = tag.srId!;
       let props: Props = { 'Mover Id': carrier };
       let verdict: 'Passed' | 'Failed' | undefined;
-      if (def.inspect) {
+      if (result.snap) {
+        // Judged from the curve (EM40), with the original's snap properties.
+        const { snap } = result;
+        Object.assign(props, {
+          'Peak Force': snap.peak,
+          'Snap Position': snap.position,
+          'Inspection Value': snap.peak,
+          'Inspection Lower Limit': def.inspect!.lower,
+          'Inspection Upper Limit': def.inspect!.upper,
+          'Inspection Passed': snap.accepted,
+        });
+        if (snap.reason) Object.assign(props, { 'Failure Reason': snap.reason, 'Reject Cause': snap.reason });
+        verdict = snap.accepted ? 'Passed' : 'Failed';
+        if (!snap.accepted) markNok(tag, snap.reason);
+      } else if (def.inspect) {
         const ev = evaluate(def.inspect!, result.measurement, s.rng);
         props = { ...props, ...ev.props };
         verdict = ev.passed ? 'Passed' : 'Failed';
@@ -108,6 +130,12 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
         emit(s, { kind: 'processed', process, scopedId: src.id, itemType: src.type, from, to, carrier, result: verdict, properties: props });
       } else {
         emit(s, { kind: 'processed', process, scopedId: pen, itemType: 'Pen', from, to, carrier, identifier: identifier(pen), result: verdict, properties: props });
+      }
+      if (result.snap) {
+        const { snap } = result;
+        const item = def.logOnSource && sourceIds.length > 0 ? sourceIds.at(-1)!.id : pen;
+        const start = s.epochMs + snap.end * 1000 - (snap.force.length - 1) * snap.interval;
+        emit(s, { kind: 'series', process, scopedId: item, start, interval: snap.interval, values: { Force: snap.force, Displacement: snap.displacement }, startEvent: SNAP_START });
       }
       for (const m of merges) emit(s, m);
       return tag;

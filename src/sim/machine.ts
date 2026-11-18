@@ -22,7 +22,7 @@ export function processId(cfg: LineConfig, def: StationDef): string {
 }
 
 /** Device id of a sub-line process (EM10, EM13), e.g. "L07-UN01-EM10". */
-export function subProcessId(cfg: LineConfig, def: SubProcessDef): string {
+export function subProcessId(cfg: LineConfig, def: Pick<SubProcessDef, 'id' | 'unit'>): string {
   return `${unitId(cfg, def.unit)}-${def.id}`;
 }
 

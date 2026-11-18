@@ -2,10 +2,10 @@
 // state machine per station, and writes actuators (gates, robot jobs, camera, RFID, belt). It
 // never touches mover positions or loads directly; it only knows what tags and sensors tell it.
 import type { LineConfig, RobotDef, StationDef } from './config';
-import { makeIdentifier } from './gs1';
 import { carrierId, emit, feederId, now, placers, processId, setMachine, stationSteps, startBatch } from './machine';
 import { type Inputs, readInputs } from './plant';
 import { closeTray, recordCycle, recordOutput } from './records';
+import { scanDial } from './dial';
 import { scanSublines } from './sublines';
 import { leftMover, startJob } from './robot';
 import { copyTag } from './tags';
@@ -59,6 +59,7 @@ export function scanPlc(s: SimState, cfg: LineConfig, dt: number): void {
   scanFaults(s, cfg, dt);
   if (plant.estop) return;
   scanSublines(s, cfg);
+  scanDial(s, cfg);
 
   const canStart = plc.machine === 'Starting' || plc.machine === 'Execute' || plc.machine === 'Completing';
   cfg.stations.forEach((def, i) => {
@@ -429,10 +430,9 @@ function decide(s: SimState, cfg: LineConfig, i: number): void {
       const b = s.plc.batch;
       if (tag.status !== 'empty' || !b || b.state !== 'running' || b.loaded >= b.target) return pass();
       b.loaded++;
+      // The pen gets its identifier later, with the labelled housing (EM31, EM40).
       const srId = ++s.plc.srCounter;
-      const mark = makeIdentifier(s.rng, cfg.gs1.gtin, now(s), cfg.gs1.expiryYears);
-      s.mes.identifiers[srId] = mark;
-      return start(s, cfg, i, { kind: 'place', places: placeOps(def, { kind: 'load', srId, mark }) });
+      return start(s, cfg, i, { kind: 'place', places: placeOps(def, { kind: 'load', srId, mark: '' }) });
     }
     case 'assemble':
     case 'inspect': {

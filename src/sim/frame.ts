@@ -1,11 +1,12 @@
 // Builds the compact per-frame view of the state that clients render (~30 Hz).
 import type { LineConfig } from './config';
 import type { Frame, RobotFrame, StationFrame } from './protocol';
-import type { Orienter, PlantStation, Robot, SimState } from './types';
+import type { Dial, Orienter, PlantStation, Robot, SimState } from './types';
 
 function robotFrame(r: Robot): RobotFrame {
   const held = r.holding;
-  return { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null };
+  const label = held?.kind === 'pen' ? held.load.mark || null : held?.kind === 'part' ? (held.label ?? null) : null;
+  return { a: r.a, r: r.r, z: r.z, phase: r.phase, holding: held ? (held.kind === 'pen' ? [...held.load.parts] : [...held.parts]) : null, label };
 }
 
 /** 0..1 through the camera's current cycle, or null when it isn't inspecting. */
@@ -23,6 +24,18 @@ function orienterProgress(cfg: LineConfig, o: Orienter): number {
   if (o.phase === 'turning') return (1 - o.mechLeft / mech) * (mech / (mech + fixed));
   if (o.phase === 'measuring') return (mech + fixed - Math.max(0, o.fixedLeft)) / (mech + fixed);
   return o.phase === 'idle' ? 0 : 1;
+}
+
+/** The dial's housings by position, with what is printed on them, and what each position is doing. */
+function dialFrame(cfg: LineConfig, d: Dial): Frame['dial'] {
+  const state = (x: Dial['slots'][number]) => (!x ? 0 : x.ok === false ? 4 : x.inspected ? 3 : x.label ? 2 : 1);
+  const running = (op: keyof Dial['jobs']) => d.jobs[op] !== null && d.jobs[op] !== 'done';
+  return {
+    slots: d.slots.map(state),
+    labels: d.slots.map((x) => x?.label ?? null),
+    turn: d.phase === 'index' ? 1 - Math.max(0, d.turn) / cfg.dial.index : 0,
+    active: { load: running('load'), label: running('label'), inspect: running('inspect'), eject: running('eject') },
+  };
 }
 
 export function buildFrame(s: SimState, cfg: LineConfig): Frame {
@@ -62,6 +75,7 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
     stations,
     feeders: plant.feeders.map((f) => ({ id: f.id, items: f.items.map((it) => it.x), jam: f.jam })),
     orienter: { phase: plant.orienter.phase, progress: orienterProgress(cfg, plant.orienter) },
+    dial: dialFrame(cfg, plant.dial),
     distribution: { items: plant.distribution.items.map((it) => it.x), cups: plant.distribution.cups.map((c) => (c.full ? 1 : c.filling > 0 ? 2 : 0)) },
     nests: plant.nests.map((n) => ({ station: n.station, slots: [...n.slots], changing: n.changing })),
     tray: { count: plant.tray.count, changing: plant.tray.changing, queue: [...plant.trayQueue] },

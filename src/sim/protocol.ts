@@ -39,6 +39,8 @@ export interface RobotFrame {
   phase: Robot['phase'];
   /** Parts in the gripper (a picked pen shows its parts), or null. */
   holding: PartType[] | null;
+  /** What is printed on the held housing or pen, if anything. */
+  label: string | null;
 }
 
 export interface StationFrame {
@@ -69,6 +71,11 @@ export interface Frame {
   feeders: { id: string; items: number[]; jam: number }[];
   /** EM13: what it's doing, and 0..1 through turning and measuring the current part. */
   orienter: { phase: Orienter['phase']; progress: number };
+  /**
+   * Housing dial: each position's housing (0 none, 1 loaded, 2 labelled, 3 checked OK, 4 NOK)
+   * and the label printed on it, 0..1 through an index turn, and which positions are working.
+   */
+  dial: { slots: number[]; labels: (string | null)[]; turn: number; active: { load: boolean; label: boolean; inspect: boolean; eject: boolean } };
   /** Spring base conveyor: part positions (loop coordinate) and each cup: 0 empty, 1 full, 2 filling. */
   distribution: { items: number[]; cups: number[] };
   nests: { station: string; slots: number[]; changing: number }[];
