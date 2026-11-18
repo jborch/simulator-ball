@@ -77,3 +77,43 @@ test('the collet loop is continuous, with the pick point by the belt and the fil
   expect(f.a).toBeCloseTo(0, 9);
   expect(f.r).toBeCloseTo(c.fill, 9);
 });
+
+test('the nest stays in place through the last grip, and a collet stays put while a gripper is down at it', () => {
+  // Small nests of 40, so a few minutes see many nest changes.
+  const s = new Simulation({ seed: 4, cfg: steadyConfig((c) => (c.cartridges.tub.rows = 4)) });
+  s.command({ type: 'start' });
+  const cfg = s.cfg;
+  const cell = s.state.plant.cartridges;
+  const em41 = s.state.plant.stations[cfg.stations.findIndex((d) => d.id === 'EM41')].robots[0];
+  const clearZ = cfg.cartridges.collets.base + cfg.parts.cartridge.length + 0.02;
+  const fill = fillAt(cfg);
+  let grips = 0;
+  let changes = 0;
+  let wasChanging = false;
+  let em00Down = 0;
+  let em41Down = 0;
+  for (let t = 0; t < 600; t += 0.002) {
+    s.advance(0.002);
+    if (cell.robot.step === 'grip') {
+      grips++;
+      expect(cell.tub).not.toBeNull();
+      expect(cell.changing).toBe(0);
+    }
+    if (cell.changing > 0 && !wasChanging) changes++;
+    wasChanging = cell.changing > 0;
+    // EM00 low over the fill point: a collet must be standing there.
+    if (cell.robot.z < clearZ && Math.abs(cell.robot.a) < 1e-6 && Math.abs(cell.robot.r) < 1e-6) {
+      em00Down++;
+      expect(cell.collets.some((c) => c.u === fill)).toBe(true);
+    }
+    // EM41 low over the pick point (not over the mover): a collet must be standing there.
+    if (em41.z < clearZ && Math.abs(em41.a) < 1e-6 && Math.abs(em41.r - cfg.cartridges.collets.pick) < 1e-6) {
+      em41Down++;
+      expect(cell.collets.some((c) => c.u === 0)).toBe(true);
+    }
+  }
+  expect(changes).toBeGreaterThan(3);
+  expect(grips).toBeGreaterThan(100);
+  expect(em00Down).toBeGreaterThan(100);
+  expect(em41Down).toBeGreaterThan(100);
+}, 120_000);

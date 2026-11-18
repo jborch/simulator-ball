@@ -62,6 +62,9 @@ export function tubSize(cfg: LineConfig): number {
   return cfg.cartridges.tub.cols * cfg.cartridges.tub.rows;
 }
 
+/** How far above a seated cartridge's top a gripper must be before its collet may move. */
+const COLLET_CLEARANCE = 0.02;
+
 /** Gripper heights: over a cartridge in the tub, and over one seated in a collet. */
 export function denestHeights(cfg: LineConfig): { tub: number; collet: number } {
   const len = cfg.parts.cartridge.length;
@@ -72,7 +75,7 @@ export function createCartridgeCell(cfg: LineConfig): CartridgeCell {
   const c = cfg.cartridges.collets;
   const L = colletLoopLength(cfg);
   // Collets start spread over the loop, empty; they gather at the fill point once running.
-  const collets: Collet[] = Array.from({ length: c.count }, (_, i) => ({ id: i + 1, u: (L * (i + 0.5)) / c.count, cartridge: null }));
+  const collets: Collet[] = Array.from({ length: c.count }, (_, i) => ({ id: i + 1, u: (L * (i + 0.5)) / c.count, cartridge: null, hold: null }));
   const z = cfg.layout.z.safe;
   const robot: DenestRobot = { a: 0, r: 0, z, va: 0, vr: 0, vz: 0, ta: 0, tr: 0, tz: z, step: 'idle', timer: 0, holding: null, phase: 'idle' };
   return { tub: { sr: null, used: 0 }, changing: 0, tubs: 0, robot, collets, results: [] };
@@ -102,7 +105,10 @@ export function stepCartridgeCell(p: PlantState, cfg: LineConfig, dt: number): v
   stepCollets(p, cfg, cell, dt);
 }
 
-/** An empty tub goes out and the next full one comes in, once the robot is clear of it. */
+/**
+ * An empty tub goes out and the next full one comes in, once the last cartridge is out and the
+ * robot has lifted clear of it.
+ */
 function stepTub(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: number): void {
   if (cell.changing > 0) {
     cell.changing -= dt * p.speed;
@@ -113,7 +119,7 @@ function stepTub(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: number
     }
     return;
   }
-  const clear = cell.robot.z >= cfg.layout.z.safe - 1e-6;
+  const clear = cell.robot.z >= cfg.layout.z.safe - 1e-6 && !['toPocket', 'down', 'grip'].includes(cell.robot.step);
   if (cell.tub && cell.tub.used >= tubSize(cfg) && clear) {
     cell.tub = null;
     cell.changing = cfg.cartridges.tub.change;
@@ -133,10 +139,11 @@ function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: num
   };
   switch (r.step) {
     case 'idle': {
-      // Pick the next cartridge from the tub (it waits for the PLC to know the tub).
+      // Go for the next pocket (it waits for the PLC to know the tub). The pocket only counts as
+      // emptied once the cartridge is gripped out of it.
       const tub = cell.tub;
       if (tub && tub.sr !== null && tub.used < tubSize(cfg)) {
-        r.holding = { pocket: tub.used++, nest: tub.sr, from: p.t };
+        r.holding = { pocket: tub.used, nest: tub.sr, from: p.t };
         r.step = 'toPocket';
       } else {
         r.phase = 'starved';
@@ -159,10 +166,12 @@ function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: num
       if (r.timer > 0) return;
       r.timer = 0;
       if (r.step === 'grip') {
+        cell.tub!.used++;
         r.step = 'up';
       } else {
         const collet = colletAtFill(cfg, cell)!;
         collet.cartridge = { sr: null };
+        collet.hold = 'fill';
         cell.results.push({ pocket: r.holding!.pocket, nest: r.holding!.nest, collet: collet.id, from: r.holding!.from, to: p.t });
         r.holding = null;
         r.step = 'clear';
@@ -194,6 +203,13 @@ function stepDenest(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: num
  */
 function stepCollets(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: number): void {
   const c = cfg.cartridges.collets;
+  // A stop lets its collet go once the robot that worked on it has lifted clear of the cartridge.
+  const clearZ = denestHeights(cfg).collet + COLLET_CLEARANCE;
+  const em41 = p.stations.find((s) => s.id === cfg.cartridges.station)!.robots[0];
+  for (const col of cell.collets) {
+    if (col.hold === 'fill' && cell.robot.z >= clearZ) col.hold = null;
+    if (col.hold === 'pick' && em41.z >= clearZ) col.hold = null;
+  }
   const L = colletLoopLength(cfg);
   const fill = fillAt(cfg);
   const fwd = (from: number, to: number) => (((to - from) % L) + L) % L;
@@ -209,6 +225,7 @@ function stepCollets(p: PlantState, cfg: LineConfig, cell: CartridgeCell, dt: nu
     // Stops: empty at the fill point, full at the pick point. A collet stays at its stop until
     // its state changes (filled or emptied), and then its next stop is the other one.
     const stop = col.cartridge ? 0 : fill;
+    if (col.hold) return;
     if (col.u === stop) return;
     if (fwd(col.u, stop) <= ds) col.u = stop;
     else col.u = (col.u + ds) % L;

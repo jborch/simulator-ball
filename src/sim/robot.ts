@@ -309,6 +309,7 @@ export function stepRobot(p: PlantState, cfg: LineConfig, rng: RngState, def: St
         const collet = colletAtPick(p.cartridges)!;
         robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [collet.cartridge!.sr] };
         collet.cartridge = null;
+        collet.hold = 'pick';
       } else if (rdef.source === 'dial') {
         const part = takeFromDial(p, cfg);
         robot.holding = { kind: 'part', parts: [...(rdef.parts ?? [])], ids: [part.sr], label: part.label ?? undefined };

@@ -245,11 +245,13 @@ export interface Collet {
   /** Position along the loop, 0 = pick apex, increasing in the direction of travel. */
   u: number;
   cartridge: { sr: number | null } | null;
+  /** Held at its stop until the robot that just filled or emptied it has lifted clear. */
+  hold: 'fill' | 'pick' | null;
 }
 
 /** EM41's cartridge supply: the tub at the de-nest position, EM00's robot and the collet loop. */
 export interface CartridgeCell {
-  /** The tub being de-nested: its SR id (from the PLC) and how many pockets are taken; null while changing. */
+  /** The tub being de-nested: its SR id (from the PLC) and how many cartridges have been gripped out of it; null while changing. */
   tub: { sr: number | null; used: number } | null;
   /** Seconds left of a tub change. */
   changing: number;
