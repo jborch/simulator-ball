@@ -11,6 +11,7 @@
 //   CATCHAI_API_KEY   CATCH.AI API key; when set, reporting starts on
 //   CATCHAI_URL       CATCH.AI server root (default: the demo server)
 //   CATCHAI_AUTH      `none` for a CATCH.AI server with authentication off: report without a key
+//   CATCHAI_TIME_OFFSET_HOURS  report every time this many hours earlier (default 0)
 //   CLIENT_DIR        built frontend to serve (default dist/client)
 //   LOG_REQUESTS      1 to log every HTTP request
 //
@@ -51,7 +52,9 @@ const log = (msg: string) => console.log(`${new Date().toISOString()} ${msg}`);
 const catchaiUrl = env.CATCHAI_URL || DEFAULT_CATCHAI_URL;
 const apiKey = env.CATCHAI_API_KEY || undefined;
 const noAuth = env.CATCHAI_AUTH === 'none';
-const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth }, log });
+const timeOffsetHours = Number(env.CATCHAI_TIME_OFFSET_HOURS || 0);
+if (!Number.isFinite(timeOffsetHours)) throw new Error(`CATCHAI_TIME_OFFSET_HOURS must be a number, got "${env.CATCHAI_TIME_OFFSET_HOURS}"`);
+const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth, timeOffsetHours }, log });
 
 const httpOpts: HttpOptions = { log: env.LOG_REQUESTS === '1' ? log : undefined };
 let vite: import('vite').ViteDevServer | null = null;

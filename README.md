@@ -52,6 +52,7 @@ environment variables always take precedence over the files.
 | `CATCHAI_API_KEY` | – | CATCH.AI API key. When set, the server reports to CATCH.AI from startup |
 | `CATCHAI_URL` | demo server | CATCH.AI server root |
 | `CATCHAI_AUTH` | – | Set to `none` for a CATCH.AI server with authentication off: reporting starts without an API key |
+| `CATCHAI_TIME_OFFSET_HOURS` | `0` | Report every time this many hours earlier (the original simulator's `HoursToSubtractFromLoggedTime`), e.g. to fill a past window |
 | `CLIENT_DIR` | `dist/client` | Directory of the built frontend |
 | `LOG_REQUESTS` | off | Set to `1` to log every HTTP request. Viewer connects and disconnects are always logged |
 | `RTSP_CAMERAS` | – | Cameras to stream over RTSP: comma-separated ids (`infeed,outfeed`) or `all`. Off when empty |

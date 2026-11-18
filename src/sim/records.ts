@@ -34,6 +34,8 @@ export function evaluate(lim: Limits, value: number | null, rng: RngState): Eval
     'Inspection Lower Limit': lim.lower,
     'Inspection Upper Limit': lim.upper,
     'Inspection Passed': passed,
+    // The original's integer result: Failed 0, Passed 1 (Inconclusive 2, see EM50).
+    'Inspection Result': passed ? 1 : 0,
   };
   let cause: string | null = null;
   if (!passed) {
@@ -114,6 +116,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
           'Inspection Lower Limit': def.inspect!.lower,
           'Inspection Upper Limit': def.inspect!.upper,
           'Inspection Passed': snap.accepted,
+          'Inspection Result': snap.accepted ? 1 : 0,
         });
         if (snap.reason) Object.assign(props, { 'Failure Reason': snap.reason, 'Reject Cause': snap.reason });
         verdict = snap.accepted ? 'Passed' : 'Failed';
@@ -152,6 +155,7 @@ export function recordCycle(s: SimState, cfg: LineConfig, i: number, result: Cyc
           passed = false;
           cause = result.code === null || result.code === undefined ? 'DataMatrix no read' : 'ID mismatch';
           props['Inspection Passed'] = false;
+          props['Inspection Result'] = 0;
           props['Reject Cause'] = cause;
         }
       }

@@ -11,7 +11,8 @@ import type { SimEvent } from '../sim/types';
 export interface HostOptions {
   seed?: number;
   /** `noAuth`: the CATCH.AI server has authentication off, so no API key is needed. */
-  catchai?: { url: string; apiKey?: string; noAuth?: boolean; enabled: boolean };
+  /** `timeOffsetHours`: report every time this many hours earlier (CATCHAI_TIME_OFFSET_HOURS). */
+  catchai?: { url: string; apiKey?: string; noAuth?: boolean; enabled: boolean; timeOffsetHours?: number };
   /** Simulation steps run about this often. */
   stepMs?: number;
   /** Frames (and the events since the last frame) go out this often. */
@@ -132,7 +133,9 @@ export class LineHost {
       this.missingKey = Date.now();
     } else if (enabled) {
       const batch = this.sim.state.plc.batch;
-      this.reporter = new Reporter(new CatchAiApi(cfg.url, cfg.apiKey), this.sim.cfg, batch && batch.state !== 'complete' ? batch : null);
+      this.reporter = new Reporter(new CatchAiApi(cfg.url, cfg.apiKey), this.sim.cfg, batch && batch.state !== 'complete' ? batch : null, {
+        timeOffsetMs: (cfg.timeOffsetHours ?? 0) * 3600_000,
+      });
       void this.reporter.tick();
     }
     this.log(`CATCH.AI reporting ${enabled ? `on (${cfg.url})` : 'off'}`);

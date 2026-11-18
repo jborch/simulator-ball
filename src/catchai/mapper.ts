@@ -10,7 +10,6 @@ export type Outbound =
   | { k: 'data'; v: DeviceData }
   | { k: 'batch'; name: string; state: 'started' | 'completed'; at: string };
 
-const iso = (ms: number) => new Date(Math.round(ms)).toISOString();
 
 /**
  * The server keeps one item record per (process, timestamp) and silently drops the rest, and the
@@ -44,10 +43,19 @@ export class UniqueTimes {
 export class Mapper {
   private readonly times = new UniqueTimes();
 
+  /**
+   * `offsetMs`: every time reported is moved this much earlier (the original's
+   * HoursToSubtractFromLoggedTime), e.g. to fill a past window in a demo database.
+   */
   constructor(
     private readonly cat: Catalogue,
     private readonly keys: Setup,
+    private readonly offsetMs = 0,
   ) {}
+
+  private iso(ms: number): string {
+    return new Date(Math.round(ms - this.offsetMs)).toISOString();
+  }
 
   /** Scoped id as reported: this session's ids continue after what's already in the scope. */
   id(simId: number): number {
@@ -63,8 +71,8 @@ export class Mapper {
           Scope: scope,
           ScopedId: this.id(e.scopedId),
           Process: e.process,
-          From: iso(from),
-          To: iso(Math.max(from, e.to)),
+          From: this.iso(from),
+          To: this.iso(Math.max(from, e.to)),
           ItemType: e.itemType,
         };
         if (e.identifier) v.ItemIdentifier = e.identifier;
@@ -78,7 +86,7 @@ export class Mapper {
         const out: Outbound[] = [{ k: 'processed', v }];
         if (e.properties) {
           const props = this.properties({ [PROPERTY.scopedId]: v.ScopedId, ...e.properties });
-          out.push({ k: 'data', v: { DeviceId: e.process, Logged: iso(this.times.take(`d:${e.process}`, e.to)), Properties: props } });
+          out.push({ k: 'data', v: { DeviceId: e.process, Logged: this.iso(this.times.take(`d:${e.process}`, e.to)), Properties: props } });
         }
         return out;
       }
@@ -94,7 +102,7 @@ export class Mapper {
               SourceItemScopedId: this.id(e.source),
               SourceItemType: e.sourceType,
               SourceItemPosition: e.position,
-              Logged: iso(this.times.take(`i:${e.process}`, e.logged)),
+              Logged: this.iso(this.times.take(`i:${e.process}`, e.logged)),
             },
           },
         ];
@@ -120,7 +128,7 @@ export class Mapper {
         const text = e.state === 'started' ? `${e.name}: target ${e.target}` : `${e.name}: ${e.good} good, ${e.rejected} rejected`;
         const name = e.state === 'started' ? EVENT.batchStarted : EVENT.batchCompleted;
         return [
-          { k: 'batch', name: e.name, state: e.state, at: iso(e.logged) },
+          { k: 'batch', name: e.name, state: e.state, at: this.iso(e.logged) },
           this.data(this.cat.line, e.logged, { [name]: text }),
         ];
       }
@@ -128,7 +136,7 @@ export class Mapper {
   }
 
   private data(device: string, ms: number, events: Record<string, string>, props?: Record<string, string | number | boolean>): Outbound {
-    const v: DeviceData = { DeviceId: device, Logged: iso(this.times.take(`d:${device}`, ms)) };
+    const v: DeviceData = { DeviceId: device, Logged: this.iso(this.times.take(`d:${device}`, ms)) };
     const ev: Record<string, string> = {};
     for (const [name, value] of Object.entries(events)) {
       const key = this.keys.events[name];

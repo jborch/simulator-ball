@@ -52,6 +52,8 @@ export interface ReporterOptions {
   queueCap?: number;
   retryMinMs?: number;
   retryMaxMs?: number;
+  /** Report every time this much earlier (CATCHAI_TIME_OFFSET_HOURS). */
+  timeOffsetMs?: number;
 }
 
 const ENDPOINT = { processed: '/api/v2/item/processed', merged: '/api/v2/item/merge', data: '/api/v2/devicedata' } as const;
@@ -88,7 +90,7 @@ export class Reporter {
   ) {
     this.cat = catalogue(cfg);
     this.now = opts.now ?? (() => Date.now());
-    this.opts = { maxBatch: 500, queueCap: 100_000, retryMinMs: 1000, retryMaxMs: 30_000, ...opts };
+    this.opts = { maxBatch: 500, queueCap: 100_000, retryMinMs: 1000, retryMaxMs: 30_000, timeOffsetMs: 0, ...opts };
   }
 
   push(events: SimEvent[]): void {
@@ -150,25 +152,26 @@ export class Reporter {
   }
 
   private async connect(): Promise<void> {
-    const keys = await setup(this.api, this.cat, this.now());
+    const offset = this.opts.timeOffsetMs;
+    const keys = await setup(this.api, this.cat, this.now() - offset);
     const line = this.cat.line;
     // A batch left open by an earlier session is closed where this session's batch starts.
     const active = await this.api.get<NamedPeriod | undefined>(`/api/period/active/${keys.batchTypeId}/${encodeURIComponent(line)}`);
     if (active && active.Name === this.current?.name) {
       this.period = active;
     } else {
-      if (active) await this.api.put(`/api/period/${active.Id}`, { ...active, To: new Date(this.current?.startedAt ?? this.now()).toISOString() });
+      if (active) await this.api.put(`/api/period/${active.Id}`, { ...active, To: new Date((this.current?.startedAt ?? this.now()) - offset).toISOString() });
       if (this.current) {
         this.period = await this.api.post<NamedPeriod>('/api/period', {
           TypeId: keys.batchTypeId,
           DeviceId: line,
           Name: this.current.name,
-          From: new Date(this.current.startedAt).toISOString(),
+          From: new Date(this.current.startedAt - offset).toISOString(),
         });
       }
     }
     this.keys = keys;
-    this.mapper = new Mapper(this.cat, keys);
+    this.mapper = new Mapper(this.cat, keys, offset);
     const raw = this.raw;
     this.raw = [];
     this.push(raw);

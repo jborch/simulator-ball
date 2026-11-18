@@ -207,7 +207,10 @@ commands, faults, batches, CATCH.AI, cameras, RTSP) and includes its own 3D work
 
      The rates follow the original's rules. EM12 and EM14A/C/D fail more often than their own σ alone would give because of the bad carriers, as they would in the original. Mover 2 (badness 22) loses every pen; the analytics should find it at once.
    - The pace is set by EM11 (two arms on one gate) and the 4-up EM14 group (the batch fill and travel into the group); neither is saturated, since both lose time to waiting on each other through the loop.
-7. **CATCH.AI parity:** processes, properties, item view, time series, time offset, load test against the demo server.
+7. ✅ **CATCH.AI parity:** processes, properties, item view, time series, time offset, load test against the demo server. Notes:
+   - Processes, item view and the snap time series came with milestones 2–5. New here: **`Inspection Result`**, the original's integer property (Failed 0, Passed 1, Inconclusive 2), on every inspection record next to `Inspection Passed`; a test checks it always matches the item result.
+   - **`CATCHAI_TIME_OFFSET_HOURS`**, the original's `HoursToSubtractFromLoggedTime`: every reported time (items, merges, device data, batch periods, and the setup's look-back for scoped ids) moves that much earlier. A test reports the same run with and without a 3 h offset and compares every timestamp.
+   - **Load:** ≈ 250 device data rows a second while running, nearly all snap samples. Against the in-memory server, ticking once a second as the host does, the reporter delivered every one of > 60 000 samples in 10 min with never more than ≈ 2 000 rows waiting (the cap is 100 000). **Not yet run against the demo server:** that publishes data and needs a key, so it's left for an explicit go-ahead. If its bulk endpoints turn out slower, `snap.sampleHz` can go down (D7).
 8. **HUD and cameras:** new cameras, unit KPIs, buffer gauges, snap chart, inspector, frame-size check, README and PLAN update.
 
 ## 8. Risks

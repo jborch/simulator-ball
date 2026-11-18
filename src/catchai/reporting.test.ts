@@ -292,3 +292,66 @@ describe('Reporter', () => {
     expect(r.status().rejected).toBe(0);
   });
 });
+
+describe('parity with the original (milestone 7)', () => {
+  test('every inspection carries the original’s integer Inspection Result, matching the item result', () => {
+    const { events } = run(420);
+    const code = { Failed: 0, Passed: 1, Inconclusive: 2 } as const;
+    const checked = events.filter((e) => e.kind === 'processed' && e.result && e.properties);
+    expect(checked.length).toBeGreaterThan(500);
+    for (const e of checked) {
+      if (e.kind !== 'processed') continue;
+      expect(e.properties!['Inspection Result'], `${e.process} ${e.result}`).toBe(code[e.result!]);
+    }
+  }, 30_000);
+
+  test('a time offset moves every reported time earlier by exactly the offset', async () => {
+    const { cfg, events } = run(300);
+    const report = async (offsetHours: number) => {
+      const server = new FakeServer();
+      const r = new Reporter(new CatchAiApi('/catchai', undefined, server.fetch), cfg, null, { now: () => EPOCH, timeOffsetMs: offsetHours * 3600_000 });
+      r.push(events);
+      for (let i = 0; i < 50 && r.status().queued > 0; i++) await r.tick();
+      expect(r.status().rejected).toBe(0);
+      return server;
+    };
+    const plain = await report(0);
+    const shifted = await report(3);
+    const h3 = 3 * 3600_000;
+    const ms = (iso: string) => new Date(iso).getTime();
+    expect(shifted.items.length).toBe(plain.items.length);
+    shifted.items.forEach((x, i) => expect(ms(plain.items[i].From) - ms(x.From)).toBe(h3));
+    shifted.merges.forEach((x, i) => expect(ms(plain.merges[i].Logged) - ms(x.Logged)).toBe(h3));
+    shifted.data.forEach((x, i) => expect(ms(plain.data[i].Logged) - ms(x.Logged)).toBe(h3));
+    shifted.periods.forEach((x, i) => expect(ms(plain.periods[i].From) - ms(x.From)).toBe(h3));
+  }, 30_000);
+
+  test('the reporter keeps up with the 1 kHz snap curves, ticking once a second like the server', async () => {
+    const server = new FakeServer();
+    const cfg = steadyConfig();
+    const sim = new Simulation({ seed: 3, cfg, epochMs: EPOCH });
+    let clock = EPOCH;
+    const r = new Reporter(new CatchAiApi('/catchai', undefined, server.fetch), cfg, null, { now: () => clock });
+    sim.command({ type: 'start' });
+    let samples = 0;
+    let maxQueued = 0;
+    for (let t = 0; t < 600; t++) {
+      sim.advance(1);
+      clock += 1000;
+      const es = sim.drainEvents();
+      for (const e of es) if (e.kind === 'series') samples += e.values.Force.length;
+      r.push(es);
+      await r.tick();
+      maxQueued = Math.max(maxQueued, r.status().queued);
+    }
+    for (let i = 0; i < 20 && r.status().queued > 0; i++) await r.tick();
+    const st = r.status();
+    expect(samples).toBeGreaterThan(100 * 600);
+    expect(st.queued).toBe(0);
+    expect(st.rejected).toBe(0);
+    // About a second's worth of rows waits at any time, nowhere near the queue's cap.
+    expect(maxQueued).toBeLessThan(2000);
+    const force = server.properties.find((p) => p.Mappings?.[cfg.id] === 'Force')!.Key;
+    expect(server.data.filter((d) => d.Properties?.[force] !== undefined)).toHaveLength(samples);
+  }, 120_000);
+});

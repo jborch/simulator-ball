@@ -151,7 +151,7 @@ export function scanDial(s: SimState, cfg: LineConfig): void {
         if (passed && r.code !== part.print) {
           passed = false;
           cause = r.code === null ? 'Label unreadable' : 'Label misprinted';
-          Object.assign(props, { 'Inspection Passed': false, 'Reject Cause': cause });
+          Object.assign(props, { 'Inspection Passed': false, 'Inspection Result': 0, 'Reject Cause': cause });
         }
         part.ok = passed;
         if (!passed) delete s.mes.identifiers[part.sr!];

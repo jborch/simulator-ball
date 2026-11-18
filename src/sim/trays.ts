@@ -104,7 +104,7 @@ export function scanTrays(s: SimState, cfg: LineConfig): void {
     // A tray that isn't full is short, whatever else the camera sees.
     if (r.count < cfg.traySize) {
       passed = false;
-      Object.assign(props, { 'Inspection Passed': false, 'Reject Cause': 'Tray packing incomplete' });
+      Object.assign(props, { 'Inspection Passed': false, 'Inspection Result': 0, 'Reject Cause': 'Tray packing incomplete' });
     }
     if (tray) tray.ok = passed;
     if (r.sr !== null) {

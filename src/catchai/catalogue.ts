@@ -128,6 +128,7 @@ export function catalogue(cfg: LineConfig): Catalogue {
     { Name: 'Inspection Lower Limit', Type: 'Float', NumberOfDecimals: 3 },
     { Name: 'Inspection Upper Limit', Type: 'Float', NumberOfDecimals: 3 },
     { Name: 'Inspection Passed', Type: 'Boolean' },
+    { Name: 'Inspection Result', Type: 'Integer', Description: 'Failed 0, Passed 1, Inconclusive 2 (as the item result)' },
     { Name: 'Reject Cause', Type: 'String' },
     { Name: 'Code Read', Type: 'String', Description: 'DataMatrix content read by final vision' },
     { Name: 'Peak Force', Type: 'Float', Unit: 'N', NumberOfDecimals: 3, Description: 'Highest force before the housing snapped (EM40)' },
