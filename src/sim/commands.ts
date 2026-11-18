@@ -72,7 +72,10 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
         break;
       case 'endBatch':
         accepted = plc.batch?.state === 'running';
-        if (accepted) plc.batch!.state = 'completing';
+        if (accepted) {
+          plc.batch!.state = 'completing';
+          plc.batch!.ended = true;
+        }
         break;
       case 'batchSize':
         plc.batchSize = Math.max(1, Math.round(cmd.size));

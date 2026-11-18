@@ -42,6 +42,8 @@ export function stepTray(p: PlantState, cfg: LineConfig, rng: RngState, toolClea
 
 /** Trays ride the conveyor, stop for EM61, then go to the stack or the reject rack. */
 export function stepTrayLine(p: PlantState, cfg: LineConfig, rng: RngState, dt: number): void {
+  // The conveyor and EM61 run with the line: nothing moves or is checked while stopped or held.
+  if (!p.feedersOn) return;
   const line = p.trayLine;
   const def = cfg.trays;
   const check = def.check;

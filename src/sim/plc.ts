@@ -133,6 +133,13 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
       }
       break;
     case 'Completing': {
+      // A tray rejected at EM61 during run-out needs a replacement: back to loading (unless the
+      // operator ended the batch).
+      if (batch && !batch.ended && batch.good < batchPens(cfg, batch)) {
+        batch.state = 'running';
+        setMachine(s, 'Execute');
+        break;
+      }
       // Run-out: the load station has stopped loading; finish every pen still on the line.
       const inFlight = batch ? batch.loaded - batch.good - batch.rejected : 0;
       if (inFlight > 0 || !allIdle) break;
@@ -165,9 +172,12 @@ function scanMachine(s: SimState, cfg: LineConfig): void {
   }
 }
 
-/** Good pens a batch needs: full trays only. */
+/**
+ * Good pens a batch needs: its trays full, plus a tray's worth for every tray EM61 rejected
+ * (those pens are lost with their tray, so the batch makes a replacement).
+ */
 export function batchPens(cfg: LineConfig, b: Batch): number {
-  return b.target * cfg.traySize;
+  return (b.target + b.traysRejected) * cfg.traySize;
 }
 
 /** Reports fault inputs (robot axis faults, feeder jams) as events when they change. */

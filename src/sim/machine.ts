@@ -100,6 +100,6 @@ function batchName(ms: number): string {
 export function startBatch(s: SimState): void {
   const plc = s.plc;
   const t = now(s);
-  plc.batch = { name: batchName(t), target: plc.batchSize, loaded: 0, good: 0, rejected: 0, trays: 0, traysRejected: 0, startedAt: t, state: 'running' };
+  plc.batch = { name: batchName(t), target: plc.batchSize, loaded: 0, good: 0, rejected: 0, trays: 0, traysRejected: 0, ended: false, startedAt: t, state: 'running' };
   emit(s, { kind: 'batch', name: plc.batch.name, state: 'started', target: plc.batch.target, good: 0, rejected: 0, logged: t });
 }

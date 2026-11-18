@@ -412,6 +412,8 @@ export interface Batch {
   /** Trays checked at EM61: passed, and pushed into the reject rack. */
   trays: number;
   traysRejected: number;
+  /** Ended early by the operator: no replacement for rejects, the last tray may be short. */
+  ended: boolean;
   startedAt: number;
   state: 'running' | 'completing' | 'complete';
 }

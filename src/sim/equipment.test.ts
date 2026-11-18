@@ -89,6 +89,45 @@ test('fill to count: a batch ends on full trays, each checked by EM61, despite r
   expect(p.trayLine.stacked).toBe(3);
 }, 60_000);
 
+test('a tray EM61 rejects is replaced: the batch still ends with all its trays good', () => {
+  // Limits so tight that about half of the trays fail.
+  const s = sim((c) => {
+    c.traySize = 4;
+    c.batch.size = 2;
+    c.trays.check.inspect.upper = 10;
+  });
+  const events = untilComplete(s, 900);
+  const b = s.state.plc.batch!;
+  expect(s.state.plc.machine).toBe('Complete');
+  expect(b.traysRejected).toBeGreaterThan(0);
+  expect(b.trays).toBe(2);
+  expect(b.good).toBe((2 + b.traysRejected) * 4);
+  const checks = trayRecords(events, 'EM61');
+  expect(checks.filter((e) => e.result === 'Passed')).toHaveLength(2);
+  expect(checks.filter((e) => e.result === 'Failed')).toHaveLength(b.traysRejected);
+  expect(s.state.plant.trayLine.stacked).toBe(2);
+}, 90_000);
+
+test('the tray conveyor and EM61 stand still while the line is stopped', () => {
+  // A slow conveyor, so a tray is certainly still on its way to EM61 when the line has stopped.
+  const s = sim((c) => {
+    c.traySize = 4;
+    c.trays.speed = 0.005;
+  });
+  const line = s.state.plant.trayLine;
+  for (let t = 0; t < 900 && !line.trays.some((x) => x.phase === 'toCheck' && x.x > s.cfg.layout.tray.a); t += 0.05) s.advance(0.05);
+  expect(line.trays.length).toBeGreaterThan(0);
+  expect(s.command({ type: 'stop' })).toBe(true);
+  for (let t = 0; t < 60 && s.state.plc.machine !== 'Stopped'; t += 0.05) s.advance(0.05);
+  expect(s.state.plc.machine).toBe('Stopped');
+  expect(line.trays.some((x) => x.phase === 'toCheck')).toBe(true);
+  // Outputs follow the machine state on the next PLC scan.
+  s.advance(0.02);
+  const before = JSON.stringify(line);
+  s.advance(30);
+  expect(JSON.stringify(line)).toBe(before);
+}, 60_000);
+
 test('a batch ended early sends its part-filled tray out, and EM61 rejects it as incomplete', () => {
   const s = sim((c) => {
     c.traySize = 8;
