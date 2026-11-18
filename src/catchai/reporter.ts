@@ -160,7 +160,17 @@ export class Reporter {
     if (active && active.Name === this.current?.name) {
       this.period = active;
     } else {
-      if (active) await this.api.put(`/api/period/${active.Id}`, { ...active, To: new Date((this.current?.startedAt ?? this.now()) - offset).toISOString() });
+      const start = (this.current?.startedAt ?? this.now()) - offset;
+      // An open period from an earlier session can only be closed where this session starts if
+      // it began before that (an offset can put this session's times before it).
+      if (active && new Date(active.From).getTime() > start) {
+        throw new ApiError(
+          `Open batch period "${active.Name}" on ${line} starts at ${active.From}, after this session's first time ${new Date(start).toISOString()}: close it on the server, or use a smaller CATCHAI_TIME_OFFSET_HOURS`,
+          409,
+          null,
+        );
+      }
+      if (active) await this.api.put(`/api/period/${active.Id}`, { ...active, To: new Date(start).toISOString() });
       if (this.current) {
         this.period = await this.api.post<NamedPeriod>('/api/period', {
           TypeId: keys.batchTypeId,

@@ -8,6 +8,13 @@ import type { SimEvent } from '../sim/types';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
+/**
+ * Text from the server (event messages, command origins, identifiers) goes into HTML escaped: any
+ * viewer can name itself, and its name shows up in everyone's event log.
+ */
+const ENTITIES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ENTITIES[c]);
+
 /** Commands without arguments, sent by buttons with a data-cmd attribute. */
 type SimpleCommand = 'start' | 'stop' | 'hold' | 'unhold' | 'abort' | 'reset' | 'endBatch';
 
@@ -238,7 +245,10 @@ export class Hud {
       .join('');
   }
 
-  /** Yield per unit, the four presses side by side, and EM40's last snap curve. */
+  /**
+   * Share of checks passed per unit (every inspection counts once; a pen failing one of several
+   * checks still adds its passes), the four presses side by side, and EM40's last snap curve.
+   */
   private renderQuality(): void {
     const pct = (x: number) => `${(100 * x).toFixed(1)} %`;
     $('#fpy').innerHTML = this.cfg.units
@@ -334,7 +344,7 @@ export class Hud {
       row('Last lap', m.lastLap === null ? '–' : `${m.lastLap.toFixed(1)} s`),
       row('Rejected / retested', `${this.movers[id]?.rejects ?? 0} / ${this.movers[id]?.retests ?? 0} (since connect)`),
       row('Condition', worn ? describeWear(worn, this.cfg.fragileShift) : 'normal'),
-      m.mark ? `<div class="mark"><span>Identifier</span><code>${m.mark}</code></div>` : '',
+      m.mark ? `<div class="mark"><span>Identifier</span><code>${esc(m.mark)}</code></div>` : '',
     ].join('');
   }
 
@@ -347,7 +357,7 @@ export class Hud {
     }
     if (quality) this.renderQuality();
     if (this.log.length > 12) this.log.length = 12;
-    $('#log').innerHTML = this.log.map((l) => `<div class="${l.cls}"><time>${l.time}</time>${l.text}</div>`).join('');
+    $('#log').innerHTML = this.log.map((l) => `<div class="${l.cls}"><time>${esc(l.time)}</time>${esc(l.text)}</div>`).join('');
   }
 
   /** Adds an event to the quality tallies; true if it changed them. */

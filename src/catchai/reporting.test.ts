@@ -50,6 +50,8 @@ class FakeServer {
   data: DeviceData[] = [];
   /** Fail the next n bulk requests with 503. */
   outage = 0;
+  /** Start of each scoped-id look-back the setup asked for. */
+  lookbacks: string[] = [];
   calls: string[] = [];
 
   fetch: FetchFn = async (url, init) => {
@@ -86,6 +88,7 @@ class FakeServer {
     if (method === 'POST' && path === '/api/scope') return this.scopes.push(body), json(body);
     if (method === 'POST' && path === '/api/item-view') return this.itemViews.push({ ...body, Id: this.itemViews.length + 1 }), json(body);
     if (method === 'GET' && path === '/api/item') {
+      this.lookbacks.push(u.searchParams.get('From')!);
       // Most recent first, by first appearance, like the real server.
       const scope = u.searchParams.get('scope');
       const first = new Map<number, ItemProcessed>();
@@ -297,8 +300,9 @@ describe('parity with the original (milestone 7)', () => {
   test('every inspection carries the original’s integer Inspection Result, matching the item result', () => {
     const { events } = run(420);
     const code = { Failed: 0, Passed: 1, Inconclusive: 2 } as const;
-    const checked = events.filter((e) => e.kind === 'processed' && e.result && e.properties);
+    const checked = events.filter((e) => e.kind === 'processed' && e.result);
     expect(checked.length).toBeGreaterThan(500);
+    for (const e of checked) expect(e.kind === 'processed' && e.properties, e.kind === 'processed' ? e.process : '').toBeTruthy();
     for (const e of checked) {
       if (e.kind !== 'processed') continue;
       expect(e.properties!['Inspection Result'], `${e.process} ${e.result}`).toBe(code[e.result!]);
@@ -306,24 +310,53 @@ describe('parity with the original (milestone 7)', () => {
   }, 30_000);
 
   test('a time offset moves every reported time earlier by exactly the offset', async () => {
-    const { cfg, events } = run(300);
+    const { cfg, events, sim } = run(300);
+    // A batch running when reporting starts, and a period an earlier session left open long before.
+    const current = { name: sim.state.plc.batch!.name, startedAt: EPOCH };
     const report = async (offsetHours: number) => {
       const server = new FakeServer();
-      const r = new Reporter(new CatchAiApi('/catchai', undefined, server.fetch), cfg, null, { now: () => EPOCH, timeOffsetMs: offsetHours * 3600_000 });
+      server.periods.push({ Id: 1, TypeId: 1, DeviceId: cfg.id, Name: 'left open', From: new Date(EPOCH - 10 * 3600_000).toISOString() });
+      server.periodTypes.push({ Id: 1, Name: 'Assembly Batch' });
+      const r = new Reporter(new CatchAiApi('/catchai', undefined, server.fetch), cfg, current, { now: () => EPOCH, timeOffsetMs: offsetHours * 3600_000 });
       r.push(events);
       for (let i = 0; i < 50 && r.status().queued > 0; i++) await r.tick();
+      expect(r.status().lastError).toBeNull();
       expect(r.status().rejected).toBe(0);
       return server;
     };
     const plain = await report(0);
     const shifted = await report(3);
     const h3 = 3 * 3600_000;
-    const ms = (iso: string) => new Date(iso).getTime();
-    expect(shifted.items.length).toBe(plain.items.length);
-    shifted.items.forEach((x, i) => expect(ms(plain.items[i].From) - ms(x.From)).toBe(h3));
-    shifted.merges.forEach((x, i) => expect(ms(plain.merges[i].Logged) - ms(x.Logged)).toBe(h3));
-    shifted.data.forEach((x, i) => expect(ms(plain.data[i].Logged) - ms(x.Logged)).toBe(h3));
-    shifted.periods.forEach((x, i) => expect(ms(plain.periods[i].From) - ms(x.From)).toBe(h3));
+    const ms = (iso?: string) => (iso ? new Date(iso).getTime() : Number.NaN);
+    const same = <T>(a: T[], b: T[], at: (x: T) => string | undefined) => {
+      expect(a.length).toBeGreaterThan(0);
+      expect(b).toHaveLength(a.length);
+      a.forEach((x, i) => expect(ms(at(x)) - ms(at(b[i]))).toBe(h3));
+    };
+    same(plain.items, shifted.items, (x) => x.From);
+    same(plain.items, shifted.items, (x) => x.To);
+    same(plain.merges, shifted.merges, (x) => x.Logged);
+    same(plain.data, shifted.data, (x) => x.Logged);
+    // The earlier session's period is closed where this session starts, then the batches' own.
+    same(plain.periods.slice(1), shifted.periods.slice(1), (x) => x.From);
+    same(plain.periods.filter((p) => p.To), shifted.periods.filter((p) => p.To), (x) => x.To ?? undefined);
+    same(plain.lookbacks, shifted.lookbacks, (x) => x);
+  }, 30_000);
+
+  test('an offset that would close an earlier open period before it began is refused, with the reason', async () => {
+    const { cfg, events } = run(60);
+    const server = new FakeServer();
+    server.periodTypes.push({ Id: 1, Name: 'Assembly Batch' });
+    // Left open an hour ago by an unshifted session; this one reports 3 h earlier.
+    server.periods.push({ Id: 1, TypeId: 1, DeviceId: cfg.id, Name: 'left open', From: new Date(EPOCH - 3600_000).toISOString() });
+    const r = new Reporter(new CatchAiApi('/catchai', undefined, server.fetch), cfg, null, { now: () => EPOCH, timeOffsetMs: 3 * 3600_000 });
+    r.push(events);
+    await r.tick();
+    const st = r.status();
+    expect(st.state).toBe('error');
+    expect(st.lastError).toMatch(/Open batch period "left open".*CATCHAI_TIME_OFFSET_HOURS/);
+    expect(server.periods[0].To).toBeUndefined();
+    expect(server.items).toHaveLength(0);
   }, 30_000);
 
   test('the reporter keeps up with the 1 kHz snap curves, ticking once a second like the server', async () => {

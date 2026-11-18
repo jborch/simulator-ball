@@ -53,7 +53,10 @@ const catchaiUrl = env.CATCHAI_URL || DEFAULT_CATCHAI_URL;
 const apiKey = env.CATCHAI_API_KEY || undefined;
 const noAuth = env.CATCHAI_AUTH === 'none';
 const timeOffsetHours = Number(env.CATCHAI_TIME_OFFSET_HOURS || 0);
-if (!Number.isFinite(timeOffsetHours)) throw new Error(`CATCHAI_TIME_OFFSET_HOURS must be a number, got "${env.CATCHAI_TIME_OFFSET_HOURS}"`);
+// Up to ten years either way: further than that dates stop being meaningful (or valid at all).
+if (!Number.isFinite(timeOffsetHours) || Math.abs(timeOffsetHours) > 24 * 366 * 10) {
+  throw new Error(`CATCHAI_TIME_OFFSET_HOURS must be a number of hours within ±87840 (ten years), got "${env.CATCHAI_TIME_OFFSET_HOURS}"`);
+}
 const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth, timeOffsetHours }, log });
 
 const httpOpts: HttpOptions = { log: env.LOG_REQUESTS === '1' ? log : undefined };
