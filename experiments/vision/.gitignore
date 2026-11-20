@@ -1,0 +1,5 @@
+.venv/
+out/
+*.pt
+mobileclip*.ts
+__pycache__/
