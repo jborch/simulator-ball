@@ -11,6 +11,11 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import type { Browser, Page } from 'puppeteer';
 
 export const STREAM = { width: 1280, height: 720, fps: 25, bitrateKbps: 4000 } as const;
+/**
+ * Bit rate with camera realism on: about what an IP camera spends on 720p. With sensor noise in the
+ * picture, that is low enough to show the usual compression artefacts (blocking, smeared detail).
+ */
+export const REALISTIC_BITRATE_KBPS = 1500;
 
 export interface CameraStreamsOptions {
   /** Camera ids (see src/view/cameras.ts). */
@@ -21,6 +26,9 @@ export interface CameraStreamsOptions {
   publishUrl: string;
   /** Burn an ISO 8601 timestamp into the picture. */
   timestamp: boolean;
+  /** Make the picture look like a real camera's (see src/view/camerafx.ts). */
+  realism: boolean;
+  bitrateKbps: number;
   ffmpegPath: string;
   /** Extra Chrome flags (e.g. to pick a GPU backend). */
   chromeArgs?: string[];
@@ -64,14 +72,14 @@ export function publishTarget(base: string, camera: string): string {
   return `${base.replace(/\/+$/, '')}/${encodeURIComponent(camera)}`;
 }
 
-export function captureUrl(appUrl: string, camera: string, timestamp: boolean): string {
+export function captureUrl(appUrl: string, camera: string, timestamp: boolean, realism = false): string {
   const url = new URL('/', appUrl);
-  url.search = new URLSearchParams({ cam: camera, capture: '1', fps: String(STREAM.fps), ...(timestamp ? { ts: '1' } : {}) }).toString();
+  url.search = new URLSearchParams({ cam: camera, capture: '1', fps: String(STREAM.fps), ...(timestamp ? { ts: '1' } : {}), ...(realism ? { fx: '1' } : {}) }).toString();
   return url.toString();
 }
 
-export function ffmpegArgs(target: string): string[] {
-  const { fps, width, height, bitrateKbps } = STREAM;
+export function ffmpegArgs(target: string, bitrateKbps: number = STREAM.bitrateKbps): string[] {
+  const { fps, width, height } = STREAM;
   return [
     ...['-hide_banner', '-loglevel', 'warning', '-nostats'],
     // Input: the Matroska/WebM stream from MediaRecorder, as it arrives. Its header carries the
@@ -207,7 +215,7 @@ class CameraFeed {
     };
 
     try {
-      ffmpeg = spawn(opts.ffmpegPath, ffmpegArgs(this.target), { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
+      ffmpeg = spawn(opts.ffmpegPath, ffmpegArgs(this.target, opts.bitrateKbps), { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true });
       ffmpeg.on('error', (err) => fail(`ffmpeg: ${err.message}`));
       ffmpeg.on('exit', (code, signal) => fail(`ffmpeg exited (${signal ?? code})`));
       ffmpeg.stdin!.on('error', () => {}); // a broken pipe shows up as the exit above
@@ -257,7 +265,7 @@ class CameraFeed {
       watchdog = setInterval(() => {
         if (Date.now() - lastChunk > STALL_MS) fail(`no video for ${STALL_MS / 1000} s`);
       }, 1000);
-      await page.goto(captureUrl(opts.appUrl, this.id, opts.timestamp), { waitUntil: 'load', timeout: 30_000 });
+      await page.goto(captureUrl(opts.appUrl, this.id, opts.timestamp, opts.realism), { waitUntil: 'load', timeout: 30_000 });
     } catch (err) {
       fail(err instanceof Error ? err.message : String(err));
     }

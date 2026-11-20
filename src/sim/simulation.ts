@@ -4,13 +4,16 @@ import { applyCommand } from './commands';
 import { buildFrame } from './frame';
 import { createPlc, scanPlc } from './plc';
 import type { Command, Frame } from './protocol';
-import type { SimEvent, SimState } from './types';
+import type { Lighting, SimEvent, SimState } from './types';
 
 export interface SimOptions {
   seed?: number;
   /** Wall-clock time that sim time 0 corresponds to (for event timestamps). */
   epochMs?: number;
   cfg?: LineConfig;
+  /** Scene seed (camera mounts, wear, people; see SceneState). Default: the sim seed. */
+  sceneSeed?: number;
+  lighting?: Lighting;
 }
 
 /** Headless line: plant + PLC + MES, stepped in fixed increments. Pure; no timers or DOM. */
@@ -26,6 +29,7 @@ export class Simulation {
     const rng = { seed: opts.seed ?? 1 };
     this.state = {
       epochMs: opts.epochMs ?? 0,
+      scene: { seed: (opts.sceneSeed ?? opts.seed ?? 1) >>> 0, lighting: opts.lighting ?? 'day' },
       rng,
       plant: createPlant(this.cfg, rng),
       plc: createPlc(this.cfg),

@@ -4,7 +4,9 @@ import type { ReporterStatus } from '../catchai/reporter';
 import type { ConnectionState } from '../sim/client';
 import { describeCatchAi } from './catchaiStatus';
 import type { Command, Frame } from '../sim/protocol';
-import type { SimEvent } from '../sim/types';
+import { INCIDENT_KINDS, INCIDENT_TEXT, type IncidentKind } from '../sim/incidents';
+import { LIGHTINGS, type Lighting, type SimEvent } from '../sim/types';
+import { CAMERAS } from './cameras';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -78,6 +80,17 @@ export class Hud {
     ];
     $('#fault-target').innerHTML = targets.map((t) => `<option value="${t.id}">${t.text}</option>`).join('');
     $('#fault-inject').addEventListener('click', () => this.send({ type: 'fault', target: $<HTMLSelectElement>('#fault-target').value }));
+    // Visible incidents, injected in view of a camera (at the station it watches).
+    $('#incident-kind').innerHTML = INCIDENT_KINDS.map((k) => `<option value="${k}">${INCIDENT_TEXT[k]}</option>`).join('');
+    $('#incident-cam').innerHTML =
+      CAMERAS.map((c) => `<option value="${c.mount.station}">${c.name}</option>`).join('') + '<option value="">Anywhere</option>';
+    $('#incident-inject').addEventListener('click', () => {
+      const station = $<HTMLSelectElement>('#incident-cam').value;
+      this.send({ type: 'incident', kind: $<HTMLSelectElement>('#incident-kind').value as IncidentKind, ...(station ? { station } : {}) });
+    });
+    $('#scene-lighting').innerHTML = LIGHTINGS.map((l) => `<option value="${l}">${l[0].toUpperCase()}${l.slice(1)}</option>`).join('');
+    $<HTMLSelectElement>('#scene-lighting').addEventListener('change', (e) => this.send({ type: 'scene', lighting: (e.target as HTMLSelectElement).value as Lighting }));
+    $('#scene-seed').addEventListener('click', () => this.send({ type: 'scene', seed: Math.floor(Math.random() * 0xffffffff) }));
     const speed = $<HTMLInputElement>('#speed');
     speed.addEventListener('pointerdown', () => (this.speedDragging = true));
     speed.addEventListener('pointerup', () => (this.speedDragging = false));
@@ -164,6 +177,10 @@ export class Hud {
   }
 
   update(f: Frame): void {
+    const lighting = $<HTMLSelectElement>('#scene-lighting');
+    if (document.activeElement !== lighting) lighting.value = f.scene.lighting;
+    const active = f.incidents.length ? ` · ${f.incidents.length} incident${f.incidents.length > 1 ? 's' : ''} on` : '';
+    $('#scene-info').textContent = `seed ${f.scene.seed}${active}`;
     const machine = $('#machine');
     machine.textContent = f.machine;
     machine.dataset.state = f.machine;

@@ -1,3 +1,4 @@
+import type { IncidentState } from './incidents';
 // Simulation state. Everything here is plain, JSON-serializable data so it can be
 // snapshotted and sent to other browsers (no classes, Maps, Sets or functions).
 import type { MoverProfile, PartType, QualityKey, Step } from './config';
@@ -373,6 +374,8 @@ export interface PlantState {
   traysOut: number;
   /** Pens in the trays that have gone out. */
   pensOut: number;
+  /** Visible incidents (see incidents.ts): seen by the cameras, not by the line's sensors. */
+  incidents: IncidentState;
 }
 
 export type StationStep = 'idle' | 'read' | 'retryRead' | 'waitGroup' | 'waitRobot' | 'working' | 'write' | 'retryWrite' | 'leaving';
@@ -565,8 +568,23 @@ export interface MesState {
   events: SimEvent[];
 }
 
+/** Lighting of the hall the line stands in. */
+export type Lighting = 'day' | 'evening' | 'night' | 'dim';
+export const LIGHTINGS: Lighting[] = ['day', 'evening', 'night', 'dim'];
+
+/**
+ * How the surroundings look, as opposed to how the line runs: lighting, how the cameras happen to
+ * be mounted, the movers' wear, people walking past. Every camera derives its share from the seed,
+ * so they all agree; a new seed is a new "installation".
+ */
+export interface SceneState {
+  seed: number;
+  lighting: Lighting;
+}
+
 export interface SimState {
   epochMs: number;
+  scene: SceneState;
   rng: RngState;
   plant: PlantState;
   plc: PlcState;
