@@ -4,11 +4,14 @@ import { connectRemote } from './sim/client';
 import { LINE } from './sim/config';
 import { trackLength } from './sim/track';
 import { CaptureFeed, captureParams } from './view/capture';
+import { CameraFx } from './view/camerafx';
 import { Hud } from './view/hud';
+import { IncidentsView } from './view/incidents';
 import { FrameBuffer } from './view/interp';
 import { LineView } from './view/line';
 import { loadModels } from './view/models';
 import { Monitor } from './view/monitor';
+import { SceneView } from './view/scene';
 import { Stage } from './view/stage';
 
 // `?capture=1`: opened by the server's headless Chrome to stream one camera over RTSP.
@@ -52,6 +55,16 @@ hud.onToggleReporting = () => {
 const models = await loadModels();
 const line = new LineView(LINE, models);
 stage.scene.add(line.group);
+// Surroundings that vary per run (lighting, wear, people) and the visible incidents.
+const scene = new SceneView(LINE, stage, line.movers);
+const incidents = new IncidentsView(LINE, models, line.movers);
+stage.scene.add(incidents.group);
+// Camera realism (`fx=1`; the server sets it on the RTSP feeds unless CAMERA_REALISM=off). It
+// follows the selected fixed camera; works in a normal browser too, for a look at the effect.
+const params = new URLSearchParams(location.search);
+const fx = params.get('fx') === '1' ? new CameraFx(stage.renderer, stage.scene, stage.camera, params.get('cam') ?? 'overview') : null;
+let simT = 0;
+if (fx) stage.renderOverride = () => fx.render(stage.camera, simT);
 const bounds = line.bounds();
 const monitor = new Monitor(LINE, stage, () => bounds, sideInset);
 new ResizeObserver(() => monitor.insetChanged()).observe(side);
@@ -85,6 +98,14 @@ function loop() {
   last = now;
   const sample = frames.sample(now);
   if (sample) {
+    simT = sample.t;
+    scene.update(sample.b);
+    incidents.update(sample.b.incidents);
+    if (fx) {
+      fx.setSeed(sample.b.scene.seed);
+      fx.exposure = scene.exposure;
+      fx.running = sample.b.machine === 'Execute';
+    }
     line.update(sample, frames, dt);
     if (now - lastHud > 0.1) {
       lastHud = now;

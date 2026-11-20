@@ -22,14 +22,24 @@
 //                     rtsp://user:pass@vms:8554/simulator (the camera id is appended)
 //   RTSP_TIMESTAMP    1 to burn the wall-clock time (ISO 8601, UTC) into the picture
 //   RTSP_CHROME_ARGS  extra Chrome flags, space-separated (e.g. --use-angle=vulkan)
+//   RTSP_BITRATE_KBPS H.264 bit rate per camera (default 1500 with CAMERA_REALISM on, else 4000)
+//   CAMERA_REALISM    `off` for clean rendered pictures; on by default: sensor noise, blur, lens
+//                     distortion, flicker, shake and a slightly different mount on every run
+//
+// Scene and visible incidents (for testing vision; see src/sim/incidents.ts):
+//   SCENE_SEED        camera mounts, mover wear and people walking past (default: new each run)
+//   SCENE_LIGHTING    day, evening, night or dim (default day)
+//   INCIDENT_LOG      append each visible incident's start and end to this file (JSON lines)
 //   MEDIAMTX_PATH     MediaMTX binary (default: vendor/mediamtx, fetched on npm install)
 //   FFMPEG_PATH       ffmpeg binary (default: the one from the ffmpeg-static package)
 import { existsSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CATCHAI_URL } from '../catchai/api';
 import { CAMERAS, OVERVIEW } from '../view/cameras';
-import { CameraStreams, parseCameraList, redact as redactUrl } from './cameras';
+import { LIGHTINGS, type Lighting } from '../sim/types';
+import { CameraStreams, parseCameraList, REALISTIC_BITRATE_KBPS, redact as redactUrl, STREAM } from './cameras';
 import { LineHost } from './host';
 import { createHttpServer, type HttpOptions } from './http';
 import { MediaMtx } from './mediamtx';
@@ -57,7 +67,20 @@ const timeOffsetHours = Number(env.CATCHAI_TIME_OFFSET_HOURS || 0);
 if (!Number.isFinite(timeOffsetHours) || Math.abs(timeOffsetHours) > 24 * 366 * 10) {
   throw new Error(`CATCHAI_TIME_OFFSET_HOURS must be a number of hours within ±87840 (ten years), got "${env.CATCHAI_TIME_OFFSET_HOURS}"`);
 }
-const host = new LineHost({ catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth, timeOffsetHours }, log });
+const sceneSeed = env.SCENE_SEED ? Number(env.SCENE_SEED) : undefined;
+if (sceneSeed !== undefined && !(Number.isInteger(sceneSeed) && sceneSeed >= 0 && sceneSeed <= 0xffffffff)) {
+  throw new Error(`SCENE_SEED must be a whole number from 0 to 4294967295, got "${env.SCENE_SEED}"`);
+}
+const lighting = env.SCENE_LIGHTING || undefined;
+if (lighting !== undefined && !(LIGHTINGS as string[]).includes(lighting)) throw new Error(`SCENE_LIGHTING must be one of ${LIGHTINGS.join(', ')}, got "${lighting}"`);
+const incidentLog = env.INCIDENT_LOG ? path.resolve(env.INCIDENT_LOG) : null;
+const host = new LineHost({
+  catchai: { url: catchaiUrl, apiKey, noAuth, enabled: !!apiKey || noAuth, timeOffsetHours },
+  scene: { seed: sceneSeed, lighting: lighting as Lighting | undefined },
+  onIncident: incidentLog ? (r) => appendFile(incidentLog, JSON.stringify(r) + '\n').catch((err) => log(`INCIDENT_LOG: ${err.message}`)) : undefined,
+  log,
+});
+if (incidentLog) log(`visible incidents logged to ${incidentLog}`);
 
 const httpOpts: HttpOptions = { log: env.LOG_REQUESTS === '1' ? log : undefined };
 let vite: import('vite').ViteDevServer | null = null;
@@ -97,6 +120,10 @@ async function startCameraStreams(): Promise<void> {
     await mediamtx.start();
     publishUrl = `rtsp://127.0.0.1:${rtspPort}`;
   }
+  const realism = env.CAMERA_REALISM !== 'off';
+  const bitrateKbps = Number(env.RTSP_BITRATE_KBPS || (realism ? REALISTIC_BITRATE_KBPS : STREAM.bitrateKbps));
+  if (!Number.isFinite(bitrateKbps) || bitrateKbps < 100 || bitrateKbps > 50_000) throw new Error(`RTSP_BITRATE_KBPS must be 100–50000, got "${env.RTSP_BITRATE_KBPS}"`);
+  log(`cameras: realism ${realism ? 'on' : 'off'}, ${bitrateKbps} kbit/s`);
   const ffmpegPath = env.FFMPEG_PATH || (await import('ffmpeg-static')).default;
   if (!ffmpegPath) throw new Error('no ffmpeg for this platform; set FFMPEG_PATH');
   // The browser loads the app from this server, over loopback unless bound to one interface.
@@ -106,6 +133,8 @@ async function startCameraStreams(): Promise<void> {
     appUrl: `http://${local.includes(':') ? `[${local}]` : local}:${port}`,
     publishUrl,
     timestamp: env.RTSP_TIMESTAMP === '1',
+    realism,
+    bitrateKbps,
     ffmpegPath,
     chromeArgs: env.RTSP_CHROME_ARGS?.split(/\s+/).filter(Boolean),
     log,

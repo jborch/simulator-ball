@@ -2,7 +2,8 @@
 // browser), sent as JSON text over a WebSocket at /ws.
 import type { ReporterStatus } from '../catchai/reporter';
 import type { PartType } from './config';
-import type { AlarmId, Batch, MachineState, Orienter, Robot, SimEvent, SimState, StationStatus, Tag } from './types';
+import type { IncidentKind } from './incidents';
+import type { AlarmId, Batch, Lighting, MachineState, Orienter, Robot, SceneState, SimEvent, SimState, StationStatus, Tag } from './types';
 
 export type Command =
   | { type: 'start' }
@@ -17,7 +18,14 @@ export type Command =
   | { type: 'batchSize'; size: number }
   | { type: 'autoBatch'; on: boolean }
   /** Injects a fault on a robot or feeder (by id) for testing and demos. */
-  | { type: 'fault'; target: string };
+  | { type: 'fault'; target: string }
+  /**
+   * Starts a visible incident (incidents.ts) near a station, or a random one. Only the cameras see
+   * it: it raises no alarm and isn't logged as an event.
+   */
+  | { type: 'incident'; kind: IncidentKind; station?: string }
+  /** Changes the surroundings: lighting, or a new scene seed (camera mounts, wear, people). */
+  | { type: 'scene'; lighting?: Lighting; seed?: number };
 
 export interface MoverFrame {
   id: number;
@@ -59,8 +67,25 @@ export interface StationFrame {
   scrap: number;
 }
 
+/** A visible incident as drawn (see Incident in incidents.ts). */
+export interface IncidentFrame {
+  id: number;
+  kind: IncidentKind;
+  station: string;
+  moverId?: number;
+  s?: number;
+  offset?: number;
+  parts?: PartType[];
+  part?: PartType;
+  a?: number;
+  r?: number;
+  angle: number;
+}
+
 export interface Frame {
   t: number;
+  scene: SceneState;
+  incidents: IncidentFrame[];
   epochMs: number;
   machine: MachineState;
   speed: number;

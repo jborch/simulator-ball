@@ -4,6 +4,7 @@ import { heldLength } from '../sim/layout';
 import type { MoverFrame } from '../sim/protocol';
 import type { Pose } from '../sim/track';
 import { type Models, findMesh } from './models';
+import { hash01 } from './scene';
 import { dataMatrixTexture, numberTexture } from './textures';
 
 /**
@@ -146,10 +147,23 @@ const LED = {
   nok: new THREE.MeshStandardMaterial({ color: 0x8f1f1f, emissive: 0xff3030, emissiveIntensity: 1.6 }),
 };
 
+/** How a visible incident changes the look of one mover (see incidents.ts). */
+export interface MoverLook {
+  /** Parts not drawn although the sim has them (a missing spring; everything for a lost pen). */
+  hide?: PartType[];
+  /** Pen leaning in its fixture, forward or back along the belt (rad). */
+  tilt?: number;
+  /** The mover itself skewed on the belt (rad), as when jammed. */
+  skew?: number;
+}
+
 export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
   private readonly led: THREE.Mesh;
+  /** The model's own materials, before wear. */
+  private readonly baseMaterials = new Map<THREE.Mesh, THREE.MeshStandardMaterial>();
+  look: MoverLook | null = null;
 
   constructor(
     readonly id: number,
@@ -165,6 +179,10 @@ export class MoverView {
       const m = findMesh(mover, name);
       if (m) m.material = labelMat;
     }
+    mover.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && mesh.material !== labelMat) this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
+    });
     this.root.add(mover);
 
     this.led = new THREE.Mesh(new THREE.SphereGeometry(0.005, 12, 8), LED.empty);
@@ -176,11 +194,35 @@ export class MoverView {
     this.root.add(this.assembly.root);
   }
 
+  /**
+   * Each mover has seen different use: a slightly different colour and finish, and some are worn
+   * (duller, darker, with a scuffed top). Derived from the scene seed, so every camera agrees.
+   */
+  setWear(seed: number): void {
+    const h = (k: number) => hash01(seed, this.id, 9100 + k);
+    const worn = h(0) < 0.3 ? 0.5 + 0.5 * h(1) : 0.15 * h(1);
+    for (const [mesh, base] of this.baseMaterials) {
+      const m = base.clone();
+      const hsl = { h: 0, s: 0, l: 0 };
+      m.color.getHSL(hsl);
+      m.color.setHSL(hsl.h + (h(2) - 0.5) * 0.02, Math.max(0, hsl.s * (1 - 0.35 * worn) + (h(3) - 0.5) * 0.06), Math.max(0, hsl.l * (1 - 0.25 * worn) + (h(4) - 0.5) * 0.04));
+      m.roughness = Math.min(1, base.roughness + 0.3 * worn);
+      m.metalness = base.metalness * (1 - 0.5 * worn);
+      const old = mesh.material as THREE.Material;
+      mesh.material = m;
+      if (old !== base) old.dispose();
+    }
+  }
+
   update(f: MoverFrame, p: Pose, height: number): void {
     this.root.position.set(p.x, height, -p.y);
-    this.root.rotation.y = p.heading;
+    const look = this.look;
+    this.root.rotation.y = p.heading + (look?.skew ?? 0);
     this.led.material = LED[f.status];
-    this.assembly.show(f.parts);
-    this.assembly.setMark(f.mark);
+    this.assembly.show(look?.hide ? f.parts.filter((x) => !look.hide!.includes(x)) : f.parts);
+    this.assembly.setMark(look?.hide?.includes('housing') ? null : f.mark);
+    // Leaning along the belt (as the station cameras, looking across it, see best), pivoting on
+    // the fixture seat.
+    this.assembly.root.rotation.z = look?.tilt ?? 0;
   }
 }

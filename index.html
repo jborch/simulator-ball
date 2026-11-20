@@ -74,6 +74,19 @@
         <select id="fault-target"></select>
         <button id="fault-inject" class="danger">Inject fault</button>
       </section>
+      <h3 title="For testing vision on the camera feeds: these only show on camera, the line's sensors don't report them">Vision tests</h3>
+      <section id="vision">
+        <div class="row">
+          <select id="incident-kind" aria-label="Visible incident"></select>
+          <select id="incident-cam" aria-label="In view of camera"></select>
+          <button id="incident-inject" class="danger">Inject</button>
+        </div>
+        <div class="row">
+          <select id="scene-lighting" aria-label="Lighting"></select>
+          <button id="scene-seed" title="A new scene seed: camera mounts, mover wear, people">New scene</button>
+          <span id="scene-info" class="muted"></span>
+        </div>
+      </section>
       <h3>Stations</h3>
       <section id="stations"></section>
       <h3>Events</h3>

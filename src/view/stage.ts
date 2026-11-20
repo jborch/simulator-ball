@@ -24,6 +24,14 @@ export class Stage {
   onUserMove?: () => void;
   /** Called after the canvas changes size. */
   onResize?: () => void;
+  /** Broad fill and key light (see SceneView for the lighting presets). */
+  readonly hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1);
+  readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
+  /**
+   * Replaces the plain render (a camera feed's post-processing, camerafx.ts). Gets the scene and
+   * camera, and must draw the frame to the canvas.
+   */
+  renderOverride: ((renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -52,8 +60,8 @@ export class Stage {
     this.controls.addEventListener('start', () => this.onUserMove?.());
 
     // Broad fill plus a softer key light, so shadows don't stripe the work area.
-    this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.scene.add(this.hemi);
+    const sun = this.sun;
     sun.position.set(2.5, 6, 3);
     sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096);
@@ -162,7 +170,8 @@ export class Stage {
       this.project();
     }
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderOverride) this.renderOverride(this.renderer, this.scene, this.camera);
+    else this.renderer.render(this.scene, this.camera);
     if (this.showLabels) this.labels.render(this.scene, this.camera);
   }
 }

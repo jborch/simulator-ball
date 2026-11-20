@@ -304,7 +304,23 @@ button.danger:not(:disabled) {
   gap: 6px;
 }
 
-#faults select {
+#vision .row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#vision .row + .row {
+  margin-top: 6px;
+}
+
+#vision .muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#faults select,
+#vision select {
   flex: 1;
   font: inherit;
   color: var(--fg);

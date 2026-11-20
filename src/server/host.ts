@@ -6,10 +6,15 @@ import { Reporter, type ReporterStatus } from '../catchai/reporter';
 import { catalogue } from '../catchai/catalogue';
 import type { Command, ToClient } from '../sim/protocol';
 import { Simulation } from '../sim/simulation';
-import type { SimEvent } from '../sim/types';
+import { type Incident, type IncidentKind, INCIDENT_TEXT } from '../sim/incidents';
+import type { Lighting, SimEvent } from '../sim/types';
 
 export interface HostOptions {
   seed?: number;
+  /** Scene seed and lighting (SCENE_SEED, SCENE_LIGHTING). Default: a new seed every run, daylight. */
+  scene?: { seed?: number; lighting?: Lighting };
+  /** Called when a visible incident starts or ends: the ground truth for vision tests. */
+  onIncident?: (record: IncidentRecord) => void;
   /** `noAuth`: the CATCH.AI server has authentication off, so no API key is needed. */
   /** `timeOffsetHours`: report every time this many hours earlier (CATCHAI_TIME_OFFSET_HOURS). */
   catchai?: { url: string; apiKey?: string; noAuth?: boolean; enabled: boolean; timeOffsetHours?: number };
@@ -30,6 +35,16 @@ export interface Viewer {
 
 const encode = (msg: ToClient) => JSON.stringify(msg);
 
+export interface IncidentRecord {
+  event: 'start' | 'end';
+  /** Wall-clock time (ISO 8601), to match against camera recordings. */
+  time: string;
+  id: number;
+  kind: IncidentKind;
+  station: string;
+  moverId?: number;
+}
+
 /** If the host stalls longer than this, skip ahead instead of replaying the gap. */
 const MAX_CATCH_UP_S = 5;
 /** Recent events sent to a viewer when it connects, so its log isn't empty. */
@@ -38,7 +53,7 @@ const RECENT_EVENTS = 200;
 export class LineHost {
   readonly sim: Simulation;
   private readonly viewers = new Set<Viewer>();
-  private readonly opts: Required<Omit<HostOptions, 'seed' | 'catchai' | 'log'>>;
+  private readonly opts: Required<Pick<HostOptions, 'stepMs' | 'frameMs'>>;
   private readonly log: (msg: string) => void;
   private reporter: Reporter | null = null;
   /** Reporting was turned on, but the server has no API key: shown as an error, nothing is sent. */
@@ -49,11 +64,15 @@ export class LineHost {
   private last = 0;
   private lastFrame = 0;
   private loggedProblem: string | null = null;
+  /** Visible incidents in progress, to log when they start and end. */
+  private incidents = new Map<number, Incident>();
 
   constructor(private readonly options: HostOptions = {}) {
-    this.sim = new Simulation({ seed: options.seed ?? Date.now() & 0x7fffffff, epochMs: Date.now() });
+    const sceneSeed = options.scene?.seed ?? Math.floor(Math.random() * 0xffffffff);
+    this.sim = new Simulation({ seed: options.seed ?? Date.now() & 0x7fffffff, epochMs: Date.now(), sceneSeed, lighting: options.scene?.lighting });
     this.opts = { stepMs: options.stepMs ?? 5, frameMs: options.frameMs ?? 1000 / 30 };
     this.log = options.log ?? (() => {});
+    this.log(`scene: seed ${this.sim.state.scene.seed}, ${this.sim.state.scene.lighting} lighting`);
     this.sim.command({ type: 'start' }, 'system');
     if (options.catchai?.enabled) this.setReporting(true);
   }
@@ -82,6 +101,7 @@ export class LineHost {
   step(now: number): void {
     this.sim.advance(Math.min((now - this.last) / 1000, MAX_CATCH_UP_S));
     this.last = now;
+    this.trackIncidents();
     const events = this.sim.drainEvents();
     if (events.length > 0) {
       this.reporter?.push(events);
@@ -115,7 +135,39 @@ export class LineHost {
   }
 
   command(command: Command, origin: string): void {
-    this.sim.command(command, origin);
+    const accepted = this.sim.command(command, origin);
+    if (command.type === 'scene' && accepted) {
+      const sc = this.sim.state.scene;
+      this.log(`scene: seed ${sc.seed}, ${sc.lighting} lighting (from ${origin})`);
+    }
+    if (command.type === 'incident') {
+      if (accepted) this.trackIncidents();
+      else this.log(`incident ${command.kind}${command.station ? ` near ${command.station}` : ''} from ${origin}: nothing suitable there now`);
+    }
+  }
+
+  /** Logs visible incidents that started or ended since the last call. */
+  private trackIncidents(): void {
+    const list = this.sim.state.plant.incidents.list;
+    const time = new Date(this.sim.state.epochMs + this.sim.state.plant.t * 1000).toISOString();
+    const record = (event: IncidentRecord['event'], x: Incident) => {
+      const r: IncidentRecord = { event, time, id: x.id, kind: x.kind, station: x.station, ...(x.moverId !== undefined ? { moverId: x.moverId } : {}) };
+      this.log(`incident #${x.id} ${event}: ${INCIDENT_TEXT[x.kind]} near ${x.station}${x.moverId !== undefined ? ` (mover ${x.moverId})` : ''}`);
+      this.options.onIncident?.(r);
+    };
+    for (const x of list) {
+      if (!this.incidents.has(x.id)) {
+        this.incidents.set(x.id, x);
+        record('start', x);
+      }
+    }
+    if (this.incidents.size === list.length) return;
+    const live = new Set(list.map((x) => x.id));
+    for (const [id, x] of this.incidents) {
+      if (live.has(id)) continue;
+      this.incidents.delete(id);
+      record('end', x);
+    }
   }
 
   snapshot(viewer: Viewer): void {

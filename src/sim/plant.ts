@@ -12,6 +12,7 @@ import { createTrayLine, stepTray, stepTrayLine } from './trays';
 import { type RngState, normal, random, uniform } from './rng';
 import { createRobot, stepRobot, toolClear } from './robot';
 import { createDial, stepDial } from './dial';
+import { createIncidents, isStuck, penSpace, stepIncidents } from './incidents';
 import { createDistribution, createOrienter, stepDistribution, stepOrienter } from './sublines';
 import { copyTag, emptyTag } from './tags';
 import { forward, trackLength } from './track';
@@ -104,6 +105,7 @@ export function createPlant(cfg: LineConfig, rng: RngState): PlantState {
     trayLine: createTrayLine(),
     traysOut: 0,
     pensOut: 0,
+    incidents: createIncidents(rng.seed),
   };
 }
 
@@ -125,6 +127,7 @@ export function stepPlant(p: PlantState, cfg: LineConfig, rng: RngState, dt: num
   }
 
   moveMovers(p, cfg, L, dt);
+  stepIncidents(p, cfg, dt);
   if (p.estop) return;
   p.stations.forEach((ps, i) => {
     stepReader(p, rng, ps, dt);
@@ -168,10 +171,17 @@ function moveMovers(p: PlantState, cfg: LineConfig, L: number, dt: number): void
     const target = p.beltSpeed * (1 - m.profile.slip);
     m.v = approach(m.v, target, m.profile.mu * cfg.mover.gravity * dt);
     let ds = m.v * dt;
+    if (isStuck(p, m.id)) {
+      // Jammed (a visible incident): it stays put, and the movers behind run up against it.
+      m.v = 0;
+      ds = 0;
+    }
 
     if (n > 1) {
       const j = (i + 1) % n;
-      const gap = forward(prevS[i], prevS[j], L) - len;
+      const ahead = forward(prevS[i], prevS[j], L);
+      // Loose pens lying on the belt (visible incidents) keep movers apart.
+      const gap = ahead - len - (p.incidents.list.length ? penSpace(p, cfg, prevS[i], ahead) : 0);
       if (ds >= gap) {
         ds = Math.max(0, gap);
         m.v = Math.min(m.v, prevV[j]);

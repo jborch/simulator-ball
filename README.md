@@ -60,6 +60,11 @@ environment variables always take precedence over the files.
 | `RTSP_PUBLISH_URL` | – | Publish to an existing RTSP server instead (e.g. the VMS's MediaMTX): `rtsp://[user:pass@]host:8554/simulator`. The camera id is appended |
 | `RTSP_TIMESTAMP` | off | Set to `1` to burn the wall-clock time (ISO 8601, UTC, ms) into the picture, for debugging |
 | `RTSP_CHROME_ARGS` | – | Extra Chrome flags, space-separated (e.g. to choose the GPU backend) |
+| `RTSP_BITRATE_KBPS` | `1500` (`4000` with realism off) | H.264 bit rate per camera |
+| `CAMERA_REALISM` | on | `off` for clean rendered pictures. See [camera realism](#camera-realism-and-vision-tests) |
+| `SCENE_SEED` | new every run | Seed for how the cameras are mounted, the movers' wear and people walking past |
+| `SCENE_LIGHTING` | `day` | `day`, `evening`, `night` or `dim` |
+| `INCIDENT_LOG` | – | Append every visible incident's start and end to this file (JSON lines): the ground truth for vision tests |
 | `MEDIAMTX_PATH` / `FFMPEG_PATH` | bundled | Use these binaries instead of the bundled ones |
 
 The server listens on one port and handles:
@@ -130,7 +135,8 @@ auto-hide on.
 ## RTSP camera streams
 
 The server can publish the camera views as RTSP streams for a VMS: H.264 (Main), 1280×720,
-25 fps, a keyframe every 2 s, no B-frames, about 4 Mbit/s. The end-to-end delay is about 0.3 s.
+25 fps, a keyframe every 2 s, no B-frames, 1.5 Mbit/s (4 Mbit/s with camera realism off). The
+end-to-end delay is about 0.3 s.
 
 ```sh
 RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
@@ -148,6 +154,61 @@ RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
 - **Supervised:** if Chrome, a page, ffmpeg or MediaMTX dies, or a camera sends no video for 20 s, that part is restarted with a backoff (1 s, doubling, at most 30 s).
 - **GPU:** the log shows which GPU Chrome renders with (`camera infeed: WebGL renderer: …`). If it says SwiftShader, llvmpipe or *Microsoft Basic Render Driver*, Chrome has fallen back to software rendering, and the stream will stutter. On Windows this can happen when the server runs as a service (session 0). Run it in a logged-in session instead (for example, a Task Scheduler task at logon), or try `RTSP_CHROME_ARGS=--use-angle=d3d11`.
 - **Cost (Apple M4):** about 30 % of one CPU core per camera across Chrome, ffmpeg and MediaMTX.
+
+## Camera realism and vision tests
+
+The camera feeds are meant for testing computer vision (detection, tracking, anomaly detection)
+as if they came from a real line. So by default they look like an industrial IP camera, not a clean render,
+and the scene changes from run to run. You can also make visible incidents happen: things that
+go wrong that only a camera sees.
+
+**Camera realism** (`src/view/camerafx.ts`, on unless `CAMERA_REALISM=off`) is applied to every RTSP feed:
+
+- **Mount:** each camera sits slightly differently on every run (a centimetre or two, a degree or
+  so of aim and roll, a few percent of focal length), vibrates a little while the line runs, and
+  now and then gets knocked and rings out over a few seconds.
+- **Optics:** barrel distortion, chromatic aberration toward the edges, slight softness and vignetting.
+- **Exposure:** motion blur, lamp flicker, a slight white-balance cast per camera, and sensor noise
+  that grows with the gain in poor light.
+- **Compression:** the lower bit rate (1.5 Mbit/s) with noise in the picture gives the usual H.264
+  artefacts.
+
+To see the effect in a browser, add `fx=1`: `/?cam=infeed&fx=1`.
+
+**Variety between runs** (`src/view/scene.ts`) comes from the scene seed (`SCENE_SEED`, new every
+run unless set). Every camera derives its share from the seed, so they all agree:
+
+- **Lighting:** day, evening, night (ceiling lamps, now and then one out) or dim. Change it from
+  the panel or with `SCENE_LIGHTING`. The camera's gain only partly makes up for poor light, so
+  the picture gets darker and noisier.
+- **Movers:** each one is a slightly different colour and finish, and some are worn.
+- **People:** someone walks along an aisle every minute or two. While a robot is down, an operator
+  stands at its station, partly blocking the view behind it.
+
+**Visible incidents** (`src/sim/incidents.ts`) are injected from the **Vision tests** panel, in
+view of a chosen camera:
+
+| Incident | What the camera sees |
+| --- | --- |
+| Pen lying loose on the belt | A pen rides the belt between two movers and keeps them apart. Cleared after 1.5–2.5 min |
+| Part dropped in the robot area | A spring, cartridge, housing or body lying on a mover's top plate, riding round with it |
+| Pen without its spring | The spring missing inside the translucent body |
+| Pen tilted in its fixture | The pen leaning forward or back |
+| Pen fallen out of its mover | An empty mover, and the pen lying on the belt behind it |
+| Mover stuck | A mover stops, slightly skewed, for 20–40 s. The movers behind pile up and the line downstream starves |
+
+The line's own sensors don't notice any of them. They raise no alarm, write no MES event and
+send nothing to CATCH.AI, and the line carries on as if the pen were fine. Only a jam (and a loose pen
+keeping movers apart) affects production, as it would on a real line. A pen incident ends when
+its pen is unloaded. The server logs each incident's start and end, and with `INCIDENT_LOG` it also writes them to a
+file, to score a detector against:
+
+```json
+{"event":"start","time":"2026-11-20T11:14:44.237Z","id":9,"kind":"jam","station":"EM40","moverId":10}
+```
+
+Over the WebSocket the commands are `{ "type": "incident", "kind": "jam", "station": "EM40" }`
+and `{ "type": "scene", "lighting": "night", "seed": 42 }`.
 
 ## How it fits together
 
@@ -215,6 +276,7 @@ backoff.
 | `assembly.ts` | Physical effect of placing parts and of inspecting (true quality + sensor noise) |
 | `plc.ts` | PLC scan: machine states, batch run-out, fault reporting, station state machines |
 | `commands.ts` | Operator commands and which machine states accept them |
+| `incidents.ts` | Visible incidents: loose pens, dropped parts, missing springs, tilted or lost pens, jams |
 | `records.ts` | Finished cycle → new tag + MES records + counters |
 | `machine.ts` | Small shared helpers (events, machine state, batches, ids) |
 | `frame.ts` | State → `Frame` for rendering |
@@ -237,6 +299,9 @@ The browser uses only the config, geometry, protocol types and the command table
 | `hud.ts` | HTML controls, KPIs, batch panel, fault injection, event log, mover inspector, connection state |
 | `cameras.ts`, `monitor.ts` | Fixed monitoring cameras; camera selector, keys, auto-hide and camera label |
 | `capture.ts` | Capture mode for the RTSP streams: fixed-rate rendering, optional timestamp, MediaRecorder |
+| `camerafx.ts` | Camera realism: mount offset and shake, lens, motion blur, flicker, gain and sensor noise |
+| `scene.ts` | Per-run variety from the scene seed: lighting presets, mover wear, people |
+| `incidents.ts` | Draws the visible incidents and how they change a mover |
 
 ### `src/catchai` (reporting, runs on the server)
 

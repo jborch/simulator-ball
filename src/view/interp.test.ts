@@ -4,6 +4,8 @@ import { FrameBuffer } from './interp';
 
 const frame = (t: number, s: number): Frame => ({
   t,
+  scene: { seed: 1, lighting: 'day' },
+  incidents: [],
   epochMs: 0,
   machine: 'Execute',
   speed: 1,

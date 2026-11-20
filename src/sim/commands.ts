@@ -3,6 +3,7 @@
 import type { LineConfig } from './config';
 import { raise } from './alarms';
 import { repairTime } from './devices';
+import { injectIncident } from './incidents';
 import { emit, now, setMachine, startBatch } from './machine';
 import type { Command } from './protocol';
 import type { MachineState, SimState } from './types';
@@ -22,6 +23,9 @@ export const ACCEPTS: Record<Command['type'], MachineState[]> = {
   batchSize: ALL,
   autoBatch: ALL,
   fault: ALL.filter((m) => m !== 'Aborted'),
+  // Things that happen to the line whatever the machine is doing.
+  incident: ALL,
+  scene: ALL,
 };
 
 function label(cmd: Command): string {
@@ -87,8 +91,17 @@ export function applyCommand(s: SimState, cfg: LineConfig, cmd: Command, origin:
       case 'fault':
         accepted = injectFault(s, cfg, cmd.target);
         break;
+      case 'incident':
+        accepted = injectIncident(s.plant, cfg, cmd.kind, cmd.station) !== null;
+        break;
+      case 'scene':
+        if (cmd.lighting) s.scene.lighting = cmd.lighting;
+        if (cmd.seed !== undefined) s.scene.seed = cmd.seed >>> 0;
+        break;
     }
   }
+  // Incidents and the scene are invisible to the line's sensors and its MES: no event (the host logs them).
+  if (cmd.type === 'incident' || cmd.type === 'scene') return accepted;
   emit(s, { kind: 'command', command: label(cmd), origin, accepted, logged: now(s) });
   return accepted;
 }

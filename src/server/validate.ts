@@ -1,7 +1,9 @@
 // Checks messages from viewers before they reach the simulation. Anything that doesn't match
 // the protocol exactly is dropped, so a bad or hostile client can't crash the host.
 import { ACCEPTS } from '../sim/commands';
+import { INCIDENT_KINDS, type IncidentKind } from '../sim/incidents';
 import type { Command, ToHost } from '../sim/protocol';
+import { LIGHTINGS, type Lighting } from '../sim/types';
 
 const MAX_ORIGIN = 64;
 const MAX_TARGET = 64;
@@ -45,7 +47,17 @@ function parseCommand(c: unknown): Command | null {
       return typeof c.on === 'boolean' ? { type: 'autoBatch', on: c.on } : null;
     case 'fault':
       return typeof c.target === 'string' && c.target.length <= MAX_TARGET ? { type: 'fault', target: c.target } : null;
+    case 'incident': {
+      if (!(INCIDENT_KINDS as readonly unknown[]).includes(c.kind)) return null;
+      if (c.station !== undefined && (typeof c.station !== 'string' || c.station.length > MAX_TARGET)) return null;
+      return { type: 'incident', kind: c.kind as IncidentKind, ...(c.station ? { station: c.station as string } : {}) };
+    }
+    case 'scene': {
+      if (c.lighting !== undefined && !(LIGHTINGS as unknown[]).includes(c.lighting)) return null;
+      if (c.seed !== undefined && !(finite(c.seed) && Number.isInteger(c.seed) && c.seed >= 0 && c.seed <= 0xffffffff)) return null;
+      return { type: 'scene', ...(c.lighting ? { lighting: c.lighting as Lighting } : {}), ...(c.seed !== undefined ? { seed: c.seed as number } : {}) };
+    }
     default:
-      return { type: c.type as Exclude<Command['type'], 'speed' | 'batchSize' | 'autoBatch' | 'fault'> };
+      return { type: c.type as Exclude<Command['type'], 'speed' | 'batchSize' | 'autoBatch' | 'fault' | 'incident' | 'scene'> };
   }
 }

@@ -76,6 +76,13 @@ export function buildFrame(s: SimState, cfg: LineConfig): Frame {
   });
   return {
     t: plant.t,
+    scene: { ...s.scene },
+    incidents: plant.incidents.list.map(({ t: _t, left: _left, ...rest }) => ({
+      ...rest,
+      ...(rest.s !== undefined ? { s: mm(rest.s) } : {}),
+      ...(rest.offset !== undefined ? { offset: mm(rest.offset) } : {}),
+      angle: r3(rest.angle),
+    })),
     epochMs: s.epochMs,
     machine: plc.machine,
     speed: plant.speed,
