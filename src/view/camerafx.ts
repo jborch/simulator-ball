@@ -43,9 +43,15 @@ interface Mount {
   noise: number;
 }
 
-function mountFor(seed: number, camId: string): Mount {
+/** A number for a camera id, so each camera draws its own values from the scene seed. */
+function camNumber(camId: string): number {
   let id = 0;
   for (const ch of camId) id = (id * 31 + ch.charCodeAt(0)) | 0;
+  return id;
+}
+
+function mountFor(seed: number, camId: string): Mount {
+  const id = camNumber(camId);
   const r = (k: number) => hashSigned(seed, id, k); // -1..1
   const deg = Math.PI / 180;
   return {
@@ -179,6 +185,7 @@ export class CameraFx {
   private mount: Mount;
   private seed = -1;
   private frame = 0;
+  private readonly camNo: number;
   private readonly saved = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), fov: 0 };
   private readonly size = new THREE.Vector2();
   exposure: Exposure = { gain: 1, flicker: 0.015, blur: 0.3 };
@@ -198,6 +205,7 @@ export class CameraFx {
     this.composer.addPass(new OutputPass());
     this.composer.addPass(this.sensor);
     this.mount = mountFor(0, camId);
+    this.camNo = camNumber(camId);
   }
 
   setSeed(seed: number): void {
@@ -212,6 +220,9 @@ export class CameraFx {
   }
 
   /** Renders one frame through the camera, at sim time `t` (s). */
+  /** Called during each render while the camera has the mount's pose (offset, knocks, sway). */
+  onPosed: ((camera: THREE.PerspectiveCamera) => void) | null = null;
+
   render(camera: THREE.PerspectiveCamera, t: number): void {
     this.renderer.getDrawingBufferSize(this.size);
     if (this.size.x !== this.sensor.sensor.uniforms.res.value.x || this.size.y !== this.sensor.sensor.uniforms.res.value.y) {
@@ -233,6 +244,7 @@ export class CameraFx {
     camera.fov = s.fov * m.fovScale;
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
+    this.onPosed?.(camera);
 
     const e = this.exposure;
     const flicker = 1 + e.flicker * (Math.sin(2 * Math.PI * m.flickerHz * t) + 0.3 * hashSigned(this.seed, this.frame, 99));
@@ -258,15 +270,15 @@ export class CameraFx {
     const vib = this.running ? 0.03 * deg : 0.004 * deg;
     let yaw = vib * (Math.sin(t * 2 * Math.PI * 11.3) + 0.6 * Math.sin(t * 2 * Math.PI * 17.9 + 1.3));
     let pitch = vib * (Math.sin(t * 2 * Math.PI * 13.1 + 0.7) + 0.5 * Math.sin(t * 2 * Math.PI * 7.7));
-    yaw += 0.02 * deg * Math.sin(t * 2 * Math.PI * 0.23 + this.seed);
-    // Knocks: in some 90 s slots, at a random moment.
+    yaw += 0.02 * deg * Math.sin(t * 2 * Math.PI * 0.23 + this.seed + this.camNo);
+    // Knocks: in some 90 s slots, at a random moment; each camera on its own mast.
     const SLOT = 90;
     for (const k of [Math.floor(t / SLOT), Math.floor(t / SLOT) - 1]) {
-      if (k < 0 || hash01(this.seed, k, 501) > 0.25) continue;
-      const at = (k + hash01(this.seed, k, 502)) * SLOT;
+      if (k < 0 || hash01(this.seed, this.camNo, k, 501) > 0.25) continue;
+      const at = (k + hash01(this.seed, this.camNo, k, 502)) * SLOT;
       const dt = t - at;
       if (dt < 0 || dt > 6) continue;
-      const amp = (0.25 + 0.35 * hash01(this.seed, k, 503)) * deg * Math.exp(-dt * 1.2);
+      const amp = (0.25 + 0.35 * hash01(this.seed, this.camNo, k, 503)) * deg * Math.exp(-dt * 1.2);
       yaw += amp * Math.sin(dt * 2 * Math.PI * 3.1);
       pitch += amp * 0.7 * Math.sin(dt * 2 * Math.PI * 2.4 + 0.5);
     }

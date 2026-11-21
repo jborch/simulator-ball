@@ -119,6 +119,7 @@ export class SceneView {
   ) {
     for (let i = 0; i < 4; i++) {
       const p = new Person(CLOTHES[i % CLOTHES.length], SKIN[i % SKIN.length]);
+      p.group.userData.track = { cls: 'person', id: `person-${i + 1}` };
       this.people.push(p);
       stage.scene.add(p.group);
     }

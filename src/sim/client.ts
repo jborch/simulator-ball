@@ -50,7 +50,7 @@ export function connectRemote(origin: string, url = defaultUrl()): LineClient {
       if (m.type === 'frame') client.onFrame?.(m.frame);
       else if (m.type === 'events') client.onEvents?.(m.events);
       else if (m.type === 'catchai') client.onReporting?.(m.status);
-      else client.onSnapshot?.(m.state);
+      else if (m.type === 'snapshot') client.onSnapshot?.(m.state);
     };
     sock.onclose = () => {
       if (ws !== sock) return;

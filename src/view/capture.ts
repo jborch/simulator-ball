@@ -10,6 +10,8 @@ declare global {
   interface Window {
     /** Exposed by the server's Puppeteer page. Resolves once the chunk is written (backpressure). */
     __cameraChunk?: (base64: string) => Promise<void>;
+    /** Exposed when the server relays object boxes (RTSP_OBJECTS=1); see oracle.ts. */
+    __cameraObjects?: (json: string) => Promise<void>;
   }
 }
 

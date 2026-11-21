@@ -4,6 +4,7 @@ import { connectRemote } from './sim/client';
 import { LINE } from './sim/config';
 import { trackLength } from './sim/track';
 import { CaptureFeed, captureParams } from './view/capture';
+import { visibleObjects } from './view/oracle';
 import { CameraFx } from './view/camerafx';
 import { Hud } from './view/hud';
 import { IncidentsView } from './view/incidents';
@@ -65,6 +66,18 @@ const params = new URLSearchParams(location.search);
 const fx = params.get('fx') === '1' ? new CameraFx(stage.renderer, stage.scene, stage.camera, params.get('cam') ?? 'overview') : null;
 let simT = 0;
 if (fx) stage.renderOverride = () => fx.render(stage.camera, simT);
+
+// Object oracle: a capture feed reports the boxes of the objects it sees, 5 times a second, when the
+// server asks for them (RTSP_OBJECTS=1). Taken with the camera's pose at render time.
+let lastObjects = 0;
+function reportObjects(camera: THREE.Camera): void {
+  const send = window.__cameraObjects;
+  const now = Date.now();
+  if (!send || now - lastObjects < 200) return;
+  lastObjects = now;
+  void send(JSON.stringify({ time: new Date(now).toISOString(), objects: visibleObjects(stage.scene, camera) }));
+}
+if (fx) fx.onPosed = reportObjects;
 const bounds = line.bounds();
 const monitor = new Monitor(LINE, stage, () => bounds, sideInset);
 new ResizeObserver(() => monitor.insetChanged()).observe(side);
@@ -114,12 +127,21 @@ function loop() {
   }
   if (hud.selectedMover === null) ring.visible = false;
   stage.render();
+  if (capture && !fx) reportObjects(stage.camera);
   feed?.frame();
   if (!capture) requestAnimationFrame(loop);
 }
 // A capture feed renders on its own steady clock (each render is one video frame); a screen
 // renders with the display.
 const feed = capture ? new CaptureFeed(stage.renderer.domElement, capture) : null;
+// A feed whose WebGL context is lost (GPU pressure, a driver reset) would stream black forever:
+// reload the page, which reconnects and resumes streaming.
+if (capture) {
+  stage.renderer.domElement.addEventListener('webglcontextlost', () => {
+    console.error('[capture] WebGL context lost; reloading the page');
+    setTimeout(() => location.reload(), 1000);
+  });
+}
 if (capture) setInterval(loop, 1000 / capture.fps);
 else loop();
 

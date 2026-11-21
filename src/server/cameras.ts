@@ -9,6 +9,7 @@
 // arrives for a while, the feed is torn down and restarted with a backoff.
 import { type ChildProcess, spawn } from 'node:child_process';
 import type { Browser, Page } from 'puppeteer';
+import type { CameraObject } from '../sim/protocol';
 
 export const STREAM = { width: 1280, height: 720, fps: 25, bitrateKbps: 4000 } as const;
 /**
@@ -32,6 +33,11 @@ export interface CameraStreamsOptions {
   ffmpegPath: string;
   /** Extra Chrome flags (e.g. to pick a GPU backend). */
   chromeArgs?: string[];
+  /**
+   * Receives the boxes of the objects in each feed's view, about 5 times a second (simulator
+   * ground truth; see src/view/oracle.ts). Feeds only report objects when this is set.
+   */
+  onObjects?: (camera: string, time: string, objects: CameraObject[]) => void;
   log: (msg: string) => void;
 }
 
@@ -241,6 +247,14 @@ class CameraFeed {
         if (msg.type() === 'error' || msg.type() === 'warn' || text.startsWith('[capture]')) this.log(text.replace(/^\[capture\] /, ''));
       });
       await page.setViewport({ width: STREAM.width, height: STREAM.height, deviceScaleFactor: 1 });
+      if (opts.onObjects) {
+        const onObjects = opts.onObjects;
+        await page.exposeFunction('__cameraObjects', (json: string) => {
+          if (run !== this.run) return;
+          const m = JSON.parse(json) as { time: string; objects: CameraObject[] };
+          onObjects(this.id, m.time, m.objects);
+        });
+      }
       await page.exposeFunction('__cameraChunk', async (base64: string) => {
         if (run !== this.run) return;
         lastChunk = Date.now();
@@ -266,6 +280,12 @@ class CameraFeed {
         if (Date.now() - lastChunk > STALL_MS) fail(`no video for ${STALL_MS / 1000} s`);
       }, 1000);
       await page.goto(captureUrl(opts.appUrl, this.id, opts.timestamp, opts.realism), { waitUntil: 'load', timeout: 30_000 });
+      // A reload (the page recovering from a lost WebGL context, or a dev-server reload) starts a
+      // new container stream that this ffmpeg can't continue: start the feed over.
+      const loaded = page;
+      loaded.on('framenavigated', (frame) => {
+        if (frame === loaded.mainFrame()) fail('page reloaded');
+      });
     } catch (err) {
       fail(err instanceof Error ? err.message : String(err));
     }

@@ -137,6 +137,8 @@ async function startCameraStreams(): Promise<void> {
     bitrateKbps,
     ffmpegPath,
     chromeArgs: env.RTSP_CHROME_ARGS?.split(/\s+/).filter(Boolean),
+    // Ground-truth object boxes per camera, relayed to viewers (RTSP_OBJECTS=1; for VMS demos).
+    onObjects: env.RTSP_OBJECTS === '1' ? (camera, time, objects) => host.relayObjects(camera, time, objects) : undefined,
     log,
   });
   cameras.start();

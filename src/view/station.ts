@@ -38,6 +38,7 @@ export class StationView {
       const beamR = StationView.beamR(cfg, def, reach);
       const robots = def.robots ?? [];
       this.robot = new RobotView(reach, beamR, StationView.lowestTip(cfg, def), cfg, models, robots.length, robots.some((r) => r.laser));
+      this.robot.tag(def.id);
       this.group.add(this.robot.group);
       lightAt = { a: reach.aMin - 0.01, r: beamR, y: RAIL_Y + 0.02 };
     }

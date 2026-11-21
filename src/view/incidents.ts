@@ -58,6 +58,7 @@ export class IncidentsView {
     let obj = this.items.get(inc.id);
     if (!obj) {
       obj = make();
+      obj.userData.track = { cls: inc.kind === 'loosePen' ? 'pen' : 'part', id: `incident-${inc.id}` };
       this.items.set(inc.id, obj);
     }
     if (obj.parent !== parent) parent.add(obj);
