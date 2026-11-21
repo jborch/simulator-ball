@@ -351,7 +351,9 @@ def mover(num=None):
             bevel(buffer, 0.0007, 1)
             pads.append(buffer)
     # Laminated ID plates: top (operator view from above) and both long sides (station cameras).
+    # Two top plates, each upright for someone looking from its own side of the loop.
     lt = label_plane(0.046, 0.022, (-0.004, -0.0345, 0.02945), (0, 0, 0), "label_top")
+    lt2 = label_plane(0.046, 0.022, (0.004, 0.0345, 0.02945), (0, 0, math.pi), "label_top_b")
     ls = label_plane(0.052, 0.0185, (-0.006, -0.0606, 0.0135), (math.radians(90), 0, 0), "label_side_a")
     lb = label_plane(0.052, 0.0185, (0.006, 0.0606, 0.0135), (math.radians(90), 0, math.radians(180)), "label_side_b")
     # Recessed pockets the plates sit in (a darker margin frames each plate).
@@ -359,6 +361,7 @@ def mover(num=None):
         box(0.0548, 0.0006, 0.0213, (-0.006, -0.06025, 0.0135), DARK(), "plate_frame"),
         box(0.0548, 0.0006, 0.0213, (0.006, 0.06025, 0.0135), DARK(), "plate_frame"),
         box(0.0488, 0.0245, 0.0004, (-0.004, -0.0345, 0.0291), DARK(), "plate_frame"),
+        box(0.0488, 0.0245, 0.0004, (0.004, 0.0345, 0.0291), DARK(), "plate_frame"),
     ]
     # Status light pipes: black bezel, domed lens (the app swaps the lens material).
     leds = []
@@ -381,10 +384,10 @@ def mover(num=None):
             o.rotation_euler = rot
             o.location = Vector(loc) + (Matrix.Rotation(rot[0], 3, 'X') @ o.location)
         leds += [bezel, lens]
-    parts = [base, groove, top, fixture, flange, hole, *pads, lt, ls, lb, *frames, *leds]
+    parts = [base, groove, top, fixture, flange, hole, *pads, lt, lt2, ls, lb, *frames, *leds]
     # Socket screws retaining the replaceable tooling plate.
     screws = []
-    for x, y in [(-.043,-.043),(-.043,.043),(.043,.043),(.017,-.043)]:
+    for x, y in [(-.043,-.043),(-.043,.043),(.043,.043),(.026,-.043)]:
         head = cyl(.0032, .0008, .029, STEEL(), "socket_head", 16)
         socket = cyl(.0017, .0002, .0298, RUBBER(), "hex_socket", 6)
         for piece in (head, socket):

@@ -174,7 +174,7 @@ function carrierTemplate(models: Models): THREE.Group {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       const name = mesh.name || mesh.parent?.name || '';
-      if (name === 'label_top') mesh.material = TOP_PLATE;
+      if (name.startsWith('label_top')) mesh.material = TOP_PLATE;
       else if (name.startsWith('label_side')) mesh.material = SIDE_PLATE;
       else if (name.startsWith('status_led')) mesh.material = LIGHT_PIPE;
     });
