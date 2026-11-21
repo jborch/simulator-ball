@@ -325,9 +325,9 @@ def mover(num=None):
     anodised tooling plate, black anodised pen fixture, PU bumpers fore and aft, laminated ID
     plates on both long sides and the top, and status light pipes (top and inner side) that the
     app lights by tag status."""
-    base = bevel(box(0.12, 0.12, 0.025, (0, 0, 0.0125), MOVER_BODY(), "mover_base"), 0.004, 3)
+    base = bevel(box(0.108, 0.12, 0.025, (0, 0, 0.0125), MOVER_BODY(), "mover_base"), 0.004, 3)
     # Parting line of the moulded body and a shallow skirt groove.
-    groove = bevel(box(0.1215, 0.1215, 0.0012, (0, 0, 0.0035), DARK(), "mover_groove"), 0.0004)
+    groove = bevel(box(0.1095, 0.1215, 0.0012, (0, 0, 0.0035), DARK(), "mover_groove"), 0.0004)
     top = bevel(box(0.102, 0.102, 0.004, (0, 0, 0.027), TOOLPLATE(), "mover_top"), 0.0012)
     # Socket fixture: the pen stands in a bore (fits the housing) with a lead-in chamfer, on a
     # rubber seat at z = 0.03; a slot at the back locates the housing's clip side.
@@ -342,9 +342,9 @@ def mover(num=None):
     # Polyurethane damping pads where carriers touch in a queue and the stopper lands (+X = travel).
     pads = []
     for sx in (-1, 1):
-        pads.append(bevel(box(0.0014, 0.03, 0.009, (sx * 0.0604, 0, 0.0115), STEEL(), "mover_stop_plate"), 0.0004))
-        for y in (-0.038, 0.038):
-            bpy.ops.mesh.primitive_cylinder_add(radius=0.0042, depth=0.0026, vertices=12, location=(sx * 0.0611, y, 0.0115), rotation=(0, math.radians(90), 0))
+        pads.append(bevel(box(0.006, 0.03, 0.009, (sx * 0.057, 0, 0.0115), STEEL(), "mover_stop_plate"), 0.0004))
+        for y in (-0.048, 0.048):
+            bpy.ops.mesh.primitive_cylinder_add(radius=0.0085, depth=0.006, vertices=24, location=(sx * 0.057, y, 0.0115), rotation=(0, math.radians(90), 0))
             buffer = bpy.context.object
             buffer.name = "mover_buffer"
             buffer.data.materials.append(BUMPER())

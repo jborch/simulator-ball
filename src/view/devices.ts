@@ -216,7 +216,7 @@ class ArmView {
       if (this.payload === 'cartridge' && Math.abs(r.r) < 0.001 && Math.abs(r.a) < 0.001) {
         const shell = this.cfg.parts.housing;
         const mouth = this.cfg.mover.seat + shell.seat + shell.length;
-        const release = THREE.MathUtils.clamp((mouth + 0.022 - r.z) / 0.006, 0, 1);
+        const release = THREE.MathUtils.clamp((mouth + 0.040 - r.z) / 0.006, 0, 1);
         half = Math.max(half, radius + release * (shell.radius + 0.003 - radius));
       }
       this.fingers[0].position.x = half;
@@ -293,7 +293,9 @@ export class RobotView {
         contactPatch(frame, a, TABLE + 0.0009, -beamR, 0.12, 0.12);
       }
       for (const y of [0.014, 0.32]) block(frame, aMax + 0.026, y, -beamR - 0.023, 0.016, 0.009, 0.017, finish.graphite);
-      round(frame, aMax + 0.074, TABLE + 0.002, -beamR - 0.07, 0.009, 0.004, finish.seal);
+      // Raised cable entry with a bolted flange at the deck penetration.
+      block(frame, aMax + 0.074, TABLE + 0.003, -beamR - 0.07, 0.035, 0.006, 0.026, M.frame);
+      round(frame, aMax + 0.074, TABLE + 0.010, -beamR - 0.07, 0.008, 0.01, finish.zinc, 6);
       hose(
         frame,
         [
@@ -302,7 +304,7 @@ export class RobotView {
           [aMax + 0.053, top - 0.078, -beamR - 0.024],
           [aMax + 0.026, 0.32, -beamR - 0.026],
           [aMax + 0.026, 0.014, -beamR - 0.026],
-          [aMax + 0.074, TABLE + 0.004, -beamR - 0.07],
+          [aMax + 0.074, TABLE + 0.016, -beamR - 0.07],
         ],
         0.005,
       );
@@ -673,11 +675,12 @@ export class FeederView {
     nozzle.position.copy(local(-0.03, trackY + 0.006, jetR));
     this.group.add(nozzle, span(-0.045, -0.04, TABLE, trackY + 0.006, jetR - 0.004, jetR + 0.004, M.frame));
     const chute = new THREE.Group();
-    const collector = hardware('Tote', 0.061, TABLE, -jetR);
+    const collector = hardware('Tote', 0.074, TABLE, -jetR - 0.075);
     collector.scale.set(0.29, 0.38, 0.32);
     chute.add(collector);
-    const ramp = block(chute, 0.042, trackY - 0.021, -jetR, 0.051, 0.002, 0.037, M.rail);
-    ramp.rotation.z = -0.58;
+    const ramp = block(chute, 0.049, trackY - 0.057, -jetR - 0.037, 0.157, 0.002, 0.028, M.rail);
+    ramp.rotation.order = 'YXZ';
+    ramp.rotation.set(0, 0.90, -0.90);
     block(chute, 0.049, (TABLE + trackY - 0.023) / 2, -jetR + 0.024, 0.009, trackY - 0.023 - TABLE, 0.009, M.frame);
     this.group.add(chute);
     const l = label(`${inline.id} rejects: 0`, 'label bin');

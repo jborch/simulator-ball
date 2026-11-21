@@ -277,16 +277,19 @@ def jaw(name, radius, reach):
     for z in (-.0064, .0064):
         roundbar(.006, .028, z, .0024, .0014, dark, 12, "z")
     section = [(radius*(math.cos(a)-1), radius*math.sin(a))
-               for a in [math.radians(v) for v in range(-48,49,12)]]
-    section += [(0.005, section[-1][1]), (0.005, section[0][1])]
-    prism(section, -reach, 0.002, seal, 0.0003)
+               for a in [math.radians(v) for v in range(-72,73,12)]]
+    # Constant-thickness horseshoe with exposed wings either side of the spine.
+    section += [((radius + .0024)*math.cos(a)-radius, (radius + .0024)*math.sin(a))
+                for a in [math.radians(v) for v in range(72,-73,-12)]]
+    prism(section, -reach, -reach + .007, seal, 0.0003)
+    prism(section, -reach + .009, -reach + .014, seal, 0.0003)
     roundbar(0.007, 0.024, 0, 0.002, 0.0012, dark, 8, "x")
     save(name)
 
 
 jaw("TubeJaw", 0.0065, 0.010)
 jaw("BarrelJaw", 0.0085, 0.010)
-jaw("CartridgeJaw", 0.0048, 0.016)
+jaw("CartridgeJaw", 0.0048, 0.034)
 
 # Through-bore spring pilot and press punch. Both have a retaining sleeve
 # above the slender section that actually enters the transparent pen tube.
@@ -294,7 +297,14 @@ for name, reach, radius in [("SpringPilot", 0.064, 0.0034), ("PressPunch", 0.060
     roundbar(0, 0.068, 0, 0.010, 0.006, dark, 24)
     roundbar(0, reach/2 + 0.004, 0, radius, reach+0.008, steel, 24)
     if name == "SpringPilot":
-        roundbar(0, -0.005, 0, 0.0028, 0.010, dark, 20)
+        # Split expanding mandrel: the lands seat against the spring bore.
+        roundbar(0, -.016, 0, .0026, .032, steel, 20)
+        for i in range(3):
+            arc = [i*math.tau/3 + math.radians(v) for v in range(-50, 51, 10)]
+            land = [(r*math.cos(a), r*math.sin(a)) for r, angles in
+                    [(.00365, arc), (.0025, reversed(arc))] for a in angles]
+            prism(land, -.030, .001, dark, .00025)
+        roundbar(0, .005, 0, .0051, .009, steel, 24)
         roundbar(0, 0.002, 0, 0.0048, 0.004, dark, 24)
     else:
         # Vacuum land at the face captures the spring-base insert on pickup.
