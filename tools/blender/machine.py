@@ -638,27 +638,50 @@ for i in range(5):
 block(-0.063, 0.022, 0, 0.014, 0.039, 0.039, paint)
 save("ValveBank")
 
-# Cleanroom operator wearing a hood, mask, smock and overshoes. Separate
-# garment sections pivot at the existing hips and shoulders in the simulator.
+# Gowned cleanroom operator: coverall with a hood cape, a hood with a face opening over mask
+# and goggles, two-segment sleeves with knitted cuffs and five-finger nitrile gloves, overshoes,
+# and a rugged handheld HMI. Each section has its own pivot (hips, shoulders, elbows, neck) so
+# the simulator can pose it; the glove is a left hand (+X side), mirrored for the other arm.
 cloth = finish("Cleanroom textile", (0.42, 0.56, 0.58), 0.0, 0.88)
+plain = finish("Cleanroom textile plain", (0.42, 0.56, 0.58), 0.0, 0.88)
 cuff = finish("Knitted cuff", (0.24, 0.37, 0.39), 0.0, 0.94)
 boot = finish("Antistatic sole", (0.11, 0.16, 0.16), 0.0, 0.7)
 skin = finish("Complexion", (0.47, 0.29, 0.20), 0.0, 0.7)
 mask = finish("Surgical mask", (0.72, 0.79, 0.77), 0, 0.86)
-eye = finish("Iris", (0.047, 0.033, 0.025), 0, 0.45)
+glove = finish("Nitrile glove", (0.13, 0.25, 0.52), 0.0, 0.48)
+lens = finish("Goggle lens", (0.10, 0.12, 0.13), 0.55, 0.05)
+frame = finish("Goggle frame", (0.30, 0.33, 0.34), 0.0, 0.4)
+strap = finish("Goggle strap", (0.06, 0.09, 0.12), 0.0, 0.7)
+NECK = 1.47
+SHOULDER = 1.413
+ELBOW = 0.29
 
 
-def loft(rings, material, segments=32):
-    verts = [
-        (cx + w * math.cos(i * math.tau / segments), y, cz + d * math.sin(i * math.tau / segments))
-        for y, w, d, cx, cz in rings
-        for i in range(segments)
-    ]
+def loft(rings, material, segments=32, power=2.0, keep=None, caps=(True, True)):
+    """Rings (y, half-width, half-depth, cx, cz) joined in order; superelliptic sections for
+    power > 2. `keep(j, i)` may drop the quad between rings j, j + 1 at segment i."""
+    def at(w, d, i):
+        a = i * math.tau / segments
+        c, s_ = math.cos(a), math.sin(a)
+        e = 2 / power
+        return w * math.copysign(abs(c) ** e, c), d * math.copysign(abs(s_) ** e, s_)
+
+    verts = []
+    for y, w, d, cx, cz in rings:
+        for i in range(segments):
+            x, z = at(w, d, i)
+            verts.append((cx + x, y, cz + z))
     n = segments
-    faces = [tuple(range(n)), tuple(range(len(verts) - n, len(verts)))]
+    faces = []
+    if caps[0]:
+        faces.append(tuple(range(n)))
+    if caps[1]:
+        faces.append(tuple(range(len(verts) - n, len(verts))))
     for j in range(len(rings) - 1):
         faces += [
-            (j * n + i, j * n + (i + 1) % n, (j + 1) * n + (i + 1) % n, (j + 1) * n + i) for i in range(n)
+            (j * n + i, j * n + (i + 1) % n, (j + 1) * n + (i + 1) % n, (j + 1) * n + i)
+            for i in range(n)
+            if keep is None or keep(j, i)
         ]
     obj = mesh(verts, faces, material)
     # Cylindrical UVs (u round the body from +X, so the front is u = 0.25; v up the rings), for
@@ -672,93 +695,261 @@ def loft(rings, material, segments=32):
             i, j = v % n, v // n
             u = 1.0 if (wraps and i == 0) else i / n
             uv.data[k].uv = (u, j / max(1, len(rings) - 1))
-    for f in list(obj.data.polygons)[2:]:
+    for f in obj.data.polygons:
+        f.use_smooth = len(f.vertices) == 4
+    return obj
+
+
+def profile_at(table, y):
+    """Linear interpolation of (y, w, d, cx, cz) rows at height y."""
+    for a, b in zip(table, table[1:]):
+        if a[0] <= y <= b[0]:
+            t = (y - a[0]) / (b[0] - a[0])
+            return tuple(p + (q - p) * t for p, q in zip(a, b))
+    return table[0] if y < table[0][0] else table[-1]
+
+
+def sweep(path, radii, material, segments=10, closed=False, flat=1.0):
+    """Tube through view-frame points, radius per point, with parallel-transported sections;
+    `flat` squashes the section across the first normal. Open tubes get rounded tips."""
+    pts = [Vector(p) for p in path]
+    n = len(pts)
+    tan = []
+    for i in range(n):
+        a = pts[i - 1] if (closed or i) else pts[i]
+        b = pts[(i + 1) % n] if (closed or i < n - 1) else pts[i]
+        tan.append((b - a).normalized())
+    ref = Vector((1, 0, 0)) if abs(tan[0].x) < 0.9 else Vector((0, 0, 1))
+    nrm = tan[0].cross(ref).normalized()
+    verts = []
+    for i in range(n):
+        if i:
+            axis = tan[i - 1].cross(tan[i])
+            if axis.length > 1e-9:
+                from mathutils import Quaternion
+                nrm.rotate(Quaternion(axis.normalized(), tan[i - 1].angle(tan[i])))
+        bin_ = tan[i].cross(nrm)
+        r = radii[i] if isinstance(radii, (list, tuple)) else radii
+        for k in range(segments):
+            a = k * math.tau / segments
+            verts.append(tuple(pts[i] + (nrm * math.cos(a) * flat + bin_ * math.sin(a)) * r))
+    faces = []
+    rings = n if closed else n - 1
+    for j in range(rings):
+        j2 = (j + 1) % n
+        faces += [(j * segments + k, j * segments + (k + 1) % segments, j2 * segments + (k + 1) % segments, j2 * segments + k) for k in range(segments)]
+    if not closed:
+        # Domed ends: one apex just beyond each end ring.
+        for end, sign in ((0, -1), (n - 1, 1)):
+            r = radii[end] if isinstance(radii, (list, tuple)) else radii
+            verts.append(tuple(pts[end] + tan[end] * sign * r * 0.6))
+            apex = len(verts) - 1
+            faces += [(end * segments + k, end * segments + (k + 1) % segments, apex) for k in range(segments)]
+    obj = mesh(verts, faces, material)
+    for f in obj.data.polygons:
         f.use_smooth = True
+    return obj
 
 
+# Coverall: a loose, slightly boxy chest and shoulders that slope into the collar.
+torso = [
+    (0.80, 0.160, 0.104, 0, 0),
+    (0.84, 0.176, 0.116, 0, 0),
+    (0.94, 0.172, 0.119, 0, -0.008),
+    (1.04, 0.153, 0.110, 0, 0),
+    (1.17, 0.166, 0.120, 0, 0.004),
+    (1.30, 0.188, 0.126, 0, 0.008),
+    (1.37, 0.199, 0.118, 0, 0.004),
+    (1.405, 0.200, 0.107, 0, 0),
+    (1.432, 0.188, 0.097, 0, -0.002),
+    (1.455, 0.160, 0.086, 0, -0.004),
+    (1.472, 0.112, 0.076, 0, -0.004),
+    (1.484, 0.070, 0.066, 0, -0.002),
+]
+loft(torso, cloth, 40, 2.5)
+# Front zip under a placket, from the crotch to the collar, and a name badge.
+for i in range(12):
+    y = 0.87 + i * 0.047
+    _, _, d, _, cz = profile_at(torso, y)
+    block(0, y, cz + d + 0.0012, 0.006, 0.044, 0.003, cuff)
+_, _, d, _, cz = profile_at(torso, 1.30)
+block(0.098, 1.30, cz + d * 0.93 + 0.003, 0.064, 0.082, 0.006, mask, 0.002)
+block(0.098, 1.325, cz + d * 0.93 + 0.0065, 0.052, 0.016, 0.002, blue)
+# Elastic gathered at the waist, a shade darker than the coverall.
+loft([(1.012, 0.1575, 0.1135, 0, 0.001), (1.034, 0.1555, 0.1125, 0, 0.001)], finish("Waist elastic", (0.46, 0.53, 0.55), 0.0, 0.92), 40, 2.5, caps=(False, False))
+# Hood cape: the hood's bib lies over the shoulders and tucks under the zip.
 loft(
     [
-        (0.80, 0.16, 0.102, 0, 0),
-        (0.84, 0.177, 0.115, 0, 0),
-        (0.94, 0.173, 0.119, 0, -0.009),
-        (1.04, 0.151, 0.109, 0, 0),
-        (1.17, 0.163, 0.119, 0, 0.003),
-        (1.32, 0.192, 0.127, 0, 0.008),
-        (1.405, 0.201, 0.106, 0, 0),
-        (1.458, 0.161, 0.087, 0, 0),
-        (1.483, 0.074, 0.069, 0, 0),
+        (1.418, 0.175, 0.121, 0, 0.004),
+        (1.440, 0.165, 0.113, 0, 0.002),
+        (1.462, 0.140, 0.101, 0, -0.002),
+        (1.484, 0.104, 0.088, 0, -0.004),
+        (1.500, 0.078, 0.080, 0, -0.004),
     ],
-    cloth,
+    plain,
+    40,
+    2.2,
+    caps=(False, True),
 )
-for i in range(11):
-    y = 0.86 + i * 0.054
-    block(0, y, 0.116 if y < 1.34 else 0.10, 0.005, 0.053, 0.003, cuff)
-block(0.095, 1.319, 0.119, 0.067, 0.086, 0.007, mask, 0.002)
-block(0.095, 1.344, 0.124, 0.054, 0.018, 0.002, blue)
+save("Smock")
+
+# Hood over the head (pivot at the neck), open over the face. The face opening is an ellipse
+# in (angle round the front, height); a knitted binding runs round its edge.
+hood = [
+    (1.470, 0.070, 0.076, 0, -0.004),
+    (1.510, 0.077, 0.087, 0, 0.002),
+    (1.550, 0.088, 0.101, 0, 0.006),
+    (1.600, 0.094, 0.109, 0, 0.005),
+    (1.650, 0.095, 0.111, 0, 0.001),
+    (1.690, 0.091, 0.107, 0, -0.004),
+    (1.720, 0.080, 0.095, 0, -0.008),
+    (1.742, 0.060, 0.072, 0, -0.010),
+    (1.756, 0.032, 0.040, 0, -0.010),
+    (1.762, 0.008, 0.010, 0, -0.010),
+]
+SEG = 56
+ys = [1.470 + k * 0.0115 for k in range(26)] + [1.762]
+rings = [profile_at(hood, y) for y in ys]
+rings = [(y - NECK, w, d, cx, cz) for y, w, d, cx, cz in rings]
+FACE_Y, FACE_H, FACE_A = 1.619, 0.071, 0.98
+
+
+def open_face(j, i):
+    y = (ys[j] + ys[j + 1]) / 2
+    a = ((i + 0.5) * math.tau / SEG) - math.pi / 2
+    return ((y - FACE_Y) / FACE_H) ** 2 + (a / FACE_A) ** 2 > 1
+
+
+loft(rings, plain, SEG, 2.0, keep=open_face, caps=(False, True))
+rim = []
+for k in range(48):
+    t = k * math.tau / 48
+    a = FACE_A * 0.985 * math.cos(t)
+    y = FACE_Y + FACE_H * 0.985 * math.sin(t)
+    _, w, d, cx, cz = profile_at(hood, y)
+    phi = math.pi / 2 + a
+    rim.append((cx + w * math.cos(phi), y - NECK, cz + d * math.sin(phi)))
+sweep(rim, 0.0036, finish("Hood binding", (0.33, 0.43, 0.45), 0.0, 0.9), 8, closed=True)
+# The head inside: skin shows only round the eyes, between the mask and the hood's brow.
 loft(
     [
-        (1.435, 0.071, 0.067, 0, 0),
-        (1.491, 0.078, 0.072, 0, 0.01),
-        (1.54, 0.087, 0.085, 0, 0.007),
-        (1.60, 0.089, 0.094, 0, 0),
-        (1.67, 0.091, 0.095, 0, -0.003),
-        (1.711, 0.077, 0.080, 0, -0.009),
-        (1.738, 0.048, 0.049, 0, -0.005),
-        (1.748, 0.014, 0.018, 0, -0.005),
-    ],
-    cloth,
-)
-# Face panel, mask folded forward at the nose bridge and snug under the chin.
-loft(
-    [
-        (1.54, 0.049, 0.03, 0, 0.057),
-        (1.60, 0.074, 0.048, 0, 0.052),
-        (1.655, 0.075, 0.044, 0, 0.042),
-        (1.677, 0.061, 0.038, 0, 0.038),
+        (1.535 - NECK, 0.030, 0.034, 0, 0.018),
+        (1.555 - NECK, 0.056, 0.070, 0, 0.016),
+        (1.590 - NECK, 0.072, 0.086, 0, 0.012),
+        (1.640 - NECK, 0.077, 0.090, 0, 0.010),
+        (1.690 - NECK, 0.074, 0.088, 0, 0.004),
+        (1.725 - NECK, 0.056, 0.070, 0, -0.002),
     ],
     skin,
+    32,
 )
+
+
+# Eyes and brows behind the clear goggles.
+iris = finish("Iris", (0.035, 0.026, 0.02), 0.0, 0.35)
+brow = finish("Brow", (0.09, 0.06, 0.04), 0.0, 0.9)
+for sx in (-1, 1):
+    for y, x0, x1, r, m in ((1.646, 0.021, 0.041, 0.0042, iris), (1.664, 0.017, 0.046, 0.0032, brow)):
+        pts = []
+        for k in range(5):
+            x = x0 + (x1 - x0) * k / 4
+            _, w, d, cx, cz = profile_at([(1.59, 0.072, 0.086, 0, 0.012), (1.64, 0.077, 0.090, 0, 0.010), (1.69, 0.074, 0.088, 0, 0.004)], y)
+            c = min(1.0, x / w)
+            z = cz + d * math.sqrt(max(0.0, 1 - c * c)) + 0.0012
+            pts.append((sx * x, y - NECK + (0.0016 if k in (1, 2, 3) else 0) * (1 if m is brow else 0.5), z))
+        sweep(pts, r, m, 8, flat=0.55)
+
+
+def front_band(y0, y1, w, d, cz, half_angle, material, steps=4, segments=48, bulge=0.0):
+    """A band round the front of the head between two heights (mask, goggles)."""
+    rings = []
+    for k in range(steps + 1):
+        y = y0 + (y1 - y0) * k / steps
+        s_ = math.sin(math.pi * k / steps)
+        rings.append((y - NECK, w + bulge * s_, d + bulge * s_, 0, cz))
+
+    def keep(j, i):
+        a = ((i + 0.5) * math.tau / segments) - math.pi / 2
+        return abs(math.atan2(math.sin(a), math.cos(a))) < half_angle
+
+    return loft(rings, material, segments, 2.0, keep=keep, caps=(False, False))
+
+
+# Pleated mask over nose and mouth, ear loops under the hood.
+front_band(1.548, 1.628, 0.076, 0.093, 0.013, 1.15, mask, 6, bulge=0.006)
+for y in (1.572, 1.592, 1.610):
+    front_band(y - 0.0015, y + 0.0015, 0.0835, 0.1005, 0.013, 1.05, plain, 1)
+# Goggles: a smoked lens in a soft frame, strap round the outside of the hood.
+front_band(1.630, 1.668, 0.083, 0.099, 0.011, 1.12, lens, 3, bulge=0.003)
+for y in (1.627, 1.671):
+    front_band(y - 0.003, y + 0.003, 0.0855, 0.1015, 0.011, 1.16, frame, 1)
+loft([(1.641 - NECK, 0.0965, 0.1125, 0, 0.001), (1.655 - NECK, 0.0965, 0.1125, 0, 0.001)], strap, SEG, 2.0,
+     keep=lambda j, i: abs(((i + 0.5) * math.tau / SEG) - math.pi / 2) > 1.05, caps=(False, False))
+save("Head")
+
+# Upper sleeve (pivot at the shoulder): a domed cap over the joint, loose to the elbow.
 loft(
     [
-        (1.531, 0.038, 0.025, 0, 0.055),
-        (1.56, 0.068, 0.038, 0, 0.066),
-        (1.594, 0.078, 0.045, 0, 0.066),
-        (1.621, 0.068, 0.039, 0, 0.068),
+        (0.040, 0.012, 0.012, 0, 0),
+        (0.033, 0.038, 0.037, 0, 0),
+        (0.018, 0.056, 0.055, 0, 0),
+        (0.000, 0.063, 0.062, 0, 0),
+        (-0.080, 0.062, 0.060, 0, -0.004),
+        (-0.180, 0.057, 0.056, 0, -0.006),
+        (-0.265, 0.053, 0.053, 0, -0.002),
+        (-0.300, 0.050, 0.051, 0, 0),
     ],
-    mask,
-)
-# Safety goggles over the eyes, with a strap round the hood.
-goggle = finish("Goggle visor", (0.03, 0.04, 0.045), 0.6, 0.08)
-loft(
-    [(1.622, 0.083, 0.088, 0, 0.004), (1.637, 0.085, 0.09, 0, 0.004), (1.656, 0.084, 0.089, 0, 0.003)],
-    goggle,
-)
-block(0, 1.639, 0.094, 0.082, 0.026, 0.006, goggle, 0.002)
-save("Smock")
-loft(
-    [
-        (-0.576, 0.032, 0.03, 0, 0.011),
-        (-0.52, 0.049, 0.044, 0, 0.006),
-        (-0.37, 0.060, 0.057, 0, -0.009),
-        (-0.31, 0.062, 0.057, 0, -0.016),
-        (-0.22, 0.067, 0.064, 0, -0.01),
-        (-0.09, 0.077, 0.075, 0, 0),
-        (-0.013, 0.073, 0.069, 0, 0),
-        (0.022, 0.046, 0.046, 0, 0),
-    ],
-    cloth,
-)
-loft([(-0.597, 0.033, 0.033, 0, 0.012), (-0.551, 0.037, 0.034, 0, 0.009)], cuff)
-loft(
-    [
-        (-0.695, 0.019, 0.018, 0, 0.044),
-        (-0.659, 0.034, 0.023, 0, 0.041),
-        (-0.607, 0.038, 0.028, 0, 0.027),
-        (-0.587, 0.03, 0.03, 0, 0.017),
-    ],
-    finish("Nitrile glove", (0.08, 0.17, 0.45), 0.0, 0.42),
+    plain,
+    28,
 )
 save("Sleeve")
+
+# Forearm (pivot at the elbow), knitted cuff and a left nitrile glove: palm facing -X (in),
+# thumb forward, fingers slightly curled.
+loft(
+    [
+        (0.040, 0.020, 0.020, 0, 0),
+        (0.024, 0.046, 0.046, 0, 0),
+        (0.000, 0.053, 0.053, 0, 0),
+        (-0.090, 0.050, 0.049, 0, 0.003),
+        (-0.170, 0.044, 0.043, 0, 0.004),
+        (-0.205, 0.040, 0.040, 0, 0.004),
+        (-0.214, 0.032, 0.034, 0, 0.004),
+    ],
+    plain,
+    28,
+)
+loft([(-0.206, 0.0335, 0.035, 0, 0.004), (-0.240, 0.031, 0.033, 0, 0.004)], cuff, 24)
+loft(
+    [
+        (-0.226, 0.024, 0.028, 0, 0.004),
+        (-0.250, 0.021, 0.028, -0.001, 0.004),
+        (-0.272, 0.017, 0.039, -0.002, 0.004),
+        (-0.300, 0.0155, 0.043, -0.003, 0.003),
+        (-0.322, 0.0145, 0.042, -0.004, 0.002),
+        (-0.334, 0.011, 0.036, -0.005, 0.002),
+    ],
+    glove,
+    24,
+    2.4,
+)
+for z, length, r in ((0.026, 0.070, 0.0083), (0.009, 0.079, 0.0088), (-0.009, 0.074, 0.0085), (-0.025, 0.059, 0.0077)):
+    p = Vector((-0.005, -0.326, z + 0.002))
+    pts, radii = [tuple(p)], [r]
+    bend = 0.0
+    for frac, turn in ((0.46, 0.32), (0.30, 0.38), (0.24, 0.0)):
+        steps = 3
+        for _ in range(steps):
+            p = p + Vector((-math.sin(bend), -math.cos(bend), 0)) * (length * frac / steps)
+            pts.append(tuple(p))
+            radii.append(r * (1 - 0.18 * len(radii) / 9))
+        bend += turn
+    sweep(pts, radii, glove, 10)
+thumb = [(-0.006, -0.262, 0.030), (-0.011, -0.278, 0.046), (-0.016, -0.296, 0.056), (-0.020, -0.314, 0.059), (-0.022, -0.330, 0.058)]
+sweep(thumb, [0.0105, 0.0098, 0.0092, 0.0086, 0.0080], glove, 10)
+save("Forearm")
+
+# Coverall leg (pivot at the hip) and overshoe with an antistatic sole.
 loft(
     [
         (-0.77, 0.049, 0.048, 0, 0),
@@ -771,7 +962,7 @@ loft(
         (0.02, 0.09, 0.102, 0, 0),
         (0.072, 0.087, 0.096, 0, 0),
     ],
-    cloth,
+    plain,
 )
 loft(
     [
@@ -785,6 +976,20 @@ loft(
 )
 loft([(-0.879, 0.064, 0.128, 0, 0.041), (-0.863, 0.067, 0.13, 0, 0.041)], boot)
 save("Trouser")
+
+# Rugged handheld HMI: rubber-cornered housing, screen (painted by the app) and hand straps.
+# Centred on its back face, screen facing +Y.
+shell = finish("Tablet housing", (0.035, 0.04, 0.045), 0.0, 0.5)
+block(0, 0.009, 0, 0.236, 0.018, 0.158, shell, 0.004)
+for x in (-0.113, 0.113):
+    for z in (-0.074, 0.074):
+        block(x, 0.009, z, 0.026, 0.022, 0.026, seal, 0.004)
+block(0, 0.0185, 0, 0.212, 0.0012, 0.136, seal)
+quad(0, 0.0192, 0.002, 0.196, 0.118, "+y", finish("Tablet screen", (0.1, 0.12, 0.13), 0.0, 0.2))
+for x in (-0.07, 0.07):
+    block(x, -0.002, 0, 0.03, 0.005, 0.15, strap, 0.002)
+block(0.09, 0.0192, -0.072, 0.012, 0.0012, 0.006, finish("Tablet key", (0.6, 0.08, 0.06), 0.0, 0.4))
+save("Tablet")
 
 out = Path(__file__).resolve().parents[2] / "public/models/machine.glb"
 bpy.ops.export_scene.gltf(filepath=str(out), export_apply=True)

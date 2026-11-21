@@ -110,43 +110,107 @@ const PRESETS: Record<Lighting, LightPreset> = {
   },
 };
 
-/** A simple figure in work clothes; walks or stands. Origin at the feet, facing +z. */
+/** Neck, shoulder and elbow pivots of the operator model (tools/blender/machine.py). */
+const NECK = 1.47;
+const SHOULDER = { x: 0.19, y: 1.413 };
+const ELBOW = 0.29;
+
+/**
+ * A gowned cleanroom operator (hood, mask and goggles, coverall, gloves). Walks, or stands at a
+ * station reading the alarm on a handheld HMI. Origin at the feet, facing +z.
+ */
 class Person {
   readonly group = new THREE.Group();
   private readonly legs: THREE.Object3D[] = [];
   private readonly arms: THREE.Object3D[] = [];
+  /** Elbow pivots (bend, then a turn about the upper arm) and the forearms' roll inside them. */
+  private readonly elbows: THREE.Object3D[] = [];
+  private readonly forearms: THREE.Object3D[] = [];
+  /** Palm centres, for the tablet held between them. */
+  private readonly palms: THREE.Object3D[] = [];
+  private readonly head: THREE.Object3D;
+  private readonly tablet: THREE.Object3D;
 
   constructor(clothes: number, skin: number) {
-    const torso = hardware('Smock');
-    this.group.add(torso);
+    this.group.add(hardware('Smock'));
+    this.head = hardware('Head', 0, NECK, 0);
+    this.group.add(this.head);
     for (const side of [-1, 1]) {
       const leg = hardware('Trouser', side * 0.09, 0.88, 0);
-      const arm = hardware('Sleeve', side * 0.195, 1.413, 0);
-      arm.rotation.z = side * 0.075;
+      const arm = hardware('Sleeve', side * SHOULDER.x, SHOULDER.y, 0);
+      // Bend at the elbow, then turn about the upper arm (brings the hands in front of the body).
+      const elbow = new THREE.Object3D();
+      elbow.position.y = -ELBOW;
+      elbow.rotation.order = 'YXZ';
+      // The glove is modelled as the +x hand; mirror it for the other one.
+      const forearm = hardware('Forearm');
+      if (side < 0) forearm.scale.x = -1;
+      const palm = new THREE.Object3D();
+      palm.position.set(-0.016, -0.3, 0.004);
+      forearm.add(palm);
+      elbow.add(forearm);
+      arm.add(elbow);
       this.group.add(arm, leg);
       this.arms.push(arm);
+      this.elbows.push(elbow);
+      this.forearms.push(forearm);
+      this.palms.push(palm);
       this.legs.push(leg);
     }
-    // Garments share their finish across one operator, with subtle variation
-    // between operators. The mask and badge keep their original finishes.
-    const fabric = new THREE.MeshPhysicalMaterial({ color: clothes, map: fabricTexture(), roughness: 0.82, sheen: 0.6, sheenRoughness: 0.7, sheenColor: 0xffffff });
+    this.tablet = hardware('Tablet');
+    this.group.add(this.tablet);
+    // Garments share their finish across one operator, with subtle variation between operators.
+    const fabric = (zip: boolean) =>
+      new THREE.MeshPhysicalMaterial({ color: clothes, map: fabricTexture(zip), roughness: 0.82, sheen: 0.6, sheenRoughness: 0.7, sheenColor: 0xffffff });
+    const coverall = fabric(true);
+    const plain = fabric(false);
     const face = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.74 });
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh) {
-        if (o.material.name === 'Cleanroom textile') o.material = fabric;
+        if (o.material.name === 'Cleanroom textile') o.material = coverall;
+        if (o.material.name === 'Cleanroom textile plain') o.material = plain;
         if (o.material.name === 'Complexion') o.material = face;
       }
     });
     this.group.visible = false;
   }
 
-  /** `phase`: walking cycle in radians; `reach`: 0..1, arms forward as when working at a machine. */
-  pose(phase: number, walking: boolean, reach = 0): void {
-    const swing = walking ? Math.sin(phase) * 0.45 : 0;
+  /**
+   * `phase`: walking cycle (or idle sway) in radians. Standing (`walking` false), the operator
+   * holds the HMI at chest height in both hands and looks down at it.
+   */
+  pose(phase: number, walking: boolean): void {
+    const swing = walking ? Math.sin(phase) * 0.42 : 0;
     this.legs[0].rotation.x = swing;
     this.legs[1].rotation.x = -swing;
-    this.arms[0].rotation.x = -swing * 0.8 - reach * 1.2;
-    this.arms[1].rotation.x = swing * 0.8 - reach * (1.0 + 0.2 * Math.sin(phase));
+    this.arms.forEach((arm, k) => {
+      const side = k ? 1 : -1;
+      const elbow = this.elbows[k];
+      if (walking) {
+        const a = (k ? swing : -swing) * 0.75;
+        arm.rotation.set(a, 0, side * 0.07);
+        // The elbow bends more on the forward swing.
+        elbow.rotation.set(-0.22 - Math.max(0, -a) * 0.5, 0, 0);
+        this.forearms[k].rotation.y = side * 0.15;
+      } else {
+        const sway = Math.sin(phase * 0.6 + k) * 0.025;
+        arm.rotation.set(-0.34 + sway, 0, side * 0.12);
+        elbow.rotation.set(-1.16 - sway, -side * 0.42, 0);
+        // Palms turned up under the tablet's edges.
+        this.forearms[k].rotation.y = side * 0.75;
+      }
+    });
+    this.head.rotation.set(walking ? 0.06 : 0.42 + Math.sin(phase * 0.4) * 0.03, walking ? 0 : Math.sin(phase * 0.23) * 0.06, 0);
+    this.tablet.visible = !walking;
+    if (!walking) {
+      // Between the palms, screen tilted up toward the face.
+      this.group.updateMatrixWorld(true);
+      const inv = this.group.matrixWorld.clone().invert();
+      const [l, r] = this.palms.map((p) => p.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv));
+      this.tablet.position.copy(l).add(r).multiplyScalar(0.5);
+      this.tablet.position.y += 0.01;
+      this.tablet.rotation.set(-0.5, 0, 0);
+    }
     // The rig origin follows the floor while the hips rise slightly on each step.
     this.group.position.y = walking ? Math.abs(Math.cos(phase)) * 0.02 : 0;
   }
@@ -162,6 +226,11 @@ const WALK_SLOT = 40;
 
 export class SceneView {
   private readonly people: Person[] = [];
+  /**
+   * Dev only (`?operator=EM14B,EM40`): an operator stands at these stations as if they were
+   * faulted, to look at the figure in a station camera. The simulation is unaffected.
+   */
+  private readonly forced = new Set(import.meta.env.DEV ? (new URLSearchParams(location.search).get('operator') ?? '').split(',').filter(Boolean) : []);
   private readonly lamps: THREE.PointLight[] = [];
   private key = '';
   private preset: LightPreset = PRESETS.day;
@@ -240,19 +309,20 @@ export class SceneView {
     const next = () => (used < this.people.length ? this.people[used++] : null);
 
     f.stations.forEach((st, i) => {
-      if (st.fault <= 0) return;
+      const def = this.cfg.stations[i];
+      if (st.fault <= 0 && !this.forced.has(def.id)) return;
       const person = next();
       if (!person) return;
-      const def = this.cfg.stations[i];
       const p = pose(this.cfg.track, def.s);
       const cell = cells.find((c) => c.z * p.y < 0 && Math.abs(p.x - c.x) <= c.w / 2);
-      const stand = cell ? Math.abs(cell.z) + cell.d / 2 - this.cfg.track.radius + 0.19 : 1.1;
+      // At the service position outside the guard, the HMI in hand clear of the glazing.
+      const stand = cell ? Math.abs(cell.z) + cell.d / 2 - this.cfg.track.radius + 0.6 : 1.5;
       const at = side(p, stand);
       person.group.visible = true;
       person.group.position.set(at.x, 0, -at.y);
-      // Facing the belt (inward), working with both hands.
+      // Facing the belt (inward).
       person.group.rotation.y = p.heading;
-      person.pose(t * 1.7 + i, false, 0.7);
+      person.pose(t * 1.7 + i, false);
     });
 
     const S = this.cfg.track.straight;

@@ -216,11 +216,12 @@ export function carrierWear(): { map: THREE.CanvasTexture; rough: THREE.CanvasTe
 
 /**
  * Cleanroom coverall fabric, tinted by the garment colour: fine weave, side seams with stitching,
- * the front zip (u = 0.25) and soft folds. Shared by every operator.
+ * soft folds and (on the body, `zip`) the front zip at u = 0.25. Shared by every operator.
  */
-let fabric: THREE.CanvasTexture | null = null;
-export function fabricTexture(): THREE.CanvasTexture {
-  if (fabric) return fabric;
+const fabrics = new Map<boolean, THREE.CanvasTexture>();
+export function fabricTexture(zip = true): THREE.CanvasTexture {
+  const cached = fabrics.get(zip);
+  if (cached) return cached;
   const c = document.createElement('canvas');
   c.width = c.height = 512;
   const g = c.getContext('2d')!;
@@ -258,15 +259,17 @@ export function fabricTexture(): THREE.CanvasTexture {
     g.fillStyle = 'rgba(255,255,255,.6)';
     for (let y = 0; y < 512; y += 8) g.fillRect(x + 4, y, 1.5, 4);
   }
-  g.fillStyle = 'rgba(60,66,70,.5)';
-  g.fillRect(124, 120, 7, 392);
-  g.fillStyle = 'rgba(160,166,170,.8)';
-  for (let y = 120; y < 512; y += 5) g.fillRect(125, y, 5, 2);
-  g.fillStyle = 'rgba(80,86,90,.35)';
-  g.fillRect(132, 120, 3, 392);
+  if (zip) {
+    g.fillStyle = 'rgba(60,66,70,.5)';
+    g.fillRect(124, 120, 7, 392);
+    g.fillStyle = 'rgba(160,166,170,.8)';
+    for (let y = 120; y < 512; y += 5) g.fillRect(125, y, 5, 2);
+    g.fillStyle = 'rgba(80,86,90,.35)';
+    g.fillRect(132, 120, 3, 392);
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
-  fabric = tex;
+  fabrics.set(zip, tex);
   return tex;
 }

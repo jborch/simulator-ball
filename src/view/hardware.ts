@@ -33,8 +33,11 @@ const components = [
   'Indexer',
   'ValveBank',
   'Smock',
+  'Head',
   'Sleeve',
+  'Forearm',
   'Trouser',
+  'Tablet',
 ] as const;
 export function installHardware(root: THREE.Object3D): void {
   for (const name of components) {
@@ -47,7 +50,10 @@ export function installHardware(root: THREE.Object3D): void {
     'Motor nameplate': ratingPlate(),
     'Gripper plate': jawPlate(),
     'Gauge face': gaugeFace(),
+    'Tablet screen': tabletScreen(),
     'Filter bowl': clearMaterial({ color: 0xdfe7ea, edge: 0x7f9197, opacity: [0.25, 0.85], roughness: 0.1 }),
+    // Clear safety goggles: the eyes show through, the rim reads at the silhouette.
+    'Goggle lens': clearMaterial({ color: 0xe4ecee, edge: 0x5f747b, opacity: [0.1, 0.75], roughness: 0.06, power: 1.8 }),
     'Reject polypropylene': moulded(0x86423c),
   };
   root.traverse((o) => {
@@ -125,6 +131,39 @@ function gaugeFace(): THREE.MeshStandardMaterial {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return mat(0xffffff, { map: tex, alphaTest: 0.5, roughness: 0.25, name: 'Gauge face' });
+}
+
+/** The operator's handheld HMI: the line's alarm page, a red banner over the alarm list. */
+function tabletScreen(): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 192;
+  const p = c.getContext('2d')!;
+  p.fillStyle = '#1a2225';
+  p.fillRect(0, 0, 320, 192);
+  p.fillStyle = '#2c3a3f';
+  p.fillRect(0, 0, 320, 28);
+  p.fillStyle = '#dfe7e4';
+  p.font = 'bold 15px Arial';
+  p.fillText('L07  ALARMS', 10, 19);
+  p.fillStyle = '#b3261e';
+  p.fillRect(8, 36, 304, 34);
+  p.fillStyle = '#fff4f2';
+  p.font = 'bold 16px Arial';
+  p.fillText('STATION FAULT  -  ACK', 16, 59);
+  p.font = '12px Arial';
+  for (let i = 0; i < 5; i++) {
+    p.fillStyle = i % 2 ? '#222d31' : '#26343a';
+    p.fillRect(8, 78 + i * 20, 304, 18);
+    p.fillStyle = i ? '#9fb0b3' : '#f0c54e';
+    p.fillText(['Gripper not open', 'Part present check', 'Door 2 closed', 'Air pressure OK', 'Mode: manual'][i], 16, 91 + i * 20);
+  }
+  p.fillStyle = '#3d7d5a';
+  p.fillRect(232, 164, 80, 20);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false;
+  return mat(0xffffff, { map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.55, roughness: 0.18, name: 'Tablet screen' });
 }
 
 /** Etched model and working pressure on the gripper's cover. */
