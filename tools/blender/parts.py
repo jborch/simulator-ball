@@ -12,6 +12,9 @@ import sys
 import bpy
 from mathutils import Vector
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import bevel, box, cut, cyl, export, group, mat, reset, tube  # noqa: E402
+
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 RENDER = "--no-render" not in argv
 argv = [a for a in argv if a != "--no-render"]
@@ -20,28 +23,6 @@ OUT = os.path.abspath(argv[0] if argv else "public")
 DM_PNG = argv[1] if len(argv) > 1 else None
 MODELS = os.path.join(OUT, "models")
 os.makedirs(MODELS, exist_ok=True)
-
-
-def reset():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-
-
-def mat(name, color, metallic=0.0, rough=0.5, alpha=1.0, transmission=0.0):
-    m = bpy.data.materials.get(name)
-    if m:
-        return m
-    m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    p = m.node_tree.nodes["Principled BSDF"]
-    p.inputs["Base Color"].default_value = (*color, 1.0)
-    p.inputs["Metallic"].default_value = metallic
-    p.inputs["Roughness"].default_value = rough
-    p.inputs["Alpha"].default_value = alpha
-    if "Transmission Weight" in p.inputs:
-        p.inputs["Transmission Weight"].default_value = transmission
-    if alpha < 1.0:
-        m.surface_render_method = "BLENDED" if hasattr(m, "surface_render_method") else None
-    return m
 
 
 WHITE = lambda: mat("PenWhite", (0.92, 0.92, 0.9), rough=0.35)
@@ -61,40 +42,6 @@ BASE = lambda: mat("SpringBaseTeal", (0.05, 0.55, 0.5), rough=0.45)
 BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
 
 
-def cyl(r, h, z0, m, name, verts=32):
-    bpy.ops.mesh.primitive_cylinder_add(radius=r, depth=h, vertices=verts, location=(0, 0, z0 + h / 2))
-    o = bpy.context.object
-    o.name = name
-    o.data.materials.append(m)
-    bpy.ops.object.shade_smooth()
-    return o
-
-
-def box(sx, sy, sz, loc, m, name):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
-    o = bpy.context.object
-    o.scale = (sx, sy, sz)
-    bpy.ops.object.transform_apply(scale=True)
-    o.name = name
-    o.data.materials.append(m)
-    return o
-
-
-def bevel(o, w=0.0008, seg=2):
-    b = o.modifiers.new("bevel", "BEVEL")
-    b.width = w
-    b.segments = seg
-    return o
-
-
-def group(name, parts):
-    root = bpy.data.objects.new(name, None)
-    bpy.context.scene.collection.objects.link(root)
-    for p in parts:
-        p.parent = root
-    return root
-
-
 # --- Parts (all stand upright along +Z, origin at base centre) ---
 
 def dm_material():
@@ -109,24 +56,6 @@ def dm_material():
         tex.interpolation = "Closest"
         nt.links.new(tex.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
     return m
-
-
-def cut(target, cutter):
-    """Boolean-subtracts cutter from target and deletes the cutter."""
-    b = target.modifiers.new("cut", "BOOLEAN")
-    b.object = cutter
-    b.operation = "DIFFERENCE"
-    bpy.context.view_layer.objects.active = target
-    bpy.ops.object.modifier_apply(modifier="cut")
-    bpy.data.objects.remove(cutter)
-    return target
-
-
-def tube(r_out, r_in, h, z0, m, name, floor=0.0, verts=32):
-    """Open-topped tube; `floor` leaves a closed bottom of that thickness."""
-    o = cyl(r_out, h, z0, m, name, verts)
-    cut(o, cyl(r_in, h, z0 + floor, m, name + "_bore", verts))
-    return o
 
 
 def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
@@ -298,14 +227,6 @@ def tray(cols=4, rows=8, pitch=0.021):
     return group("Tray", [plate, rim, *pockets])
 
 
-def export(root, filename):
-    bpy.ops.object.select_all(action="DESELECT")
-    root.select_set(True)
-    for c in root.children_recursive:
-        c.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=os.path.join(MODELS, filename), use_selection=True, export_apply=True)
-
-
 # --- Build, export, and lay out a contact sheet ---
 
 reset()
@@ -320,7 +241,7 @@ assets = [
     (tray(), "tray.glb", "Tray 4x8"),
 ]
 for root, fn, _ in assets:
-    export(root, fn)
+    export(root, os.path.join(MODELS, fn))
 
 if not RENDER:
     print("DONE (models only)", MODELS)

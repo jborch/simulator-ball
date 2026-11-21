@@ -6,6 +6,7 @@ import { BELT_Y, BELT_W, M, RIB, TABLE, side, v3 } from './build';
 
 /** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
 const RAIL_R = 0.005;
+import { CameraMountsView } from './cameramounts';
 import type { Sample } from './interp';
 import type { Models } from './models';
 import { MoverView } from './movers';
@@ -43,6 +44,7 @@ export class LineView {
     this.group.add(this.dial.group);
     this.cartridges = new CartridgeCellView(cfg, models);
     this.group.add(this.cartridges.group);
+    this.group.add(new CameraMountsView(cfg, models).group);
     this.movers = Array.from({ length: cfg.mover.count }, (_, i) => {
       const mv = new MoverView(i + 1, cfg, models);
       this.group.add(mv.root);

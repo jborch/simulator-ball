@@ -1,9 +1,9 @@
 // Fixed monitoring cameras "installed" on the line. Positions are given in station-local
 // coordinates (a along travel, y up from the belt surface, r outward from the belt; see build.ts),
-// so they stay on their station if the layout changes. The station cameras stand on low masts
-// inside the loop at about mover height and look level across the belt, like inspection cameras:
-// they see each mover's side number label and the pen's DataMatrix, which both face the inside of
-// the loop, with the robots, feeders and nests behind.
+// so they stay on their station if the layout changes. The station cameras stand on low posts
+// inside the loop (cameramounts.ts) at about mover height and look level across the belt, like
+// inspection cameras: they see each mover's side number label and the pen's DataMatrix, which both
+// face the inside of the loop, with the robots, feeders and nests behind.
 import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { pose } from '../sim/track';
