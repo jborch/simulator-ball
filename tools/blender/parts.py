@@ -54,7 +54,11 @@ GLASS = lambda: mat("Glass", (0.85, 0.95, 1.0), rough=0.11, alpha=0.34)
 RUBBER = lambda: mat("Rubber", (0.15, 0.15, 0.17), rough=0.8)
 ALU = lambda: mat("Alu", (0.8, 0.8, 0.82), metallic=1.0, rough=0.4)
 DARK = lambda: mat("MoverDark", (0.045, 0.052, 0.053), rough=0.48)
-TOOLPLATE = lambda: mat("ToolPlate", (0.38, 0.42, 0.41), metallic=0.85, rough=0.32)
+MOVER_BODY = lambda: mat("MoverBody", (0.43, 0.45, 0.45), rough=0.42)
+TOOLPLATE = lambda: mat("ToolPlate", (0.58, 0.6, 0.61), metallic=0.9, rough=0.34)
+FIXTURE = lambda: mat("FixtureBlack", (0.022, 0.024, 0.027), metallic=0.6, rough=0.3)
+BUMPER = lambda: mat("Bumper", (0.018, 0.018, 0.02), rough=0.78)
+LED = lambda: mat("StatusLed", (0.08, 0.08, 0.08), rough=0.15)
 TRAY = lambda: mat("TrayPET", (0.31, 0.46, 0.49), rough=0.32)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
@@ -314,29 +318,72 @@ def number_text(num, loc, rot, size, name):
 
 
 def mover(num=None):
-    base = bevel(box(0.12, 0.12, 0.025, (0, 0, 0.0125), DARK(), "mover_base"), 0.004, 3)
-    top = bevel(box(0.1, 0.1, 0.004, (0, 0, 0.027), TOOLPLATE(), "mover_top"), 0.002)
+    """Workpiece carrier: light grey POM body (stands out on the dark belt strands), clear
+    anodised tooling plate, black anodised pen fixture, PU bumpers fore and aft, laminated ID
+    plates on both long sides and the top, and status light pipes (top and inner side) that the
+    app lights by tag status."""
+    base = bevel(box(0.12, 0.12, 0.025, (0, 0, 0.0125), MOVER_BODY(), "mover_base"), 0.004, 3)
+    # Parting line of the moulded body and a shallow skirt groove.
+    groove = bevel(box(0.1215, 0.1215, 0.0012, (0, 0, 0.0035), DARK(), "mover_groove"), 0.0004)
+    top = bevel(box(0.102, 0.102, 0.004, (0, 0, 0.027), TOOLPLATE(), "mover_top"), 0.0012)
     # Socket fixture: the pen stands in a bore (fits the housing) with a lead-in chamfer, on a
     # rubber seat at z = 0.03; a slot at the back locates the housing's clip side.
-    fixture = cyl(0.016, 0.026, 0.029, ALU(), "mover_fixture", verts=48)
-    cut(fixture, cyl(0.0093, 0.03, 0.03, ALU(), "fixture_bore", verts=48))
+    fixture = cyl(0.016, 0.026, 0.029, FIXTURE(), "mover_fixture", verts=48)
+    cut(fixture, cyl(0.0093, 0.03, 0.03, FIXTURE(), "fixture_bore", verts=48))
     bpy.ops.mesh.primitive_cone_add(radius1=0.0093, radius2=0.0125, depth=0.004, vertices=48, location=(0, 0, 0.0535))
     cut(fixture, bpy.context.object)
-    cut(fixture, box(0.004, 0.01, 0.01, (0, 0.013, 0.055), ALU(), "fixture_slot"))
+    cut(fixture, box(0.004, 0.01, 0.01, (0, 0.013, 0.055), FIXTURE(), "fixture_slot"))
     bevel(fixture, 0.0006)
+    flange = bevel(cyl(0.021, 0.0025, 0.029, FIXTURE(), "fixture_flange", verts=48), 0.0005)
     hole = cyl(0.0093, 0.001, 0.0292, RUBBER(), "mover_hole")
-    # RFID tag on the leading face (+X = direction of travel), read by antennas at each station.
-    tag = bevel(box(0.004, 0.03, 0.012, (0.061, 0, 0.012), RUBBER(), "mover_rfid"), .0009)
-    # Number labels: top (operator view from above) and both long sides.
-    lt = label_plane(0.034, 0.018, (0, -0.033, 0.0292), (0, 0, 0), "label_top")
-    ls = label_plane(0.04, 0.016, (0, -0.0601, 0.0125), (math.radians(90), 0, 0), "label_side_a")
-    lb = label_plane(0.04, 0.016, (0, 0.0601, 0.0125), (math.radians(90), 0, math.radians(180)), "label_side_b")
-    parts = [base, top, fixture, hole, tag, lt, ls, lb]
-    # Flush socket screws retaining the replaceable tooling plate.
+    # Polyurethane damping pads where carriers touch in a queue and the stopper lands (+X = travel).
+    pads = []
+    for sx in (-1, 1):
+        pads.append(bevel(box(0.0014, 0.03, 0.009, (sx * 0.0604, 0, 0.0115), STEEL(), "mover_stop_plate"), 0.0004))
+        for y in (-0.038, 0.038):
+            bpy.ops.mesh.primitive_cylinder_add(radius=0.0042, depth=0.0026, vertices=20, location=(sx * 0.0611, y, 0.0115), rotation=(0, math.radians(90), 0))
+            buffer = bpy.context.object
+            buffer.name = "mover_buffer"
+            buffer.data.materials.append(BUMPER())
+            bevel(buffer, 0.0007, 2)
+            pads.append(buffer)
+    # Laminated ID plates: top (operator view from above) and both long sides (station cameras).
+    lt = label_plane(0.046, 0.022, (-0.004, -0.0345, 0.02945), (0, 0, 0), "label_top")
+    ls = label_plane(0.052, 0.0185, (-0.006, -0.0606, 0.0135), (math.radians(90), 0, 0), "label_side_a")
+    lb = label_plane(0.052, 0.0185, (0.006, 0.0606, 0.0135), (math.radians(90), 0, math.radians(180)), "label_side_b")
+    # Recessed pockets the plates sit in (a darker margin frames each plate).
+    frames = [
+        box(0.0548, 0.0006, 0.0213, (-0.006, -0.06025, 0.0135), DARK(), "plate_frame"),
+        box(0.0548, 0.0006, 0.0213, (0.006, 0.06025, 0.0135), DARK(), "plate_frame"),
+        box(0.0488, 0.0245, 0.0004, (-0.004, -0.0345, 0.0291), DARK(), "plate_frame"),
+    ]
+    # Status light pipes: black bezel, domed lens (the app swaps the lens material).
+    leds = []
+    for name, loc, rot in [
+        ("status_led_top", (0.038, -0.038, 0.029), (0, 0, 0)),
+        ("status_led_side", (0.0405, -0.0601, 0.0135), (math.radians(90), 0, 0)),
+    ]:
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.0047, depth=0.0016, vertices=24, location=(0, 0, 0.0008))
+        bezel = bpy.context.object
+        bezel.name = "led_bezel"
+        bezel.data.materials.append(RUBBER())
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.0033, segments=20, ring_count=10, location=(0, 0, 0.0012))
+        lens = bpy.context.object
+        lens.scale.z = 0.55
+        bpy.ops.object.transform_apply(scale=True)
+        bpy.ops.object.shade_smooth()
+        lens.name = name
+        lens.data.materials.append(LED())
+        for o in (bezel, lens):
+            o.rotation_euler = rot
+            o.location = Vector(loc) + (Matrix.Rotation(rot[0], 3, 'X') @ o.location)
+        leds += [bezel, lens]
+    parts = [base, groove, top, fixture, flange, hole, *pads, lt, ls, lb, *frames, *leds]
+    # Socket screws retaining the replaceable tooling plate.
     screws = []
-    for x, y in [(-.04,-.04),(-.04,.04),(.04,.04)]:
-        head = cyl(.0035, .0008, .029, ALU(), "socket_head", 16)
-        socket = cyl(.0018, .0002, .0298, RUBBER(), "hex_socket", 6)
+    for x, y in [(-.043,-.043),(-.043,.043),(.043,.043),(.017,-.043)]:
+        head = cyl(.0032, .0008, .029, STEEL(), "socket_head", 16)
+        socket = cyl(.0017, .0002, .0298, RUBBER(), "hex_socket", 6)
         for piece in (head, socket):
             piece.location.x, piece.location.y = x, y
             screws.append(piece)
@@ -348,8 +395,8 @@ def mover(num=None):
     parts.append(screws[0])
     if num is not None:
         parts += [
-            number_text(num, (0, -0.033, 0.0294), (0, 0, 0), 0.016, "num_top"),
-            number_text(num, (0, -0.0603, 0.0125), (math.radians(90), 0, 0), 0.014, "num_side_a"),
+            number_text(num, (0, -0.0345, 0.0294), (0, 0, 0), 0.016, "num_top"),
+            number_text(num, (0, -0.0609, 0.0135), (math.radians(90), 0, 0), 0.014, "num_side_a"),
         ]
     return group("Mover", parts)
 

@@ -11,6 +11,7 @@ import { pose } from '../sim/track';
 import { BELT_Y, M, TABLE, cyl, label, lerp, local, mat, span, v3 } from './build';
 import { batch, block, finish, hardware, hose, plate, profile, round } from './hardware';
 import { contactPatch } from './hall';
+import { CLEAR } from './clear';
 import { FeederView, RobotView } from './devices';
 import { housingPart, showLabel } from './movers';
 import type { Models } from './models';
@@ -368,6 +369,7 @@ export class HousingDialView {
 class TubView {
   readonly group = new THREE.Group();
   private readonly carts: THREE.InstancedMesh;
+  private readonly drug: THREE.InstancedMesh;
   private readonly caps: THREE.InstancedMesh;
   private shown = -1;
 
@@ -378,14 +380,17 @@ class TubView {
     const d = t.rows * t.pitch + 0.012;
     this.group.add(span(-w / 2, w / 2, t.floor - 0.012, t.floor, -d / 2, d / 2, M.nest));
     const len = cfg.parts.cartridge.length;
-    const geo = new THREE.CylinderGeometry(cfg.parts.cartridge.radius, cfg.parts.cartridge.radius, len, 10);
-    geo.translate(0, len / 2, 0);
-    this.carts = new THREE.InstancedMesh(geo, mat(0xdfeaf2, { roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 }), tubSize(cfg));
-    this.carts.castShadow = true;
-    const caps = new THREE.CylinderGeometry(0.0045, 0.0047, 0.006, 12);
+    const geo = new THREE.CylinderGeometry(cfg.parts.cartridge.radius, cfg.parts.cartridge.radius, len - 0.006, 12, 1, true);
+    geo.translate(0, (len - 0.006) / 2, 0);
+    this.carts = new THREE.InstancedMesh(geo, CLEAR.Glass, tubSize(cfg));
+    const drug = new THREE.CylinderGeometry(cfg.parts.cartridge.radius - 0.0006, cfg.parts.cartridge.radius - 0.0006, 0.05, 10);
+    drug.translate(0, 0.031, 0);
+    this.drug = new THREE.InstancedMesh(drug, CLEAR.Drug, tubSize(cfg));
+    const caps = new THREE.CylinderGeometry(0.0042, 0.0042, 0.006, 12);
     caps.translate(0, len - 0.003, 0);
     this.caps = new THREE.InstancedMesh(caps, M.rail, tubSize(cfg));
-    this.group.add(this.carts, this.caps);
+    this.caps.castShadow = true;
+    this.group.add(this.carts, this.drug, this.caps);
     const rim = new THREE.Group();
     for (const x of [-w / 2, w / 2]) block(rim, x, t.floor + 0.008, 0, 0.005, 0.022, d + 0.006, M.nest);
     for (const z of [-d / 2, d / 2]) block(rim, 0, t.floor + 0.008, z, w, 0.022, 0.005, M.nest);
@@ -406,9 +411,11 @@ class TubView {
       const scale = i >= n - left ? 1 : 0;
       m.makeScale(scale, scale, scale).setPosition(p.a - t.a, t.floor, -(p.r - t.r));
       this.carts.setMatrixAt(i, m);
+      this.drug.setMatrixAt(i, m);
       this.caps.setMatrixAt(i, m);
     }
     this.carts.instanceMatrix.needsUpdate = true;
+    this.drug.instanceMatrix.needsUpdate = true;
     this.caps.instanceMatrix.needsUpdate = true;
   }
 }

@@ -17,7 +17,8 @@ export class StationView {
   readonly feeders: FeederView[] = [];
   readonly tray: TrayView | null = null;
   readonly bin: BinView | null = null;
-  private readonly pin: THREE.Mesh;
+  /** Head of the pallet stopper in the belt's centre channel. */
+  private readonly pin: THREE.Object3D;
   private readonly lights: Record<LightColor, THREE.Mesh>;
   readonly tag: HTMLElement;
 
@@ -78,24 +79,32 @@ export class StationView {
     this.scrap = new ScrapView(scrapPart);
     for (const part of [...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
-    // Stop gate pin just ahead of a resting mover's leading face.
+    // Pallet stopper in the belt's centre channel, its head just ahead of a resting mover's
+    // leading face. The air lines drop from its body to a valve on the outer side profile.
     const fittings = new THREE.Group();
     plate(fittings, -0.092, -0.027, 0.103, 0.089, 0.018, def.id, 'L07   /   TRANSPORT');
     const stopA = cfg.mover.length / 2 + 0.008;
-    block(fittings, stopA, -0.029, -0.068, 0.038, 0.038, 0.051, finish.graphite);
-    round(fittings, stopA, -0.004, -0.058, 0.009, 0.004, M.rail);
-    hose(
-      fittings,
-      [
-        [stopA + 0.018, -0.023, -0.076],
-        [stopA + 0.034, -0.026, -0.085],
-        [stopA + 0.057, -0.041, -0.083],
-      ],
-      0.0022,
-      finish.pipe,
-    );
-    this.pin = cyl(0.0055, 0.022, M.pin, 16);
-    this.pin.position.set(stopA, 0, -0.058);
+    fittings.add(hardware('Stopper', stopA, 0, 0));
+    for (const [dy, m] of [
+      [-0.03, finish.pipe],
+      [-0.06, finish.seal],
+    ] as const) {
+      hose(
+        fittings,
+        [
+          [stopA + 0.026, dy, 0.006],
+          [stopA + 0.034, dy - 0.012, 0.004],
+          [stopA + 0.04, -0.085, -0.03],
+          [stopA + 0.048, -0.072, -0.103],
+          [stopA + 0.05, -0.04, -0.108],
+        ],
+        0.0021,
+        m,
+      );
+    }
+    block(fittings, stopA + 0.05, -0.03, -0.108, 0.024, 0.03, 0.012, finish.graphite);
+    round(fittings, stopA + 0.05, -0.012, -0.108, 0.0035, 0.006, finish.pipe, 12);
+    this.pin = hardware('StopHead', stopA, 0, 0);
     this.group.add(this.pin);
 
     const colors: LightColor[] = ['blue', 'green', 'yellow', 'red'];
@@ -237,7 +246,7 @@ export class StationView {
     }
     const pinS = this.def.s + this.pin.position.x;
     const clearing = fa.movers.some((m) => Math.abs(m.s - pinS) < this.pin.position.x - 0.002);
-    this.pin.position.y = f.gateClosed && !clearing ? 0.0055 : -0.016;
+    this.pin.position.y = f.gateClosed && !clearing ? 0.015 : -0.0035;
     this.setLights(f.status, ['Execute', 'Starting', 'Stopping', 'Holding', 'Completing'].includes(fa.machine), t);
     this.tag.dataset.status = f.status;
   }

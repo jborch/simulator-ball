@@ -6,6 +6,8 @@ import { BELT_Y, BELT_W, M, RIB, side, v3 } from './build';
 
 /** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
 const RAIL_R = 0.005;
+/** Inner edge of each belt strand (offset from the belt centre line). */
+const STRAND_IN = 0.021;
 import type { Sample } from './interp';
 import type { Models } from './models';
 import { MoverView } from './movers';
@@ -52,30 +54,22 @@ export class LineView {
     });
   }
 
-  private buildBelt(): void {
+  /** A flat strip swept along the loop between offsets r0..r1 (across the belt) at height h. */
+  private strip(r0: number, r1: number, h: number, n: number): THREE.BufferGeometry {
     const t = this.cfg.track;
-    const n = 720;
     const pos: number[] = [];
     const uv: number[] = [];
     const idx: number[] = [];
-    const railIn: THREE.Vector3[] = [];
-    const railOut: THREE.Vector3[] = [];
     for (let i = 0; i <= n; i++) {
       const s = (i / n) * this.L;
       const p = pose(t, s);
-      const a = side(p, BELT_W / 2);
-      const b = side(p, -BELT_W / 2);
-      pos.push(a.x, BELT_Y - 0.002, -a.y, b.x, BELT_Y - 0.002, -b.y);
+      const a = side(p, r1);
+      const b = side(p, r0);
+      pos.push(a.x, h, -a.y, b.x, h, -b.y);
       uv.push(0, s / RIB, 1, s / RIB);
       if (i < n) {
         const k = i * 2;
         idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
-        const o = side(p, BELT_W / 2 + 0.012);
-        const inn = side(p, -BELT_W / 2 - 0.012);
-        // Low guide rails (top 10 mm above the belt), so a camera at mover height sees the
-        // number labels on the movers' sides over them.
-        railOut.push(v3(o.x, o.y, BELT_Y + RAIL_R));
-        railIn.push(v3(inn.x, inn.y, BELT_Y + RAIL_R));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -83,9 +77,36 @@ export class LineView {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const belt = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: this.beltTex, roughness: 0.9, side: THREE.DoubleSide }));
-    belt.receiveShadow = true;
-    this.group.add(belt);
+    return geo;
+  }
+
+  private buildBelt(): void {
+    const t = this.cfg.track;
+    const n = 720;
+    const railIn: THREE.Vector3[] = [];
+    const railOut: THREE.Vector3[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = pose(t, (i / n) * this.L);
+      const o = side(p, BELT_W / 2 + 0.012);
+      const inn = side(p, -BELT_W / 2 - 0.012);
+      // Low guide rails (crown 10 mm above the belt), so a camera at mover height sees the
+      // number plates on the movers' sides over them.
+      railOut.push(v3(o.x, o.y, BELT_Y + RAIL_R));
+      railIn.push(v3(inn.x, inn.y, BELT_Y + RAIL_R));
+    }
+    // Twin belt strands under the carriers' edges; the stoppers rise in the channel between them.
+    const beltMat = new THREE.MeshStandardMaterial({ map: this.beltTex, roughness: 0.78, metalness: 0.0, side: THREE.DoubleSide });
+    for (const [r0, r1] of [
+      [STRAND_IN, BELT_W / 2],
+      [-BELT_W / 2, -STRAND_IN],
+    ]) {
+      const belt = new THREE.Mesh(this.strip(r0, r1, BELT_Y - 0.002, n), beltMat);
+      belt.receiveShadow = true;
+      this.group.add(belt);
+    }
+    const channel = new THREE.Mesh(this.strip(-STRAND_IN, STRAND_IN, BELT_Y - 0.0055, n), finish.graphite);
+    channel.receiveShadow = true;
+    this.group.add(channel);
 
     for (const pts of [railIn, railOut]) {
       const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 600, RAIL_R, 8, true), M.rail);

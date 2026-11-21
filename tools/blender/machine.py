@@ -237,40 +237,56 @@ block(0, 0.006, 0, 0.106, 0.012, 0.154, dark, 0.003)
 screws([-0.044, 0.044], [-0.064, 0.064], 0.013)
 save("PressStandard")
 
-# Machined split guide clip, clamped to the side groove. The bore follows the
-# longitudinal rail; the cap screw faces the service side of the conveyor.
-casting(
-    [
-        (-0.008, -0.012),
-        (-0.008, 0.007),
-        (-0.005, 0.012),
-        (0.003, 0.013),
-        (0.008, 0.009),
-        (0.009, -0.005),
-        (0.020, -0.010),
-        (0.025, -0.014),
-        (0.025, -0.036),
-        (0.010, -0.036),
-        (0.010, -0.018),
-    ],
-    0.009,
-    dark,
-)
-body = items[-1]
-cutter = roundbar(0, 0.005, 0, 0.0053, 0.024, seal, 24, "x")
-boolean = body.modifiers.new("Guide bore", "BOOLEAN")
-boolean.operation = "DIFFERENCE"
-boolean.object = cutter
-bpy.context.view_layer.objects.active = body
-bpy.ops.object.modifier_apply(modifier=boolean.name)
-items.remove(cutter)
-bpy.data.objects.remove(cutter, do_unlink=True)
-roundbar(0, -0.025, 0.026, 0.005, 0.003, steel, 16, "z")
-roundbar(0, -0.025, 0.0277, 0.0027, 0.001, seal, 6, "z")
+# Guide rail holder. A foot clamped to the side profile's top slot carries the
+# round rail by a threaded stem into its outboard face, so nothing rises above
+# the rail's crown (the carriers' side ID plates stay in view). Origin: rail
+# axis plan position at belt height; the rail axis is 5 mm up, +Z is outboard.
+block(0, -0.0045, 0.012, 0.017, 0.005, 0.03, dark, 0.0008)
+block(0, 0.0024, 0.0118, 0.017, 0.0124, 0.0072, dark, 0.0009)
+roundbar(0, 0.005, 0.0064, 0.0024, 0.0044, steel, 12, "z")
+roundbar(0, 0.0036, 0.0161, 0.0029, 0.0016, steel, 16, "z")
+roundbar(0, 0.0036, 0.017, 0.0015, 0.0003, seal, 6, "z")
+roundbar(0, -0.0016, 0.0215, 0.0029, 0.0013, steel, 16)
+roundbar(0, -0.0009, 0.0215, 0.0015, 0.0002, seal, 6)
 save("GuideClip")
 
+# Pneumatic pallet stopper in the conveyor's centre channel, below the belt
+# plane. Origin: stop face centre on the belt surface. The head is separate.
+block(0, -0.047, 0, 0.034, 0.066, 0.03, dark, 0.0015)
+block(0, -0.0105, 0, 0.04, 0.007, 0.036, alu, 0.0008)
+roundbar(0, -0.088, 0, 0.012, 0.016, alu, 24)
+roundbar(0, -0.0975, 0, 0.0085, 0.003, dark, 24)
+for x in (-0.014, 0.014):
+    for z in (-0.013, 0.013):
+        roundbar(x, -0.0068, z, 0.0021, 0.0008, steel, 12)
+for y in (-0.03, -0.06):
+    roundbar(0.019, y, 0.006, 0.0042, 0.006, steel, 12, "x")
+    roundbar(0.0235, y, 0.006, 0.0048, 0.003, blue, 16, "x")
+# Inductive end-position sensor with its M8 plug.
+roundbar(-0.019, -0.04, -0.006, 0.004, 0.012, steel, 16, "x")
+roundbar(-0.027, -0.04, -0.006, 0.0042, 0.006, seal, 16, "x")
+block(-0.0115, -0.034, -0.006, 0.003, 0.004, 0.004, finish("Sensor LED", (0.9, 0.42, 0.04), 0, 0.3))
+save("Stopper")
 
-# Tapered ESD tote, continuous moulded shell with a return lip and bottom radius.
+# Hardened stop head with a polyurethane buffer on the upstream (-X) face and a
+# chamfered crown. Origin: head centre at its crown height.
+mesh(
+    [(x, y, z) for z in (-0.012, 0.012) for x, y in [(-0.0055, -0.03), (0.006, -0.03), (0.006, -0.001), (0.003, 0), (-0.0035, 0), (-0.0055, -0.002)]],
+    [tuple(range(6)), tuple(range(6, 12))] + [(i, (i + 1) % 6, 6 + (i + 1) % 6, 6 + i) for i in range(6)],
+    steel,
+    0.0004,
+)
+block(-0.0068, -0.009, 0, 0.0026, 0.012, 0.02, seal, 0.0006)
+save("StopHead")
+
+
+# Reject container, after a moulded small-load carrier: tapered shell with wall
+# thickness, outer ribs, stiffening band under the rim, hand grips in the short
+# ends, a label slot and a stacking foot. Signal red so rejects are found at a glance.
+red = finish("Reject polypropylene", (0.34, 0.036, 0.03), 0.0, 0.52)
+grip = finish("Grip shadow", (0.06, 0.012, 0.011), 0.0, 0.7)
+
+
 def rounded(w, d, r):
     pts = []
     for sx, sz, start in [(1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270)]:
@@ -281,26 +297,51 @@ def rounded(w, d, r):
 
 
 rings = [
-    (0.216, 0.176, 0.003),
-    (0.221, 0.181, 0.011),
-    (0.235, 0.195, 0.141),
-    (0.246, 0.206, 0.142),
-    (0.246, 0.206, 0.158),
-    (0.242, 0.202, 0.16),
-    (0.225, 0.185, 0.16),
-    (0.211, 0.171, 0.012),
+    (0.212, 0.172, 0.0),
+    (0.218, 0.178, 0.004),
+    (0.221, 0.181, 0.012),
+    (0.235, 0.195, 0.128),
+    (0.244, 0.204, 0.129),
+    (0.244, 0.204, 0.142),
+    (0.238, 0.198, 0.143),
+    (0.238, 0.198, 0.155),
+    (0.247, 0.207, 0.157),
+    (0.247, 0.207, 0.16),
+    (0.229, 0.189, 0.16),
+    (0.214, 0.174, 0.016),
+    (0.214, 0.174, 0.012),
 ]
-verts = [(x, y, z) for w, d, y in rings for x, z in rounded(w, d, 0.009)]
+verts = [(x, y, z) for w, d, y in rings for x, z in rounded(w, d, 0.010)]
 n = 20
-faces = [tuple(range(n)), tuple(range(7 * n, 8 * n))]
+faces = [tuple(range(n)), tuple(range((len(rings) - 1) * n, len(rings) * n))]
 for j in range(len(rings) - 1):
     faces += [(j * n + i, j * n + (i + 1) % n, (j + 1) * n + (i + 1) % n, (j + 1) * n + i) for i in range(n)]
-mesh(verts, faces, poly)
+mesh(verts, faces, red)
+lean = math.atan2((0.235 - 0.221) / 2, 0.116)
 for sign in (-1, 1):
-    for x in (-0.099, -0.085, 0.085, 0.099):
-        obj = block(x, 0.078, sign * 0.094, 0.004, 0.132, 0.008, poly)
-    block(0, 0.128, sign * 0.099, 0.078, 0.017, 0.007, dark, 0.002)
-    block(0, 0.136, sign * 0.102, 0.081, 0.006, 0.011, poly, 0.002)
+    # Long sides (+-Z): vertical ribs following the draft, a flat label field between.
+    for x in (-0.099, -0.077, 0.077, 0.099):
+        rib = block(0, 0, 0, 0.0035, 0.118, 0.006, red, 0.0006)
+        rib.location = point(x, 0.07, sign * 0.0975)
+        rib.rotation_euler.x = sign * lean
+    # Label slot frame on the long sides.
+    block(0, 0.1065, sign * 0.0978, 0.124, 0.003, 0.004, red, 0.0006)
+    block(0, 0.0635, sign * 0.0952, 0.124, 0.003, 0.004, red, 0.0006)
+    for x in (-0.0635, 0.0635):
+        bar = block(0, 0, 0, 0.003, 0.046, 0.004, red, 0.0006)
+        bar.location = point(x, 0.085, sign * 0.0965)
+        bar.rotation_euler.x = sign * lean
+    # Short ends (+-X): four ribs and a hand grip under the band.
+    for z in (-0.07, -0.024, 0.024, 0.07):
+        rib = block(0, 0, 0, 0.006, 0.09, 0.0035, red, 0.0006)
+        rib.location = point(sign * 0.1165, 0.058, z)
+        rib.rotation_euler.y = sign * lean
+    block(sign * 0.1172, 0.115, 0, 0.0012, 0.022, 0.082, grip)
+    block(sign * 0.1195, 0.1275, 0, 0.004, 0.003, 0.09, red, 0.0006)
+# Stacking foot under the floor.
+for x in (-0.09, 0.09):
+    for z in (-0.07, 0.07):
+        block(x, 0.0015, z, 0.02, 0.003, 0.02, red, 0.0005)
 save("Tote")
 
 # Conveyor return gearmotor: cast reduction housing, motor fins and fan cowl.

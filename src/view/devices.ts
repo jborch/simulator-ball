@@ -750,8 +750,9 @@ export class BinView {
     const h = 0.16;
     const tote = new THREE.Group();
     tote.add(hardware('Tote'));
-    plate(tote, 0, 0.085, d / 2 - 0.002, 0.113, 0.037, 'REJECT', name + '   /   HOLD', '#ad4839');
-    plate(tote, 0, 0.085, -d / 2 + 0.002, 0.113, 0.037, 'REJECT', name + '   /   HOLD', '#ad4839', Math.PI);
+    // White label cards in the moulded label fields of both long sides.
+    plate(tote, 0, 0.085, 0.0957, 0.113, 0.037, 'REJECT', name + '   /   HOLD', '#b3261e');
+    plate(tote, 0, 0.085, -0.0957, 0.113, 0.037, 'REJECT', name + '   /   HOLD', '#b3261e', Math.PI);
     contactPatch(tote, 0, 0.001, 0, w * 1.28, d * 1.28);
     batch(tote);
     this.group.add(tote);

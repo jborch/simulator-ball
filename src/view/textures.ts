@@ -10,25 +10,32 @@ function canvasTexture(canvas: HTMLCanvasElement, flipY = false): THREE.CanvasTe
   return tex;
 }
 
-/** Printed mover number label. */
-export function numberTexture(n: number): THREE.CanvasTexture {
+/** Laminated carrier ID plate: two-digit number and a small code strip, at width/height `aspect`. */
+export function numberTexture(n: number, aspect = 2): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = 512;
+  c.height = Math.round(512 / aspect);
   const g = c.getContext('2d')!;
-  g.fillStyle = '#f4f4f0';
-  g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = '#1d1f23';
-  g.font = 'bold 100px Arial, sans-serif';
+  const h = c.height;
+  g.fillStyle = '#f6f6f2';
+  g.fillRect(0, 0, c.width, h);
+  // Thin printed keyline just inside the laminate edge.
+  g.strokeStyle = '#2a2f33';
+  g.lineWidth = 5;
+  g.strokeRect(9, 9, c.width - 18, h - 18);
+  g.fillStyle = '#121416';
+  g.font = `bold ${Math.round(h * 0.78)}px Arial, Helvetica, sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(String(n).padStart(2, '0'), c.width / 2 - 12, c.height / 2 + 5);
-  g.fillStyle = '#354448';
-  for (let i = 0; i < 9; i++) {
-    const w = ((n >> i % 5) % 2) + 1;
-    g.fillRect(208 + i * 3, 19, w, 89);
+  g.fillText(String(n).padStart(2, '0'), c.width * 0.42, h / 2 + h * 0.045);
+  g.fillStyle = '#2b3438';
+  for (let i = 0; i < 11; i++) {
+    const w = ((n >> i % 6) % 2) * 3 + 3;
+    g.fillRect(392 + i * 9, h * 0.2, w, h * 0.6);
   }
-  return canvasTexture(c);
+  const tex = canvasTexture(c);
+  tex.anisotropy = 16;
+  return tex;
 }
 
 const dmCache = new Map<string, THREE.CanvasTexture>();

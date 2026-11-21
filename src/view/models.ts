@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { installHardware } from './hardware';
+import { applyClearFinishes } from './clear';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing', 'machine'] as const;
@@ -20,7 +21,10 @@ export async function loadModels(): Promise<Models> {
         }
       });
       if (name === 'machine') installHardware(gltf.scene);
-      else gltf.scene.userData.product = true;
+      else {
+        gltf.scene.userData.product = true;
+        applyClearFinishes(gltf.scene);
+      }
       return [name, gltf.scene] as const;
     }),
   );

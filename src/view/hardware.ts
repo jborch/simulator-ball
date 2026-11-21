@@ -15,6 +15,8 @@ const components = [
   'Tote',
   'Gearmotor',
   'GuideClip',
+  'Stopper',
+  'StopHead',
   'Vibrator',
   'Indexer',
   'ValveBank',

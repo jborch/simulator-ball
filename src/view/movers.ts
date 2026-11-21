@@ -141,10 +141,11 @@ export class HeldView {
   }
 }
 
+/** Status light pipes: dark when the carrier is empty, green with a good part, red when a step is missing (NOK). */
 const LED = {
-  empty: new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.4 }),
-  ok: new THREE.MeshStandardMaterial({ color: 0x1f8f3a, emissive: 0x2bd552, emissiveIntensity: 0.72 }),
-  nok: new THREE.MeshStandardMaterial({ color: 0x8f1f1f, emissive: 0xff3030, emissiveIntensity: 1.6 }),
+  empty: new THREE.MeshStandardMaterial({ color: 0x1b1e21, roughness: 0.18, metalness: 0.1 }),
+  ok: new THREE.MeshStandardMaterial({ color: 0x2fae4e, emissive: 0x3dff6e, emissiveIntensity: 1.5, roughness: 0.2 }),
+  nok: new THREE.MeshStandardMaterial({ color: 0xc02020, emissive: 0xff2b1f, emissiveIntensity: 2.6, roughness: 0.2 }),
 };
 
 /** How a visible incident changes the look of one mover (see incidents.ts). */
@@ -160,7 +161,7 @@ export interface MoverLook {
 export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
-  private readonly led: THREE.Mesh;
+  private readonly leds: THREE.Mesh[] = [];
   /** The model's own materials, before wear. */
   private readonly baseMaterials = new Map<THREE.Mesh, THREE.MeshStandardMaterial>();
   look: MoverLook | null = null;
@@ -175,20 +176,26 @@ export class MoverView {
     this.root.userData.track = { cls: 'mover', id: `mover-${id}` };
 
     const mover = models.mover.clone(true);
-    const labelMat = new THREE.MeshStandardMaterial({ map: numberTexture(id), roughness: 0.6 });
-    for (const name of ['label_top', 'label_side_a', 'label_side_b']) {
-      const m = findMesh(mover, name);
-      if (m) m.material = labelMat;
+    // Laminated ID plates, printed at their own aspect so the digits keep their shape.
+    const sideMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 52 / 18.5), roughness: 0.42 });
+    const topMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 46 / 22), roughness: 0.42 });
+    for (const [name, m] of [
+      ['label_top', topMat],
+      ['label_side_a', sideMat],
+      ['label_side_b', sideMat],
+    ] as const) {
+      const mesh = findMesh(mover, name);
+      if (mesh) mesh.material = m;
     }
     mover.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (mesh.isMesh && mesh.material !== labelMat) this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
+      if (!mesh.isMesh) return;
+      if (mesh.name.startsWith('status_led')) {
+        this.leds.push(mesh);
+        mesh.castShadow = false;
+      } else if (mesh.material !== sideMat && mesh.material !== topMat) this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
     });
     this.root.add(mover);
-
-    this.led = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0034, 0.0018, 16), LED.empty);
-    this.led.position.set(0.04, 0.0301, 0.04);
-    this.root.add(this.led);
 
     this.assembly = new AssemblyView(cfg, models);
     this.assembly.root.position.y = cfg.mover.seat;
@@ -219,7 +226,7 @@ export class MoverView {
     this.root.position.set(p.x, height, -p.y);
     const look = this.look;
     this.root.rotation.y = p.heading + (look?.skew ?? 0);
-    this.led.material = LED[f.status];
+    for (const led of this.leds) led.material = LED[f.status];
     this.assembly.show(look?.hide ? f.parts.filter((x) => !look.hide!.includes(x)) : f.parts);
     this.assembly.setMark(look?.hide?.includes('housing') ? null : f.mark);
     // Leaning along the belt (as the station cameras, looking across it, see best), pivoting on
