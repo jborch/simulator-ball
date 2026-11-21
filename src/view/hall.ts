@@ -114,6 +114,12 @@ export function contactPatch(g: THREE.Object3D, x: number, y: number, z: number,
 }
 
 const galleryFloor = mat(0x6f7573, { roughness: 0.45, metalness: 0 });
+const galv = mat(0xa9b0b0, { roughness: 0.42, metalness: 0.9 });
+const cable = mat(0x232829, { roughness: 0.6, metalness: 0 });
+const sprinkler = mat(0x9c2d24, { roughness: 0.4, metalness: 0 });
+const brassHead = mat(0xb79a5a, { roughness: 0.3, metalness: 1 });
+const conduit = mat(0x8e9493, { roughness: 0.5, metalness: 0 });
+const outletFace = mat(0x4d5a8a, { roughness: 0.5, metalness: 0 });
 
 /** Wall clock: white dial, black hands and ticks, aluminium bezel. Faces +z. */
 function clock(g: THREE.Group, x: number, y: number, z: number): void {
@@ -264,6 +270,37 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       block(g, x - 0.7, 2.23, 0.1, 0.13, 4.46, 0.18, trim);
       plate(g, x - 0.71, 1.79, 0.198, 0.115, 0.045, 'B' + (i + 1), 'COLUMN');
     }
+  }
+  // Services along the wall at high level: a galvanised cable ladder with cables on brackets,
+  // the red sprinkler main above it, and grey conduits dropping to outlet boxes.
+  const L = length - 0.3;
+  for (const z of [0.07, 0.29]) block(g, 0, 3.05, z, L, 0.06, 0.006, galv);
+  for (let x = -L / 2; x <= L / 2; x += 0.3) block(g, x, 3.03, 0.18, 0.025, 0.012, 0.22, galv);
+  for (let x = -L / 2 + 0.2; x < L / 2; x += 1.5) {
+    block(g, x, 3.0, 0.18, 0.04, 0.008, 0.26, galv);
+    block(g, x, 3.05, 0.065, 0.04, 0.12, 0.006, galv);
+  }
+  for (const [dz, dy, r] of [
+    [0.11, 3.05, 0.011],
+    [0.14, 3.05, 0.008],
+    [0.165, 3.049, 0.012],
+    [0.2, 3.048, 0.009],
+    [0.23, 3.05, 0.01],
+  ])
+    round(g, 0, dy, dz, r, L, cable, 10).rotation.z = Math.PI / 2;
+  round(g, 0, 3.72, 0.16, 0.045, length, sprinkler, 16).rotation.z = Math.PI / 2;
+  for (let x = -length / 2 + 0.5; x < length / 2; x += 2) {
+    block(g, x, 3.72, 0.08, 0.03, 0.12, 0.012, galv);
+    round(g, x + 0.9, 3.67, 0.16, 0.012, 0.05, sprinkler, 10);
+    round(g, x + 0.9, 3.635, 0.16, 0.018, 0.012, brassHead, 12);
+  }
+  for (let i = 0; i < n; i++) {
+    // On solid bays only (not in front of the gallery glazing).
+    if (gallery && i % 4 !== 0 && i % 5 !== 3) continue;
+    const x = -length / 2 + (i + 0.5) * pitch + 0.62;
+    round(g, x, 2.13, 0.09, 0.012, 1.84, conduit, 10);
+    block(g, x, 1.18, 0.09, 0.09, 0.12, 0.05, conduit);
+    block(g, x, 1.18, 0.116, 0.07, 0.07, 0.003, outletFace);
   }
   block(g, 0, 2.2, -2.15, length + 4, 4.5, 0.12, galleryWall);
   block(g, 0, 0.035, -1.12, length + 4, 0.06, 2.25, galleryFloor);
