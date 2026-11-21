@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import type { Frame } from '../sim/protocol';
 import { pose, trackLength } from '../sim/track';
-import { BELT_Y, BELT_W, M, RIB, TABLE, side, v3 } from './build';
+import { BELT_Y, BELT_W, M, RIB, side, v3 } from './build';
 
 /** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
 const RAIL_R = 0.005;
@@ -11,6 +11,8 @@ import type { Models } from './models';
 import { MoverView } from './movers';
 import { StationView } from './station';
 import { CartridgeCellView, HousingDialView, SpringBaseLineView } from './sublines';
+import { buildBases } from './bases';
+import { batch, block, finish, hardware, profile, round } from './hardware';
 import { beltTexture } from './textures';
 
 export class LineView {
@@ -29,7 +31,7 @@ export class LineView {
     models: Models,
   ) {
     this.L = trackLength(cfg.track);
-    this.buildTable();
+    this.group.add(buildBases(cfg));
     this.beltTex = beltTexture();
     this.buildBelt();
     this.stations = cfg.stations.map((d) => {
@@ -48,18 +50,6 @@ export class LineView {
       this.group.add(mv.root);
       return mv;
     });
-  }
-
-  /**
-   * The plate the line stands on, extended to the horizon so it is the floor: everything is
-   * mounted at table height, and the camera never sees anything below it.
-   */
-  private buildTable(): void {
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), M.table);
-    plate.rotation.x = -Math.PI / 2;
-    plate.position.y = BELT_Y + TABLE;
-    plate.receiveShadow = true;
-    this.group.add(plate);
   }
 
   private buildBelt(): void {
@@ -102,22 +92,55 @@ export class LineView {
       rail.castShadow = true;
       this.group.add(rail);
     }
-    const bodyPts: THREE.Vector3[] = [];
-    for (let i = 0; i < 360; i++) {
-      const p = pose(t, (i / 360) * this.L);
-      bodyPts.push(v3(p.x, p.y, BELT_Y - 0.03));
+    // A swept bed with an explicit horizontal across-track axis remains level
+    // through both returns (Frenet frames can twist on a closed racetrack).
+    const bedPositions: number[] = [];
+    const bedIndices: number[] = [];
+    for (let i = 0; i <= n; i++) {
+      const p = pose(t, (i * this.L) / n);
+      for (const [r, h] of [
+        [-0.081, -0.006],
+        [0.081, -0.006],
+        [0.081, -0.054],
+        [-0.081, -0.054],
+      ]) {
+        const v = side(p, r);
+        bedPositions.push(v.x, BELT_Y + h, -v.y);
+      }
+      if (i < n)
+        for (let j = 0; j < 4; j++) {
+          const a = i * 4 + j,
+            b = i * 4 + ((j + 1) % 4);
+          bedIndices.push(a, a + 4, b, b, a + 4, b + 4);
+        }
     }
-    const shape = new THREE.Shape();
-    shape.moveTo(-0.025, -BELT_W / 2 - 0.015);
-    shape.lineTo(0.025, -BELT_W / 2 - 0.015);
-    shape.lineTo(0.025, BELT_W / 2 + 0.015);
-    shape.lineTo(-0.025, BELT_W / 2 + 0.015);
-    const body = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(shape, { steps: 360, extrudePath: new THREE.CatmullRomCurve3(bodyPts, true), bevelEnabled: false }),
-      M.frame,
-    );
+    const bed = new THREE.BufferGeometry();
+    bed.setAttribute('position', new THREE.Float32BufferAttribute(bedPositions, 3));
+    bed.setIndex(bedIndices);
+    const flat = bed.toNonIndexed();
+    flat.computeVertexNormals();
+    const body = new THREE.Mesh(flat, finish.graphite);
     body.receiveShadow = true;
     this.group.add(body);
+    for (const z of [-t.radius, t.radius]) {
+      const frame = new THREE.Group();
+      for (const offset of [-0.08, 0.08]) {
+        profile(frame, [-t.straight / 2, BELT_Y - 0.029, z + offset], [t.straight / 2, BELT_Y - 0.029, z + offset], 0.044);
+        for (let x = -t.straight / 2 + 0.06; x < t.straight / 2; x += 0.24) {
+          const clamp = hardware('GuideClip', x, BELT_Y, z + Math.sign(offset) * (BELT_W / 2 + 0.012));
+          if (offset < 0) clamp.rotation.y = Math.PI;
+          frame.add(clamp);
+        }
+      }
+      for (let x = -t.straight / 2 + 0.12; x < t.straight / 2; x += 0.48) {
+        for (const offset of [-0.079, 0.079]) {
+          block(frame, x, BELT_Y - 0.053, z + offset, 0.046, 0.012, 0.052, finish.graphite);
+          for (const dx of [-0.016, 0.016]) round(frame, x + dx, BELT_Y - 0.046, z + offset + Math.sign(offset) * 0.018, 0.003, 0.004, M.rail, 8);
+        }
+      }
+      batch(frame);
+      this.group.add(frame);
+    }
   }
 
   /** Extent of the line itself (belt, movers, stations), without the table. */
@@ -128,6 +151,9 @@ export class LineView {
     box.expandByObject(this.dial.group);
     box.expandByObject(this.cartridges.group);
     for (const mv of this.movers) box.expandByObject(mv.root);
+    box.expandByPoint(new THREE.Vector3(0, 0, 0));
+    box.expandByPoint(new THREE.Vector3(this.cfg.track.straight / 2 + this.cfg.track.radius, 0, 0));
+    box.expandByPoint(new THREE.Vector3(-this.cfg.track.straight / 2 - this.cfg.track.radius, 0, 0));
     return box;
   }
 

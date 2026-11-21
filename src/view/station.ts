@@ -4,6 +4,7 @@ import { heldLength, seatedTip, trayPocket } from '../sim/layout';
 import type { Frame, StationFrame } from '../sim/protocol';
 import { pose } from '../sim/track';
 import { BELT_Y, LIGHT_COLORS, type LightColor, M, RAIL_Y, type Reach, TABLE, cyl, label, lerp, local, v3 } from './build';
+import { batch, block, finish, hardware, hose, plate, round, warning } from './hardware';
 import { BinView, FeederView, InspectionView, RobotView, ScrapView, TrayView, finishedPen } from './devices';
 import type { Models } from './models';
 import { AssemblyView } from './movers';
@@ -37,7 +38,16 @@ export class StationView {
       const reach = StationView.reach(cfg, def);
       const beamR = StationView.beamR(cfg, def, reach);
       const robots = def.robots ?? [];
-      this.robot = new RobotView(reach, beamR, StationView.lowestTip(cfg, def), cfg, models, robots.length, robots.some((r) => r.laser));
+      this.robot = new RobotView(
+        reach,
+        beamR,
+        StationView.lowestTip(cfg, def),
+        cfg,
+        models,
+        robots.length,
+        robots.some((r) => r.laser),
+        def.group === 'EM14',
+      );
       this.robot.tag(def.id);
       this.group.add(this.robot.group);
       lightAt = { a: reach.aMin - 0.01, r: beamR, y: RAIL_Y + 0.02 };
@@ -69,12 +79,65 @@ export class StationView {
     for (const part of [...this.feeders, this.tray, this.bin, this.scrap]) if (part) this.group.add(part.group);
 
     // Stop gate pin just ahead of a resting mover's leading face.
-    this.pin = cyl(0.008, 0.03, M.pin, 12);
-    this.pin.position.set(cfg.mover.length / 2 + 0.008, 0, 0.035);
+    const fittings = new THREE.Group();
+    plate(fittings, -0.092, -0.027, 0.103, 0.089, 0.018, def.id, 'L07   /   TRANSPORT');
+    const stopA = cfg.mover.length / 2 + 0.008;
+    block(fittings, stopA, -0.029, -0.068, 0.038, 0.038, 0.051, finish.graphite);
+    round(fittings, stopA, -0.004, -0.058, 0.009, 0.004, M.rail);
+    hose(
+      fittings,
+      [
+        [stopA + 0.018, -0.023, -0.076],
+        [stopA + 0.034, -0.026, -0.085],
+        [stopA + 0.057, -0.041, -0.083],
+      ],
+      0.0022,
+      finish.pipe,
+    );
+    this.pin = cyl(0.0055, 0.022, M.pin, 16);
+    this.pin.position.set(stopA, 0, -0.058);
     this.group.add(this.pin);
 
     const colors: LightColor[] = ['blue', 'green', 'yellow', 'red'];
     this.lights = {} as Record<LightColor, THREE.Mesh>;
+    if (def.kind === 'inspect') lightAt.y = 0.44;
+    const postY = lightAt.y;
+    lightAt.y += 0.071;
+    round(fittings, lightAt.a, postY + 0.035, -lightAt.r, 0.007, 0.082, M.rail);
+    round(fittings, lightAt.a, postY + 0.074, -lightAt.r, 0.018, 0.012, M.camera);
+    round(fittings, lightAt.a, lightAt.y + 0.104, -lightAt.r, 0.017, 0.006, M.camera);
+    const labelZ = -lightAt.r + 0.029;
+    if (this.robot)
+      plate(fittings, lightAt.a + 0.046, RAIL_Y - 0.008, labelZ, 0.103, 0.029, def.id, def.group === 'EM14' ? 'PRESS MODULE' : 'TRANSFER AXIS');
+    if (def.group === 'EM14') {
+      const reach = StationView.reach(cfg, def);
+      const beamR = StationView.beamR(cfg, def, reach);
+      const z = -beamR - 0.026;
+      plate(fittings, 0, 0.291, z + 0.01, 0.057, 0.018, def.id, 'INSERTION');
+      plate(fittings, 0, 0.305, z - 0.056, 0.059, 0.019, def.id, 'PNEUMATIC PRESS', '#286e74', Math.PI);
+      warning(fittings, 0, 0.267, z - 0.056, 0.054, Math.PI);
+      const bank = hardware('ValveBank', 0, 0.105, z - 0.056);
+      bank.scale.setScalar(0.72);
+      bank.rotation.y = Math.PI;
+      fittings.add(bank);
+      for (let i = 0; i < 4; i++) {
+        const x = (i - 1.5) * 0.015;
+        hose(
+          fittings,
+          [
+            [x, 0.127, z - 0.075],
+            [x, 0.132, z - 0.086],
+            [x + 0.005, 0.082, z - 0.095],
+            [x + 0.04, 0.051, z - 0.076],
+            [x + 0.048, TABLE + 0.003, z - 0.054],
+          ],
+          0.0021,
+          i % 2 ? finish.seal : finish.pipe,
+        );
+      }
+    }
+    batch(fittings);
+    this.group.add(fittings);
     colors.forEach((c, i) => {
       const m = cyl(0.016, 0.022, new THREE.MeshStandardMaterial({ color: 0x30333a, roughness: 0.4 }), 16);
       m.position.copy(local(lightAt.a, lightAt.y + 0.02 + i * 0.024, lightAt.r));
@@ -142,7 +205,11 @@ export class StationView {
       else if (r.source === 'dial') pts.push({ a: cfg.dial.a, r: cfg.dial.r - cfg.dial.radius });
       else if (r.source) pts.push({ a: r.home, r: cfg.layout.feederR });
     }
-    if (def.bin) pts.push(cfg.layout.bins[def.bin]);
+    if (def.bin) {
+      const b = cfg.layout.bins[def.bin];
+      pts.push(b);
+      if (def.kind === 'unload') pts.push({ a: b.a - 0.145, r: b.r });
+    }
     if (def.kind === 'unload') for (let i = 0; i < cfg.traySize; i++) pts.push(trayPocket(cfg, i));
     const as = pts.map((p) => p.a);
     const rs = pts.map((p) => p.r);
@@ -168,7 +235,9 @@ export class StationView {
     if (this.robot && f.robots.length === rb.length) {
       this.robot.update(f.robots.map((ra, k) => ({ ...ra, a: lerp(ra.a, rb[k].a, alpha), r: lerp(ra.r, rb[k].r, alpha), z: lerp(ra.z, rb[k].z, alpha) })), f.laser);
     }
-    this.pin.position.y = f.gateClosed ? 0.01 : -0.02;
+    const pinS = this.def.s + this.pin.position.x;
+    const clearing = fa.movers.some((m) => Math.abs(m.s - pinS) < this.pin.position.x - 0.002);
+    this.pin.position.y = f.gateClosed && !clearing ? 0.0055 : -0.016;
     this.setLights(f.status, ['Execute', 'Starting', 'Stopping', 'Holding', 'Completing'].includes(fa.machine), t);
     this.tag.dataset.status = f.status;
   }

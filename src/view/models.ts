@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { installHardware } from './hardware';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing'] as const;
+export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing', 'machine'] as const;
 export type ModelName = (typeof MODEL_NAMES)[number];
 export type Models = Record<ModelName, THREE.Object3D>;
 
@@ -18,6 +19,8 @@ export async function loadModels(): Promise<Models> {
           o.receiveShadow = true;
         }
       });
+      if (name === 'machine') installHardware(gltf.scene);
+      else gltf.scene.userData.product = true;
       return [name, gltf.scene] as const;
     }),
   );

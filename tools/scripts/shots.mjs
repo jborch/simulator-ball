@@ -2,6 +2,9 @@
 //
 //   node tools/scripts/shots.mjs <out_dir> [--port 5199] [--wait 25] [--lighting day] [--only overview,hero-robot]
 //
+// Add --timing for 60 gl.finish-synchronised stage renders per view (median and p90).
+// --bake-contacts regenerates the floor/deck textures instead of taking screenshots.
+// --wait-for-mark waits for a labelled mover in the housing/cartridge inspection view.
 // Starts the dev server (fixed sim and scene seed, so every run shows much the same line), opens
 // each view in headless Chrome with the GPU and saves <out_dir>/<view>.png. The views are the
 // overview, the five installed station cameras (as the RTSP feeds see them, without camera realism)
@@ -67,6 +70,12 @@ try {
     await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 });
     await page.goto(`${base}/?capture=1&fps=30&cam=${v.mount ? 'overview' : v.id}`, { waitUntil: 'load', timeout: 60_000 });
     await page.waitForFunction(() => !!window.line?.view, { timeout: 60_000 });
+    if (args.includes('--bake-contacts')) {
+      const { bakeContacts } = await import('./bake-contacts.mjs');
+      await bakeContacts(page);
+      await page.close();
+      break;
+    }
     if (v.mount) {
       await page.evaluate(async (v) => {
         const { stationPoint } = await import('/src/view/cameras.ts');
@@ -76,6 +85,40 @@ try {
     }
     // A few seconds of frames: buffered sim frames, shadows and textures settle.
     await new Promise((r) => setTimeout(r, 4000));
+    if (args.includes('--wait-for-mark') && ['housing', 'cartridge'].includes(v.id)) {
+      // Capture an actual carrier in the inspection window, with no change
+      // to its pose, the lens or the live simulation.
+      await page.waitForFunction(() => {
+        const { view, stage } = window.line;
+        return view.movers.some(({ root }) => {
+          const p = root.position.clone().project(stage.camera);
+          if (Math.abs(p.x) > 0.32 || Math.abs(p.y) > 0.95 || p.z < 0 || p.z > 1) return false;
+          let printed = false;
+          root.traverseVisible(o => {
+            if (o.name === 'pen_dm_label' && o.material?.map) printed = true;
+          });
+          return printed;
+        });
+      }, { timeout: 90_000 });
+    }
+    if (args.includes('--timing')) {
+      const stats = await page.evaluate(async () => {
+        const { stage } = window.line;
+        const gl = stage.renderer.getContext();
+        const times = [];
+        for (let i = 0; i < 65; i++) {
+          await new Promise(requestAnimationFrame);
+          gl.finish();
+          const t = performance.now();
+          stage.render();
+          gl.finish();
+          if (i >= 5) times.push(performance.now() - t);
+        }
+        times.sort((a, b) => a - b);
+        return { medianMs: times[30], p90Ms: times[54], ...stage.renderer.info.render };
+      });
+      console.log(v.id, stats);
+    }
     const file = path.join(out, `${v.id}.png`);
     await page.screenshot({ path: file });
     console.log(file);

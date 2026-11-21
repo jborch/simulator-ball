@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { Hall } from './hall';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { CameraPose } from './cameras';
 
 /** Renderer, camera, orbit controls and lights. The floor is the line's plate (LineView). */
 export class Stage {
   readonly scene = new THREE.Scene();
+  readonly hall: Hall;
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
   readonly renderer: THREE.WebGLRenderer;
   readonly labels = new CSS2DRenderer();
@@ -26,6 +28,7 @@ export class Stage {
   onResize?: () => void;
   /** Broad fill and key light (see SceneView for the lighting presets). */
   readonly hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1);
+  readonly keyOffset = new THREE.Vector3(2.5, 6, 3);
   readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
   /**
    * Replaces the plain render (a camera feed's post-processing, camerafx.ts). Gets the scene and
@@ -43,12 +46,17 @@ export class Stage {
     this.labels.domElement.className = 'labels';
     container.appendChild(this.labels.domElement);
 
-    this.scene.background = new THREE.Color(0x1b1e23);
-    // Soft studio reflections so metal parts (fixtures, rails, bowls) don't render black.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.6;
-    this.scene.fog = new THREE.Fog(0x1b1e23, 12, 30);
+    this.scene.background = new THREE.Color(0x9da9a9);
+    this.hall = new Hall(this.scene);
+    // Three prefilters the local HDR panorama once for the different
+    // roughness levels of the machined, brushed and powder-coated surfaces.
+    new HDRLoader().load(`${import.meta.env.BASE_URL}textures/industrial_workshop_foundry_1k.hdr`, (texture) => {
+      texture.mapping = THREE.EquirectangularReflectionMapping;
+      this.scene.environment = texture;
+    });
+    this.scene.environmentRotation.y = 1.24;
+    this.scene.environmentIntensity = 0.8;
+    this.scene.fog = new THREE.Fog(0xc4cec9, 5.5, 22);
 
     this.camera.position.set(0.7, 2.6, 3.2);
     this.controls = new OrbitControls(this.camera, this.labels.domElement);
@@ -64,7 +72,7 @@ export class Stage {
     const sun = this.sun;
     sun.position.set(2.5, 6, 3);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera;
     sc.left = -4;
     sc.right = 4;
@@ -72,9 +80,10 @@ export class Stage {
     sc.bottom = -3;
     sc.near = 1;
     sc.far = 15;
-    sun.shadow.bias = -0.0005;
+    sun.shadow.bias = -0.0001;
+    sun.shadow.normalBias = 0.00032;
     sun.shadow.radius = 4;
-    this.scene.add(sun);
+    this.scene.add(sun, sun.target);
 
     this.resize = () => {
       const w = container.clientWidth;
@@ -170,6 +179,20 @@ export class Stage {
       this.project();
     }
     this.controls.update();
+    // Installed cameras see less than two metres of machinery. Concentrate
+    // their shadow texels and cull the other cells from the light pass.
+    const span = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target) * 1.32, 1.1, 4.1);
+    const sc = this.sun.shadow.camera;
+    if (Math.abs(sc.right - span) > 0.001) {
+      sc.left = -span;
+      sc.right = span;
+      sc.top = 0.82 * span;
+      sc.bottom = -sc.top;
+      sc.updateProjectionMatrix();
+    }
+    this.sun.target.position.copy(this.controls.target);
+    this.sun.position.copy(this.sun.target.position).add(this.keyOffset);
+    this.hall.cutaway(this.camera.position);
     if (this.renderOverride) this.renderOverride(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
     if (this.showLabels) this.labels.render(this.scene, this.camera);

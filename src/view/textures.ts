@@ -19,10 +19,15 @@ export function numberTexture(n: number): THREE.CanvasTexture {
   g.fillStyle = '#f4f4f0';
   g.fillRect(0, 0, c.width, c.height);
   g.fillStyle = '#1d1f23';
-  g.font = 'bold 104px system-ui, sans-serif';
+  g.font = 'bold 100px Arial, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(String(n).padStart(2, '0'), c.width / 2, c.height / 2 + 6);
+  g.fillText(String(n).padStart(2, '0'), c.width / 2 - 12, c.height / 2 + 5);
+  g.fillStyle = '#354448';
+  for (let i = 0; i < 9; i++) {
+    const w = ((n >> i % 5) % 2) + 1;
+    g.fillRect(208 + i * 3, 19, w, 89);
+  }
   return canvasTexture(c);
 }
 
@@ -38,7 +43,16 @@ export function dataMatrixTexture(gs1: string): THREE.CanvasTexture {
     return hit;
   }
   const c = document.createElement('canvas');
-  bwipjs.toCanvas(c, { bcid: 'gs1datamatrix', text: gs1, scale: 8, padding: 1, barcolor: '3a3a3c', backgroundcolor: 'ebebe6' });
+  // With the long axis along the pen, fewer modules wrap away from a
+  // level inspection camera. The GS1 payload is identical in both formats.
+  const print = { bcid: 'gs1datamatrix', text: gs1, scale: 8, padding: 1, barcolor: '13191b', backgroundcolor: 'f2f2eb' };
+  const rectangular = { ...print, format: 'rectangle', rotate: 'R' as const };
+  try {
+    bwipjs.toCanvas(c, rectangular);
+  } catch {
+    // A longer identifier may exceed the capacity of rectangular ECC 200.
+    bwipjs.toCanvas(c, print);
+  }
   const tex = canvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
   dmCache.set(gs1, tex);
@@ -53,14 +67,43 @@ export function dataMatrixTexture(gs1: string): THREE.CanvasTexture {
 /** Belt surface: dark rubber with cross ribs so motion is visible. */
 export function beltTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 64;
+  c.width = 256;
+  c.height = 128;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#2a2d31';
-  g.fillRect(0, 0, 64, 64);
-  g.fillStyle = '#383c42';
-  g.fillRect(0, 0, 64, 10);
+  const data = g.createImageData(c.width, c.height);
+  let seed = 311;
+  for (let y = 0; y < c.height; y++)
+    for (let x = 0; x < c.width; x++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const yarn = ((x + y) % 5 === 0 ? 4 : 0) + (y % 4 === 0 ? 2 : 0);
+      const value = 45 + yarn + (seed / 4294967296) * 8;
+      data.data.set([value, value + 2, value + 1, 255], 4 * (x + y * c.width));
+    }
+  g.putImageData(data, 0, 0);
+  g.fillStyle = '#252b29';
+  g.fillRect(0, 0, 256, 2);
+  g.fillStyle = '#414543';
+  g.fillRect(0, 2, 256, 1);
   const tex = canvasTexture(c, true);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+/** Fine directional finishing marks in the roughness channel. */
+export function brushedFinish():THREE.CanvasTexture {
+  const c=document.createElement('canvas');
+  c.width=256; c.height=256;
+  const ctx=c.getContext('2d')!;
+  let seed=931;
+  for(let y=0;y<256;y++){
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    const k=198+Math.round(seed/4294967296*34);
+    ctx.fillStyle=`rgb(${k},${k},${k})`;
+    ctx.fillRect(0,y,256,1);
+  }
+  const tex=new THREE.CanvasTexture(c);
+  tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+  tex.anisotropy=8;
+  tex.repeat.set(2,6);
   return tex;
 }

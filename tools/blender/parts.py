@@ -10,7 +10,7 @@ import os
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 RENDER = "--no-render" not in argv
@@ -39,24 +39,27 @@ def mat(name, color, metallic=0.0, rough=0.5, alpha=1.0, transmission=0.0):
     p.inputs["Alpha"].default_value = alpha
     if "Transmission Weight" in p.inputs:
         p.inputs["Transmission Weight"].default_value = transmission
+    if name == "HousingBlue":
+        p.inputs["Coat Weight"].default_value = .30
+        p.inputs["Coat Roughness"].default_value = .23
     if alpha < 1.0:
         m.surface_render_method = "BLENDED" if hasattr(m, "surface_render_method") else None
     return m
 
 
 WHITE = lambda: mat("PenWhite", (0.92, 0.92, 0.9), rough=0.35)
-BLUE = lambda: mat("HousingBlue", (0.05, 0.25, 0.7), rough=0.3)
+BLUE = lambda: mat("HousingBlue", (0.065, 0.23, 0.36), rough=0.22)
 STEEL = lambda: mat("Steel", (0.75, 0.75, 0.78), metallic=1.0, rough=0.25)
-GLASS = lambda: mat("Glass", (0.85, 0.95, 1.0), rough=0.05, alpha=0.35, transmission=1.0)
+GLASS = lambda: mat("Glass", (0.85, 0.95, 1.0), rough=0.11, alpha=0.34)
 RUBBER = lambda: mat("Rubber", (0.15, 0.15, 0.17), rough=0.8)
 ALU = lambda: mat("Alu", (0.8, 0.8, 0.82), metallic=1.0, rough=0.4)
-DARK = lambda: mat("MoverDark", (0.12, 0.13, 0.15), rough=0.6)
-YELLOW = lambda: mat("MoverTop", (0.95, 0.75, 0.1), rough=0.5)
-TRAY = lambda: mat("TrayPET", (0.35, 0.55, 0.75), rough=0.4)
+DARK = lambda: mat("MoverDark", (0.045, 0.052, 0.053), rough=0.48)
+TOOLPLATE = lambda: mat("ToolPlate", (0.38, 0.42, 0.41), metallic=0.85, rough=0.32)
+TRAY = lambda: mat("TrayPET", (0.31, 0.46, 0.49), rough=0.32)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
 LABEL = lambda: mat("MoverLabel", (0.97, 0.97, 0.95), rough=0.6)
-BASE = lambda: mat("SpringBaseTeal", (0.05, 0.55, 0.5), rough=0.45)
+BASE = lambda: mat("SpringBaseAcetal", (0.54, 0.51, 0.40), rough=0.4)
 # Pen bodies are frosted translucent plastic, so the spring and cartridge show through.
 BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
 
@@ -129,18 +132,56 @@ def tube(r_out, r_in, h, z0, m, name, floor=0.0, verts=32):
     return o
 
 
-def wrapped_patch(radius, width, height, z_center, name, m, segments=16):
+def label_face(angle, radius):
+    """Section of the moulded labelling land. The front is flat for optical
+    inspection. The paper folds back around the short sides of the land."""
+    a = abs(angle)
+    blend = min(1.0, max(0.0, (a - 1.16) / (math.pi / 2 - 1.16)))
+    return -radius * ((1.0 - blend) + blend * math.cos(angle))
+
+
+def label_land():
+    # Taper the flat land back into the round barrel at the two shoulders.
+    verts, faces = [], []
+    n = 40
+    for i in range(n + 1):
+        a = (i / n - .5) * math.pi
+        r = .00852
+        for dz, mix in [(-.022, 0), (-.020, 1), (.020, 1), (.022, 0)]:
+            y = (1-mix)*(-r*math.cos(a)) + mix*label_face(a,r)
+            verts.append((r*math.sin(a), y, LABEL_Z+dz))
+    for i in range(n):
+        for j in range(3):
+            p = i*4+j
+            faces.append((p,p+4,p+5,p+1))
+    data = bpy.data.meshes.new("label_land")
+    data.from_pydata(verts, [], faces)
+    o = bpy.data.objects.new("label_land", data)
+    bpy.context.collection.objects.link(o)
+    data.materials.append(BLUE())
+    return o
+
+
+def wrapped_patch(radius, width, height, z_center, name, m, segments=16, frontal_uv=False, land=False):
     """A plane bent onto a cylinder surface, facing -Y. UVs span 0..1 so the app can paint a texture on it."""
-    bpy.ops.mesh.primitive_grid_add(x_subdivisions=segments, y_subdivisions=1, size=1)
-    o = bpy.context.object
-    o.name = name
-    r = radius + 0.00005  # sit just proud of the surface to avoid z-fighting
-    for v in o.data.vertices:
-        u, h = v.co.x * width, v.co.y * height
-        a = u / r
-        v.co = (r * math.sin(a), -r * math.cos(a), z_center + h)
-    o.data.materials.append(m)
-    bpy.ops.object.shade_smooth()
+    vertices = []
+    uv = []
+    for i in range(segments + 1):
+        u = i / segments
+        angle = (u - 0.5) * width / radius
+        print_u = .5 + math.sin(angle) / (2 * math.sin(width / (2 * radius))) if frontal_uv else u
+        for v in (0, 1):
+            y = label_face(angle,radius) if land else -radius * math.cos(angle)
+            vertices.append((radius * math.sin(angle), y, z_center + (v - .5) * height))
+            uv.append((print_u, v))
+    data = bpy.data.meshes.new(name)
+    data.from_pydata(vertices, [], [(2*i, 2*i+2, 2*i+3, 2*i+1) for i in range(segments)])
+    layer = data.uv_layers.new()
+    for loop in data.loops:
+        layer.data[loop.index].uv = uv[loop.vertex_index]
+    o = bpy.data.objects.new(name, data)
+    bpy.context.collection.objects.link(o)
+    data.materials.append(m)
     return o
 
 
@@ -164,9 +205,9 @@ def spring(z0=0.0):
     curve = bpy.data.curves.new("spring_curve", "CURVE")
     curve.dimensions = "3D"
     curve.bevel_depth = wire
-    curve.bevel_resolution = 3
+    curve.bevel_resolution = 1
     sp = curve.splines.new("POLY")
-    n = coils * 24
+    n = coils * 18
     sp.points.add(n)
     for i in range(n + 1):
         t = i / n
@@ -202,30 +243,48 @@ def cartridge():
 
 def housing_shell(name):
     """Housing tube that slides over the body."""
-    return tube(0.0085, 0.0068, 0.12, 0.0, BLUE(), name, verts=48)
+    shell = tube(0.0085, 0.0068, 0.12, 0.0, BLUE(), name, verts=48)
+    cut(shell, box(.0035,.005,.030,(0,-.0085,.085),BLUE(),"sight_port"))
+    bevel(shell,.00028,2)
+    return shell
 
 
 def housing_label(prefix):
     """Wrap label (EM31) with the GS1 DataMatrix patch the app paints the pen's identifier on."""
-    paper = wrapped_patch(0.0085, 0.04, 0.026, LABEL_Z, prefix + "_label", LABEL(), segments=24)
-    dm = wrapped_patch(0.00856, 0.007, 0.007, LABEL_Z, "dm_label", dm_material())
-    return [paper, dm]
+    paper = wrapped_patch(0.00862, 0.04, 0.039, LABEL_Z, prefix + "_label", LABEL(), segments=80, land=True)
+    dm = wrapped_patch(0.00876, 0.0194, 0.034, LABEL_Z, prefix + "_dm_label", dm_material(), segments=16, frontal_uv=True, land=True)
+    return [label_land(), paper, dm]
+
+
+def scale_print():
+    ticks = [wrapped_patch(.00864,.0028 if i%2==0 else .0018,.00055,.071+.004*i,
+                          "dose_tick",WHITE(),segments=4) for i in range(8)]
+    bpy.ops.object.select_all(action="DESELECT")
+    for tick in ticks:
+        for vertex in tick.data.vertices:
+            # Shift the scale beside the window; keep the centre clear.
+            vertex.co.rotate(Matrix.Rotation(.43,3,'Z'))
+        tick.select_set(True)
+    bpy.context.view_layer.objects.active = ticks[0]
+    bpy.ops.object.join()
+    collar = tube(.00862,.0069,.002,.115,WHITE(),"end_collar",verts=48)
+    return [ticks[0], collar]
 
 
 def housing():
     shell = housing_shell("housing_shell")
-    window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "housing_window")
+    window = box(0.0035, 0.00035, 0.03, (0, -0.0085, 0.085), GLASS(), "housing_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "housing_clip")
-    return group("Housing", [shell, window, clip, *housing_label("housing")])
+    return group("Housing", [shell, window, clip, *scale_print(), *housing_label("housing")])
 
 
 def assembled_pen():
     """Labelled housing, origin at the housing's base (8 mm above the body's base). The app draws
     the body, spring, spring base and cartridge inside it; the cartridge tip stands just proud."""
     shell = housing_shell("pen_shell")
-    window = box(0.0035, 0.002, 0.03, (0, -0.0085, 0.085), GLASS(), "pen_window")
+    window = box(0.0035, 0.00035, 0.03, (0, -0.0085, 0.085), GLASS(), "pen_window")
     clip = box(0.003, 0.004, 0.035, (0, 0.0095, 0.07), BLUE(), "pen_clip")
-    return group("AssembledPen", [shell, window, clip, *housing_label("pen")])
+    return group("AssembledPen", [shell, window, clip, *scale_print(), *housing_label("pen")])
 
 
 
@@ -256,7 +315,7 @@ def number_text(num, loc, rot, size, name):
 
 def mover(num=None):
     base = bevel(box(0.12, 0.12, 0.025, (0, 0, 0.0125), DARK(), "mover_base"), 0.004, 3)
-    top = bevel(box(0.1, 0.1, 0.004, (0, 0, 0.027), YELLOW(), "mover_top"), 0.002)
+    top = bevel(box(0.1, 0.1, 0.004, (0, 0, 0.027), TOOLPLATE(), "mover_top"), 0.002)
     # Socket fixture: the pen stands in a bore (fits the housing) with a lead-in chamfer, on a
     # rubber seat at z = 0.03; a slot at the back locates the housing's clip side.
     fixture = cyl(0.016, 0.026, 0.029, ALU(), "mover_fixture", verts=48)
@@ -267,12 +326,26 @@ def mover(num=None):
     bevel(fixture, 0.0006)
     hole = cyl(0.0093, 0.001, 0.0292, RUBBER(), "mover_hole")
     # RFID tag on the leading face (+X = direction of travel), read by antennas at each station.
-    tag = box(0.004, 0.03, 0.012, (0.061, 0, 0.012), WHITE(), "mover_rfid")
+    tag = bevel(box(0.004, 0.03, 0.012, (0.061, 0, 0.012), RUBBER(), "mover_rfid"), .0009)
     # Number labels: top (operator view from above) and both long sides.
     lt = label_plane(0.034, 0.018, (0, -0.033, 0.0292), (0, 0, 0), "label_top")
     ls = label_plane(0.04, 0.016, (0, -0.0601, 0.0125), (math.radians(90), 0, 0), "label_side_a")
     lb = label_plane(0.04, 0.016, (0, 0.0601, 0.0125), (math.radians(90), 0, math.radians(180)), "label_side_b")
     parts = [base, top, fixture, hole, tag, lt, ls, lb]
+    # Flush socket screws retaining the replaceable tooling plate.
+    screws = []
+    for x, y in [(-.04,-.04),(-.04,.04),(.04,.04)]:
+        head = cyl(.0035, .0008, .029, ALU(), "socket_head", 16)
+        socket = cyl(.0018, .0002, .0298, RUBBER(), "hex_socket", 6)
+        for piece in (head, socket):
+            piece.location.x, piece.location.y = x, y
+            screws.append(piece)
+    bpy.ops.object.select_all(action="DESELECT")
+    for screw in screws:
+        screw.select_set(True)
+    bpy.context.view_layer.objects.active=screws[0]
+    bpy.ops.object.join()
+    parts.append(screws[0])
     if num is not None:
         parts += [
             number_text(num, (0, -0.033, 0.0294), (0, 0, 0), 0.016, "num_top"),
@@ -295,7 +368,13 @@ def tray(cols=4, rows=8, pitch=0.021):
             y = (j - (rows - 1) / 2) * pitch
             pockets.append(tube(0.0102, 0.009, 0.028, 0.006, TRAY(), f"tray_pocket_{i}_{j}", verts=16))
             pockets[-1].location.x, pockets[-1].location.y = x, y
-    return group("Tray", [plate, rim, *pockets])
+    bpy.data.objects.remove(plate, do_unlink=True)
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in pockets:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = pockets[0]
+    bpy.ops.object.join()
+    return group("Tray", [rim, pockets[0]])
 
 
 def export(root, filename):

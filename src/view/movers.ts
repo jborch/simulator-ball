@@ -27,10 +27,10 @@ export function showLabel(root: THREE.Object3D, gs1: string | null): void {
     const name = o.name || o.parent?.name || '';
     if (!name.endsWith('_label')) return;
     o.visible = gs1 !== null;
-    if (name !== 'dm_label' && o.parent?.name !== 'dm_label') return;
+    if (!name.endsWith('_dm_label')) return;
     const mesh = o as THREE.Mesh;
     if (!mesh.userData.ownMaterial) {
-      mesh.material = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
+      mesh.material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.83 });
       mesh.userData.ownMaterial = true;
     }
     const m = mesh.material as THREE.MeshStandardMaterial;
@@ -143,7 +143,7 @@ export class HeldView {
 
 const LED = {
   empty: new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.4 }),
-  ok: new THREE.MeshStandardMaterial({ color: 0x1f8f3a, emissive: 0x2bd552, emissiveIntensity: 1.2 }),
+  ok: new THREE.MeshStandardMaterial({ color: 0x1f8f3a, emissive: 0x2bd552, emissiveIntensity: 0.72 }),
   nok: new THREE.MeshStandardMaterial({ color: 0x8f1f1f, emissive: 0xff3030, emissiveIntensity: 1.6 }),
 };
 
@@ -186,8 +186,8 @@ export class MoverView {
     });
     this.root.add(mover);
 
-    this.led = new THREE.Mesh(new THREE.SphereGeometry(0.005, 12, 8), LED.empty);
-    this.led.position.set(0.04, 0.031, 0.04);
+    this.led = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0034, 0.0018, 16), LED.empty);
+    this.led.position.set(0.04, 0.0301, 0.04);
     this.root.add(this.led);
 
     this.assembly = new AssemblyView(cfg, models);

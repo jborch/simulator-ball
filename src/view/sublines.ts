@@ -9,6 +9,8 @@ import type { Frame } from '../sim/protocol';
 import { colletLoopLength, colletPoint, denestHeights, tubPocket, tubSize } from '../sim/cartridges';
 import { pose } from '../sim/track';
 import { BELT_Y, M, TABLE, cyl, label, lerp, local, mat, span, v3 } from './build';
+import { batch, block, finish, hardware, hose, plate, profile, round } from './hardware';
+import { contactPatch } from './hall';
 import { FeederView, RobotView } from './devices';
 import { housingPart, showLabel } from './movers';
 import type { Models } from './models';
@@ -63,10 +65,9 @@ export class SpringBaseLineView {
     torus.position.copy(local(0, y + 0.043, d.r));
     this.group.add(torus);
     // Reject chute on the inner side of the chuck.
-    this.group.add(span(-0.025, 0.025, TABLE, TABLE + 0.004, d.r - 0.1, d.r - 0.05, M.bin));
-    this.group.add(span(-0.025, 0.025, TABLE, y - 0.02, d.r - 0.1, d.r - 0.096, M.bin));
-    this.group.add(span(-0.025, -0.021, TABLE, y - 0.02, d.r - 0.1, d.r - 0.05, M.bin));
-    this.group.add(span(0.021, 0.025, TABLE, y - 0.02, d.r - 0.1, d.r - 0.05, M.bin));
+    const collector = hardware('Tote', 0, TABLE, -d.r + 0.086);
+    collector.scale.set(0.24, 0.43, 0.31);
+    this.group.add(collector);
     const l = label(`${o.id} rejects: 0`, 'label bin');
     l.position.copy(local(0, y + 0.02, d.r - 0.075));
     this.rejects = l.element;
@@ -83,19 +84,49 @@ export class SpringBaseLineView {
     for (let a = 0.1; a < length; a += 0.4) this.group.add(span(a - 0.008, a + 0.008, TABLE, y - 0.012, d.r - 0.008, d.r + 0.008, M.frame));
     this.group.add(span(length, length + 0.006, y, y + 0.012, d.r - 0.016, d.r + 0.016, M.frame));
 
+    const lane = new THREE.Group();
+    for (const r of [d.r - 0.023, d.r + 0.023]) {
+      block(lane, length / 2, y - 0.017, -r, length - 0.016, 0.022, 0.004, finish.graphite);
+      for (let a = 0.075; a < length; a += 0.18) {
+        round(lane, a, y - 0.015, -r + 0.003 * Math.sign(d.r - r), 0.003, 0.005, M.rail, 12).rotation.x = Math.PI / 2;
+      }
+    }
+    plate(lane, 0.29, y - 0.017, -d.r + 0.026, 0.13, 0.021, 'EM13', 'SPRING BASE FEED');
+    batch(lane);
+    this.group.add(lane);
+
     // A cup beside the conveyor at each press, and a pusher behind it that diverts a part into it.
     for (const id of d.stations) {
       const a = cfg.stations.find((s) => s.id === id)!.s - d.from;
-      this.group.add(span(a - 0.012, a + 0.012, TABLE, y, d.cupR - 0.012, d.cupR + 0.012, M.frame));
-      const cupRim = cyl(0.008, 0.004, M.nest, 16);
-      cupRim.position.copy(local(a, y - 0.002, d.cupR));
-      this.group.add(cupRim);
+      const unit = new THREE.Group();
+      profile(unit, [a, TABLE, -d.r - 0.036], [a, y - 0.038, -d.r - 0.036], 0.025);
+      block(unit, a, y - 0.029, -(d.cupR + d.r + 0.035) / 2, 0.042, 0.012, d.r + 0.065 - d.cupR, M.rail);
+      round(unit, a, y - 0.013, -d.cupR, 0.013, 0.019, finish.graphite);
+      round(unit, a, y - 0.002, -d.cupR, 0.009, 0.005, M.nest);
+      block(unit, a, y - 0.007, -d.r - 0.034, 0.028, 0.03, 0.044, M.axis);
+      for (const dr of [0.021, 0.05]) {
+        round(unit, a + 0.015, y - 0.009, -d.r - dr, 0.0034, 0.006, finish.brass, 12).rotation.z = Math.PI / 2;
+      }
+      hose(
+        unit,
+        [
+          [a + 0.016, y - 0.009, -d.r - 0.048],
+          [a + 0.035, y - 0.014, -d.r - 0.055],
+          [a + 0.035, 0.08, -d.r - 0.052],
+          [a + 0.025, TABLE, -d.r - 0.055],
+        ],
+        0.0024,
+        finish.pipe,
+      );
+      batch(unit);
+      this.group.add(unit);
       const part = models.spring_base.clone(true);
       part.position.copy(local(a, y, d.cupR));
       this.group.add(part);
-      const pusher = span(-0.006, 0.006, y + 0.001, y + 0.007, -0.004, 0.004, M.axis);
-      pusher.position.copy(local(a, 0, d.r + 0.025));
-      this.group.add(pusher, span(a - 0.01, a + 0.01, TABLE, y + 0.008, d.r + 0.03, d.r + 0.05, M.drive));
+      const pusher = span(-0.007, 0.007, y + 0.001, y + 0.008, -0.005, 0.005, M.rail);
+      pusher.position.x = a;
+      pusher.position.z = -d.r - 0.025;
+      this.group.add(pusher);
       this.cups.push({ part, pusher, a });
     }
 
@@ -172,20 +203,57 @@ export class HousingDialView {
     // Housings stand in the nests with their top at the robot's pick height.
     this.nestY = d.pickZ - heldLength(cfg, ['housing']);
     const y = this.nestY;
-    const column = cyl(0.04, y - 0.012 - TABLE, M.drive, 24);
-    column.position.copy(local(d.a, (TABLE + y - 0.012) / 2, d.r));
-    const plate = cyl(d.radius + 0.025, 0.012, M.frame, 48);
-    plate.position.y = -0.006;
-    this.disc.add(plate);
+    const foundation = new THREE.Group();
+    const column = hardware('Indexer', d.a, TABLE, -d.r);
+    column.scale.set(1.2, (y - 0.014 - TABLE) / 0.136, 1.2);
+    foundation.add(column);
+    contactPatch(foundation, d.a, TABLE + 0.0009, -d.r, 0.33, 0.32);
+    plate(foundation, d.a, TABLE + 0.071, -d.r + 0.086, 0.098, 0.03, 'RD 08', 'CAM INDEX UNIT');
+    const cover = new THREE.Shape();
+    cover.absarc(0, 0, d.radius + 0.025, 0, Math.PI * 2, false);
+    for (let i = 0; i < d.nests; i++) {
+      const [a, r] = this.at(i, 0);
+      const cut = new THREE.Path();
+      cut.absarc(a - d.a, r - d.r, 0.013, 0, Math.PI * 2, true);
+      cover.holes.push(cut);
+    }
+    const discGeometry = new THREE.ExtrudeGeometry(cover, {
+      depth: 0.012,
+      bevelEnabled: true,
+      bevelThickness: 0.0007,
+      bevelSize: 0.0007,
+      bevelSegments: 1,
+      curveSegments: 48,
+    });
+    discGeometry.rotateX(-Math.PI / 2);
+    const rotary = new THREE.Group();
+    const platter = new THREE.Mesh(discGeometry, M.frame);
+    platter.position.y = -0.013;
+    rotary.add(platter);
+    round(rotary, 0, -0.015, 0, d.radius + 0.02, 0.009, finish.graphite, 64);
+    round(rotary, 0, 0.001, 0, 0.05, 0.005, finish.graphite, 48);
+    round(rotary, 0, 0.004, 0, 0.038, 0.004, M.rail, 48);
+    for (let i = 0; i < 6; i++) {
+      const angle = (i * Math.PI) / 3;
+      const x = 0.043 * Math.cos(angle),
+        z = 0.043 * Math.sin(angle);
+      round(rotary, x, 0.004, z, 0.003, 0.003, M.rail, 12);
+      round(rotary, x, 0.0056, z, 0.0016, 0.0004, finish.seal, 6);
+    }
     for (let i = 0; i < d.nests; i++) {
       const nest = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.003, 8, 20), M.drive);
       nest.rotation.x = Math.PI / 2;
       const [a, r] = this.at(i, 0);
       nest.position.set(a - d.a, 0.002, -(r - d.r));
-      this.disc.add(nest);
+      rotary.add(nest);
+      round(rotary, a - d.a, -0.011, -(r - d.r), 0.012, 0.005, finish.seal);
+      round(rotary, (a - d.a) * 0.84, 0.001, -(r - d.r) * 0.84, 0.0026, 0.002, M.rail, 8);
     }
     this.disc.position.copy(local(d.a, y, d.r));
-    this.group.add(column, this.disc);
+    batch(rotary);
+    batch(foundation);
+    this.disc.add(rotary);
+    this.group.add(foundation, this.disc);
 
     for (let i = 0; i < d.nests; i++) {
       const h = housingPart(models);
@@ -202,6 +270,12 @@ export class HousingDialView {
     roll.rotation.x = Math.PI / 2;
     roll.position.set(0, 0.11, 0);
     applicator.add(roll);
+    for (const z of [-0.009, 0.009]) {
+      round(applicator, 0, 0.11, z, 0.027, 0.002, M.rail, 32).rotation.x = Math.PI / 2;
+      round(applicator, 0, 0.11, z * 1.2, 0.008, 0.003, finish.graphite, 16).rotation.x = Math.PI / 2;
+    }
+    block(applicator, 0, 0.083, 0, 0.014, 0.066, 0.005, finish.graphite);
+    plate(applicator, 0, 0.058, 0.0205, 0.052, 0.018, 'EM31', 'PRINT / APPLY');
     this.applicatorPad = span(-0.012, 0.012, 0.03, 0.06, -0.035, -0.02, M.axis);
     applicator.add(this.applicatorPad);
     applicator.position.copy(local(la, y, lr));
@@ -227,19 +301,12 @@ export class HousingDialView {
     this.ejector = span(-0.008, 0.008, y + 0.01, y + 0.03, -0.008, 0.008, M.axis);
     this.ejector.position.x = ea;
     this.ejector.position.z = -er;
-    this.ejector.userData.home = new THREE.Vector3(ea, 0, -er);
+    this.ejector.userData.home = new THREE.Vector3(ea, y + 0.02, -er);
     const [ba, br] = this.at(d.positions.eject, 0.11);
     const bin = new THREE.Group();
-    const w = 0.07;
-    bin.add(span(-w / 2, w / 2, TABLE, TABLE + 0.005, -w / 2, w / 2, M.bin));
-    for (const [a0, a1, r0, r1] of [
-      [-w / 2, w / 2, -w / 2, -w / 2 + 0.004],
-      [-w / 2, w / 2, w / 2 - 0.004, w / 2],
-      [-w / 2, -w / 2 + 0.004, -w / 2, w / 2],
-      [w / 2 - 0.004, w / 2, -w / 2, w / 2],
-    ]) {
-      bin.add(span(a0, a1, TABLE, y - 0.04, r0, r1, M.bin));
-    }
+    const tote = hardware('Tote', 0, TABLE, 0);
+    tote.scale.set(0.36, 0.65, 0.36);
+    bin.add(tote);
     bin.position.copy(local(ba, 0, br));
     this.group.add(this.ejector, bin);
     const l = label(`${d.inspect.id} rejects: 0`, 'label bin');
@@ -275,14 +342,14 @@ export class HousingDialView {
       const [a, r] = this.at(pos + turn, 0);
       h.position.copy(local(a, this.nestY, r));
       // The label faces outward, where EM31 put it on and EM32 looks.
-      h.rotation.y = Math.atan2(a - d.a, -(r - d.r)) + Math.PI;
+      h.rotation.y = Math.atan2(a - d.a, -(r - d.r));
       showLabel(h, labels[pos] ?? null);
     });
     this.applicatorPad.position.z = active.label && Math.floor(t * 4) % 2 === 0 ? -0.012 : 0;
     this.ring.emissiveIntensity = active.inspect && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
     const home = this.ejector.userData.home as THREE.Vector3;
     const [ia, ir] = this.at(d.positions.eject, -0.01);
-    this.ejector.position.set(active.eject ? ia : home.x, 0, active.eject ? -ir : home.z);
+    this.ejector.position.set(active.eject ? ia : home.x, home.y, active.eject ? -ir : home.z);
     this.rejects.textContent = `${d.inspect.id} rejects: ${f.counters.bins[d.inspect.id] ?? 0}`;
     // The dial's state: jammed, waiting for a new label roll, or labels left on the roll.
     const { dialJam, labelRoll } = f.alarms;
@@ -301,9 +368,11 @@ export class HousingDialView {
 class TubView {
   readonly group = new THREE.Group();
   private readonly carts: THREE.InstancedMesh;
+  private readonly caps: THREE.InstancedMesh;
   private shown = -1;
 
   constructor(private readonly cfg: LineConfig) {
+    this.group.userData.mobile = true;
     const t = cfg.cartridges.tub;
     const w = t.cols * t.pitch + 0.012;
     const d = t.rows * t.pitch + 0.012;
@@ -313,7 +382,15 @@ class TubView {
     geo.translate(0, len / 2, 0);
     this.carts = new THREE.InstancedMesh(geo, mat(0xdfeaf2, { roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 }), tubSize(cfg));
     this.carts.castShadow = true;
-    this.group.add(this.carts);
+    const caps = new THREE.CylinderGeometry(0.0045, 0.0047, 0.006, 12);
+    caps.translate(0, len - 0.003, 0);
+    this.caps = new THREE.InstancedMesh(caps, M.rail, tubSize(cfg));
+    this.group.add(this.carts, this.caps);
+    const rim = new THREE.Group();
+    for (const x of [-w / 2, w / 2]) block(rim, x, t.floor + 0.008, 0, 0.005, 0.022, d + 0.006, M.nest);
+    for (const z of [-d / 2, d / 2]) block(rim, 0, t.floor + 0.008, z, w, 0.022, 0.005, M.nest);
+    batch(rim);
+    this.group.add(rim);
     this.fill(tubSize(cfg));
   }
 
@@ -329,8 +406,10 @@ class TubView {
       const scale = i >= n - left ? 1 : 0;
       m.makeScale(scale, scale, scale).setPosition(p.a - t.a, t.floor, -(p.r - t.r));
       this.carts.setMatrixAt(i, m);
+      this.caps.setMatrixAt(i, m);
     }
     this.carts.instanceMatrix.needsUpdate = true;
+    this.caps.instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -365,7 +444,35 @@ export class CartridgeCellView {
     });
     const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 192, 0.004, 6, true), M.rail);
     this.group.add(rail);
-    this.group.add(span(-col.radius - 0.02, col.radius + 0.02, TABLE, col.base - 0.01, col.pick - 0.02, col.fill + 0.02, M.frame));
+    const transfer = new THREE.Group();
+    // Carrier return with two semicircular ends under the collet path.
+    const rad = col.radius + 0.016;
+    const start = col.pick + col.radius,
+      end = col.fill - col.radius;
+    const outline = new THREE.Shape();
+    outline.absarc(0, start, rad, Math.PI, 2 * Math.PI, false);
+    outline.lineTo(rad, end);
+    outline.absarc(0, end, rad, 0, Math.PI, false);
+    outline.closePath();
+    const chassis = new THREE.ExtrudeGeometry(outline, {
+      depth: 0.018,
+      bevelEnabled: true,
+      bevelSize: 0.0015,
+      bevelThickness: 0.0015,
+      bevelSegments: 1,
+    });
+    chassis.rotateX(-Math.PI / 2);
+    const bed = new THREE.Mesh(chassis, finish.graphite);
+    bed.position.y = col.base - 0.03;
+    transfer.add(bed);
+    for (const r of [start, end]) {
+      round(transfer, 0, col.base - 0.036, -r, 0.048, 0.02, M.rail, 32);
+      round(transfer, 0, (TABLE + col.base - 0.045) / 2, -r, 0.036, col.base - 0.045 - TABLE, finish.powder);
+      round(transfer, 0, TABLE + 0.006, -r, 0.05, 0.012, finish.graphite);
+    }
+    plate(transfer, 0, col.base - 0.021, -(start - rad - 0.002), 0.061, 0.012, 'CF12', 'COLLET FEED');
+    batch(transfer);
+    this.group.add(transfer);
     for (let i = 0; i < col.count; i++) {
       const root = new THREE.Group();
       const cup = cyl(0.008, 0.016, M.axis, 16);
@@ -379,8 +486,24 @@ export class CartridgeCellView {
     // Tub conveyor along the belt, behind the collet loop; tubs come in from +a, empties leave to -a.
     const t = c.tub;
     const d = t.rows * t.pitch + 0.03;
-    this.group.add(span(t.a - 0.35, t.a + 0.5, TABLE, t.floor - 0.016, t.r - d / 2, t.r + d / 2, M.frame));
-    this.group.add(span(t.a - 0.35, t.a + 0.5, t.floor - 0.016, t.floor - 0.012, t.r - d / 2 + 0.005, t.r + d / 2 - 0.005, M.drive));
+    const conveyor = new THREE.Group();
+    const middle = t.a + 0.075;
+    for (const r of [t.r - d / 2 + 0.012, t.r + d / 2 - 0.012]) {
+      profile(conveyor, [t.a - 0.35, t.floor - 0.041, -r], [t.a + 0.5, t.floor - 0.041, -r], 0.04);
+      block(conveyor, middle, t.floor - 0.018, -r, 0.85, 0.012, 0.031, M.drive);
+      for (const a of [t.a - 0.29, t.a + 0.18, t.a + 0.44]) {
+        profile(conveyor, [a, TABLE, -r], [a, t.floor - 0.058, -r], 0.025);
+        block(conveyor, a, TABLE + 0.003, -r, 0.054, 0.006, 0.049, finish.graphite);
+      }
+      for (const a of [t.a - 0.35, t.a + 0.5]) block(conveyor, a, t.floor - 0.04, -r, 0.007, 0.041, 0.042, M.axisDark);
+    }
+    for (const a of [t.a - 0.29, t.a + 0.44]) profile(conveyor, [a, t.floor - 0.069, -t.r + d / 2], [a, t.floor - 0.069, -t.r - d / 2], 0.025);
+    const drive = hardware('Servo', t.a + 0.44, t.floor - 0.042, -t.r + d / 2);
+    drive.rotation.y = -Math.PI / 2;
+    conveyor.add(drive);
+    plate(conveyor, middle, t.floor - 0.041, -t.r + d / 2 + 0.011, 0.11, 0.028, 'EM00', 'CARTRIDGE NESTS');
+    batch(conveyor);
+    this.group.add(conveyor);
     this.current = new TubView(cfg);
     this.next = new TubView(cfg);
     this.group.add(this.current.group, this.next.group);
