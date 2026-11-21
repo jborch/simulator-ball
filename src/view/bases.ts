@@ -4,11 +4,12 @@ import { cells } from './cells';
 import { BELT_Y, TABLE, mat } from './build';
 import { batch, block, finish, hardware, hose, plate, profile, round, warning } from './hardware';
 import { applyContactMap } from './occlusion';
-import { brushedFinish } from './textures';
+import { brushedFinish, brushedUv } from './textures';
 import { contactPatch } from './hall';
 
-// Brushed stainless deck plates: their look is the room they reflect.
-const deck = mat(0xa3a8a9, { roughness: 0.4, roughnessMap: brushedFinish(), metalness: 1 });
+// Brushed stainless deck plates: their look is the room they reflect. A shade darker than the
+// carriers and cabinets, so those stand out on it.
+const deck = mat(0x8e9496, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
 const dark = finish.graphite;
@@ -197,7 +198,7 @@ function bench(
     side = d / 2 - 0.064;
   // Tops of neighbouring benches butt together (the group is turned for z < 0).
   const [left, right] = z < 0 ? [reach[1], reach[0]] : reach;
-  block(g, (right - left) / 2, top - 0.013, 0, w + left + right, 0.026, d, topFinish);
+  brushedUv(block(g, (right - left) / 2, top - 0.013, 0, w + left + right, 0.026, d, topFinish), w + left + right, d);
   // Edge band of the top plate.
   block(g, (right - left) / 2, top - 0.022, d / 2 + 0.0006, w + left + right, 0.008, 0.0012, trim);
   for (const dz of [-side, side]) {
@@ -224,7 +225,7 @@ function bench(
     }
     plate(g, -w * 0.25, 0.662, side + 0.019, 0.17, 0.053, name, detail);
   } else {
-    block(g, 0, 0.225, 0, w - 0.17, 0.02, d - 0.15, deck);
+    brushedUv(block(g, 0, 0.225, 0, w - 0.17, 0.02, d - 0.15, deck), w - 0.17, d - 0.15);
     block(g, 0, 0.48, -side + 0.04, w - 0.13, 0.13, 0.08, dark);
     for (let i = 0; i < 4; i++)
       hose(
@@ -336,7 +337,7 @@ export function buildBases(cfg: LineConfig): THREE.Group {
   for (let i = 0; i < panels; i++) {
     const pw = (x1 - x0) / panels;
     const cx = x0 + (i + 0.5) * pw;
-    block(infill, cx, top - 0.004, (z0 + z1) / 2, pw - 0.003, 0.008, z1 - z0 - 0.002, topFinish);
+    brushedUv(block(infill, cx, top - 0.004, (z0 + z1) / 2, pw - 0.003, 0.008, z1 - z0 - 0.002, topFinish), pw - 0.003, z1 - z0 - 0.002);
     for (const dx of [-pw / 2 + 0.03, pw / 2 - 0.03]) for (const dz of [z0 + 0.025, z1 - 0.025]) round(infill, cx + dx, top + 0.0004, dz, 0.0042, 0.0008, trim, 12);
   }
   block(infill, (x0 + x1) / 2, top - 0.03, (z0 + z1) / 2, x1 - x0, 0.04, 0.03, dark);

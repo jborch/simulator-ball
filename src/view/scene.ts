@@ -40,6 +40,9 @@ interface LightPreset {
   sky: number;
   sun: number;
   sunColor: number;
+  /** Key direction: off the view direction, and above the floor (rad; see Stage.key). */
+  keyYaw: number;
+  keyElevation: number;
   env: number;
   /** The room's light as the reflection/ambient probe sees it. */
   room: RoomLight;
@@ -52,10 +55,12 @@ interface LightPreset {
 // undersides and the spaces under tables fall off; the hemisphere is only a weak fill.
 const PRESETS: Record<Lighting, LightPreset> = {
   day: {
-    hemi: 0.1,
+    hemi: 0.05,
     sky: 0xe2eaf1,
-    sun: 2.1,
+    sun: 2.9,
     sunColor: 0xfff3e2,
+    keyYaw: 0.7,
+    keyElevation: 0.9,
     env: 1.0,
     room: { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 },
     lamps: 0,
@@ -66,6 +71,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sky: 0xffe0c0,
     sun: 1.0,
     sunColor: 0xffc58f,
+    keyYaw: 0.9,
+    keyElevation: 0.7,
     env: 0.75,
     room: { strips: 6, stripColor: 0xffd9b0, room: 0.7, windows: 0.3, windowColor: 0xd9a77a },
     lamps: 1.5,
@@ -76,6 +83,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sky: 0xb8c8ff,
     sun: 0.25,
     sunColor: 0xc8d8ff,
+    keyYaw: 0.6,
+    keyElevation: 1.05,
     env: 0.9,
     room: { strips: 2.4, stripColor: 0xd8e4ff, room: 0.24, windows: 0.06, windowColor: 0x2a3550 },
     lamps: 4,
@@ -86,6 +95,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sky: 0xdfe8ff,
     sun: 0.6,
     sunColor: 0xfff2dd,
+    keyYaw: 0.7,
+    keyElevation: 0.95,
     env: 0.8,
     room: { strips: 3, stripColor: 0xfff0dd, room: 0.4, windows: 0.25, windowColor: 0x9aa7ad },
     lamps: 0,
@@ -194,14 +205,15 @@ export class SceneView {
     this.preset = { ...p, exposure: { ...p.exposure, gain: p.exposure.gain * v(1, 0.1) } };
     const { hemi, sun, stage } = { hemi: this.stage.hemi, sun: this.stage.sun, stage: this.stage };
     (stage.scene.fog as THREE.Fog).color.setHex(
-      lighting === 'night' ? 0x2c383c : lighting === 'evening' ? 0x7f8079 : lighting === 'dim' ? 0x6d7573 : 0xa3aba8,
+      lighting === 'night' ? 0x2c383c : lighting === 'evening' ? 0x7f8079 : lighting === 'dim' ? 0x6d7573 : 0x8f9795,
     );
     hemi.intensity = p.hemi * v(2, 0.12);
     hemi.color.setHex(p.sky);
     sun.intensity = p.sun * v(3, 0.15);
     sun.color.setHex(p.sunColor);
-    const a = hashSigned(seed, 7001, 4) * 0.5;
-    stage.keyOffset.set(1.3 * Math.cos(a) - 1.9 * Math.sin(a), 7, 1.3 * Math.sin(a) + 1.9 * Math.cos(a));
+    // Each installation's key falls in a slightly different direction.
+    stage.key.yaw = p.keyYaw + hashSigned(seed, 7001, 4) * 0.12;
+    stage.key.elevation = p.keyElevation + hashSigned(seed, 7001, 6) * 0.05;
     stage.setRoom(p.room);
     stage.scene.environmentIntensity = p.env * v(5, 0.15);
     this.lamps.forEach((l, i) => {

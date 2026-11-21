@@ -71,71 +71,88 @@ export function dataMatrixTexture(gs1: string): THREE.CanvasTexture {
   return tex;
 }
 
-/** Belt surface: dark rubber with cross ribs so motion is visible. */
+/**
+ * Belt strand surface: anthracite PU over a fabric carcass. A fine, even twill and grain (u across
+ * the strand, one repeat of v = 50 mm along it) that shows the belt moving without a pattern
+ * that would beat into moiré at a distance, and the sealed, slightly lighter edges.
+ */
 export function beltTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = 128;
+  c.height = 256;
   const g = c.getContext('2d')!;
   const data = g.createImageData(c.width, c.height);
   let seed = 311;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
   for (let y = 0; y < c.height; y++)
     for (let x = 0; x < c.width; x++) {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      const yarn = ((x + y) % 5 === 0 ? 4 : 0) + (y % 4 === 0 ? 2 : 0);
-      const value = 45 + yarn + (seed / 4294967296) * 8;
-      data.data.set([value, value + 2, value + 1, 255], 4 * (x + y * c.width));
+      const twill = (x + 2 * y) % 4 < 2 ? 1.2 : -1.2;
+      const edge = x < 3 || x > 124 ? 16 : x < 5 || x > 122 ? -6 : 0;
+      const v = 47 + twill + (rnd() - 0.5) * 7 + edge;
+      data.data.set([v, v + 1, v + 2, 255], 4 * (x + y * c.width));
     }
   g.putImageData(data, 0, 0);
-  g.fillStyle = '#252b29';
-  g.fillRect(0, 0, 256, 2);
-  g.fillStyle = '#414543';
-  g.fillRect(0, 2, 256, 1);
   const tex = canvasTexture(c, true);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 16;
   return tex;
 }
 
-/** Brushed grain in the roughness channel, with polished wear patches and a few scratches. */
-export function brushedFinish(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 512;
-  const ctx = c.getContext('2d')!;
+/** Metres of deck one repeat of the brushed finish covers (along and across the grain). */
+export const BRUSHED_REPEAT = { u: 0.5, v: 0.125 };
+
+/**
+ * Fine brushed grain for stainless plate: random grain lines along u (one texel ≈ 0.5 mm), in
+ * the colour (very faint) and the roughness. No scratches or patches, nothing that would show
+ * the repeat: a cleanroom deck, not a workshop bench. Sized by `BRUSHED_REPEAT`, so the meshes'
+ * UVs must be in those units (see `brushedUv`).
+ */
+let brushed: { map: THREE.DataTexture; rough: THREE.DataTexture } | null = null;
+export function brushedFinish(): { map: THREE.DataTexture; rough: THREE.DataTexture } {
+  if (brushed) return brushed;
+  const W = 1024;
+  const H = 256;
+  const color = new Uint8Array(W * H * 4);
+  const rough = new Uint8Array(W * H * 4);
   let seed = 931;
   const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
-  for (let y = 0; y < 512; y++) {
-    const k = 196 + Math.round(rnd() * 36);
-    ctx.fillStyle = `rgb(${k},${k},${k})`;
-    ctx.fillRect(0, y, 512, 1);
+  // Each grain line has its own depth, and drifts slowly along its length.
+  const line = Array.from({ length: H }, () => ({ k: rnd() - 0.5, phase: rnd() * Math.PI * 2, f: 1 + Math.floor(rnd() * 3) }));
+  for (let y = 0; y < H; y++) {
+    const { k, phase, f } = line[y];
+    for (let x = 0; x < W; x++) {
+      const drift = 0.5 * Math.sin((x / W) * Math.PI * 2 * f + phase);
+      const g = 0.8 * k + 0.2 * drift + (rnd() - 0.5) * 0.22;
+      const i = 4 * (x + y * W);
+      const c = 236 + g * 22;
+      color.set([c, c, c, 255], i);
+      const r = 84 + g * 26;
+      rough.set([r, r, r, 255], i);
+    }
   }
-  // Polished patches where parts and hands rest, and short scratches across the grain.
-  for (let i = 0; i < 14; i++) {
-    const x = rnd() * 512,
-      y = rnd() * 512,
-      r = 30 + rnd() * 90;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, `rgba(120,120,120,${0.25 + rnd() * 0.25})`);
-    g.addColorStop(1, 'rgba(120,120,120,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
-  }
-  for (let i = 0; i < 60; i++) {
-    const k = rnd() < 0.5 ? 140 : 250;
-    ctx.strokeStyle = `rgba(${k},${k},${k},${0.3 + rnd() * 0.4})`;
-    ctx.lineWidth = 0.6 + rnd() * 1.2;
-    const x = rnd() * 512,
-      y = rnd() * 512,
-      a = rnd() * Math.PI;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + Math.cos(a) * (10 + rnd() * 50), y + Math.sin(a) * (10 + rnd() * 50));
-    ctx.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 8;
-  tex.repeat.set(1, 2);
-  return tex;
+  const make = (data: Uint8Array, srgb: boolean) => {
+    const tex = new THREE.DataTexture(data, W, H);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = 16;
+    if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  };
+  brushed = { map: make(color, true), rough: make(rough, false) };
+  return brushed;
+}
+
+/**
+ * Rescales a box's UVs from 0..1 per face to metres in `BRUSHED_REPEAT` units (grain along x),
+ * so the brushed finish keeps its scale whatever the plate's size.
+ */
+export function brushedUv(mesh: THREE.Mesh, w: number, d: number): void {
+  const uv = mesh.geometry.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * w) / BRUSHED_REPEAT.u, (uv.getY(i) * d) / BRUSHED_REPEAT.v);
+  uv.needsUpdate = true;
 }
 
 /** Grime and scuffs for worn carriers: a colour map near white with smudges, and its roughness. */

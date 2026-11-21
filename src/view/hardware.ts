@@ -137,7 +137,7 @@ export function hardware(name: (typeof components)[number], x = 0, y = 0, z = 0)
 
 export const finish = {
   powder: mat(0xc9ccc6, { roughness: 0.44, metalness: 0 }),
-  graphite: mat(0x374749, { roughness: 0.38, metalness: 0.65 }),
+  graphite: mat(0x383e40, { roughness: 0.4, metalness: 0.62 }),
   seal: mat(0x202828, { roughness: 0.69 }),
   pipe: mat(0x2d6372, { roughness: 0.32 }),
   zinc: mat(0xbcc3c3, { metalness: 1, roughness: 0.22 }),

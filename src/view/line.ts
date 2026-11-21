@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import type { Frame } from '../sim/protocol';
 import { pose, trackLength } from '../sim/track';
-import { BELT_Y, BELT_W, M, RIB, side, v3 } from './build';
+import { BELT_Y, BELT_W, M, RIB, mat, side, v3 } from './build';
 
 /** Radius of the belt's guide rails, which also sit this high (centre) above the belt. */
 const RAIL_R = 0.005;
@@ -97,7 +97,7 @@ export class LineView {
       railIn.push(v3(inn.x, inn.y, BELT_Y + RAIL_R));
     }
     // Twin belt strands under the carriers' edges; the stoppers rise in the channel between them.
-    const beltMat = new THREE.MeshStandardMaterial({ map: this.beltTex, roughness: 0.78, metalness: 0.0, side: THREE.DoubleSide });
+    const beltMat = new THREE.MeshStandardMaterial({ map: this.beltTex, roughness: 0.62, metalness: 0.0, side: THREE.DoubleSide });
     for (const [r0, r1] of [
       [STRAND_IN, BELT_W / 2],
       [-BELT_W / 2, -STRAND_IN],
@@ -106,22 +106,26 @@ export class LineView {
       belt.receiveShadow = true;
       this.group.add(belt);
     }
-    // Finger splice across each strand: a slightly lighter, glossier zig-zag band.
-    const splice = new THREE.MeshStandardMaterial({ color: 0x3b4140, roughness: 0.5 });
+    // Finger splice across each strand: a fine zig-zag joint line, barely lighter than the belt.
+    const splice = new THREE.MeshStandardMaterial({ color: 0x34383a, roughness: 0.55 });
     for (const [r0, r1] of [
       [STRAND_IN, BELT_W / 2],
       [-BELT_W / 2, -STRAND_IN],
     ]) {
-      for (let k = 0; k < 4; k++) {
-        const w = (r1 - r0) / 4;
-        const tooth = new THREE.Mesh(new THREE.PlaneGeometry(0.012, w * 0.9).rotateX(-Math.PI / 2), splice);
-        tooth.position.set(k % 2 ? 0.004 : -0.004, 0, -(r0 + w * (k + 0.5)));
-        tooth.rotation.y = k % 2 ? 0.5 : -0.5;
+      const n = 6;
+      const w = (r1 - r0) / n;
+      for (let k = 0; k < n; k++) {
+        const len = Math.hypot(w, 0.006);
+        const tooth = new THREE.Mesh(new THREE.PlaneGeometry(0.0012, len).rotateX(-Math.PI / 2), splice);
+        tooth.position.set(0, 0, -(r0 + w * (k + 0.5)));
+        tooth.rotation.y = (k % 2 ? 1 : -1) * Math.atan2(0.006, w);
         this.seam.add(tooth);
       }
     }
     this.group.add(this.seam);
-    const channel = new THREE.Mesh(this.strip(-STRAND_IN, STRAND_IN, BELT_Y - 0.0055, n), finish.graphite);
+    // Dark anodised cover between the strands (where the stoppers rise), matte so it doesn't
+    // mirror the room as a bright stripe.
+    const channel = new THREE.Mesh(this.strip(-STRAND_IN, STRAND_IN, BELT_Y - 0.0055, n), mat(0x2b2f31, { roughness: 0.66, metalness: 0.25 }));
     channel.receiveShadow = true;
     this.group.add(channel);
 

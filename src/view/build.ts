@@ -25,7 +25,8 @@ export const M = {
   lens: mat(0x111111, { metalness: 0.9, roughness: 0.1 }),
   pin: mat(0xa0a9a6, { metalness: 0.82, roughness: 0.32 }),
   bin: mat(0x607879, { roughness: 0.7 }),
-  bowl: mat(0xa7adb3, { metalness: 1, roughness: 0.2, side: THREE.DoubleSide }),
+  /** Vibratory bowls: satin (bead-blasted) stainless. */
+  bowl: mat(0xb0b5ba, { metalness: 1, roughness: 0.3, side: THREE.DoubleSide }),
   nest: mat(0xf2f2f2, { roughness: 0.7 }),
   /** Vibratory drive housings and other dark machine parts. */
   drive: mat(0x3a3f45, { metalness: 0, roughness: 0.46 }),

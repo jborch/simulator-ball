@@ -6,6 +6,7 @@ import { type RoomLight, roomEnvironment } from './environment';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { CameraPose } from './cameras';
 
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const DAY_ROOM: RoomLight = { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 };
 
 /** Renderer, camera, orbit controls and lights. The floor is the line's plate (LineView). */
@@ -31,7 +32,14 @@ export class Stage {
   onResize?: () => void;
   /** Broad fill and key light (see SceneView for the lighting presets). */
   readonly hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1);
-  readonly keyOffset = new THREE.Vector3(1.3, 7, 1.9);
+  /**
+   * The key light comes from above the viewer's side, turned `yaw` (rad) off the view direction
+   * and `elevation` (rad) above the floor, as a photographer sets a key: faces toward the camera
+   * are lit, shadows fall back and to the side where they show the shapes, and none fall across
+   * what a station camera looks at.
+   */
+  readonly key = { yaw: 0.7, elevation: 0.9 };
+  private readonly keyOffset = new THREE.Vector3();
   readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
   /**
    * Replaces the plain render (a camera feed's post-processing, camerafx.ts). Gets the scene and
@@ -55,7 +63,7 @@ export class Stage {
     // lighting preset replaces it (SceneView).
     this.setRoom(DAY_ROOM);
     this.scene.environmentIntensity = 1;
-    this.scene.fog = new THREE.Fog(0xa3aba8, 4.5, 26);
+    this.scene.fog = new THREE.Fog(0x8f9795, 6, 34);
 
     this.camera.position.set(0.7, 2.6, 3.2);
     this.controls = new OrbitControls(this.camera, this.labels.domElement);
@@ -81,7 +89,8 @@ export class Stage {
     sc.far = 15;
     sun.shadow.bias = -0.0001;
     sun.shadow.normalBias = 0.00032;
-    sun.shadow.radius = 4;
+    // A narrow filter: the penumbra stays soft without its dither showing on large faces.
+    sun.shadow.radius = 2.5;
     this.scene.add(sun, sun.target);
 
     this.resize = () => {
@@ -199,9 +208,15 @@ export class Stage {
       sc.top = 0.82 * span;
       sc.bottom = -sc.top;
       sc.updateProjectionMatrix();
+      // A few shadow texels along the normal: no acne on faces the key grazes.
+      this.sun.shadow.normalBias = (2.5 * 2 * span) / this.sun.shadow.mapSize.x;
     }
+    const k = this.keyOffset.copy(this.camera.position).sub(this.controls.target).setY(0);
+    if (k.lengthSq() < 1e-8) k.set(0, 0, 1);
+    k.normalize().applyAxisAngle(Y_AXIS, this.key.yaw).multiplyScalar(7 * Math.cos(this.key.elevation));
+    k.y = 7 * Math.sin(this.key.elevation);
     this.sun.target.position.copy(this.controls.target);
-    this.sun.position.copy(this.sun.target.position).add(this.keyOffset);
+    this.sun.position.copy(this.sun.target.position).add(k);
     this.hall.cutaway(this.camera.position);
     if (this.renderOverride) this.renderOverride(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);

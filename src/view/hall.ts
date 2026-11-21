@@ -31,7 +31,7 @@ const wallMap = canvasMap(512, (c) => {
   c.fillStyle = 'rgba(255,255,255,.55)';
   for (const x of [3, 258]) c.fillRect(x, 0, 1, 512);
 });
-const wall = mat(0x9c9f9b, { map: wallMap, roughness: 0.46, metalness: 0 });
+const wall = mat(0x8b8e8b, { map: wallMap, roughness: 0.5, metalness: 0 });
 const trim = mat(0xaab1b1, { roughness: 0.32, metalness: 0.9 });
 const dark = mat(0x3d4446, { roughness: 0.5, metalness: 0 });
 const door = mat(0x7f97a2, { roughness: 0.4, metalness: 0 });
@@ -45,51 +45,50 @@ const amber = mat(0xb49856, { metalness: 0.66, roughness: 0.4 });
 const safetyRed = mat(0xa83a2e, { roughness: 0.38, metalness: 0 });
 
 function floor(): THREE.Mesh {
-  // Grey epoxy resin: fine speckle, a soft mottle, saw cuts with slightly burnished edges.
-  // One repeat = 2.8 m. The roughness map carries the mottle and scuffs, so the gloss varies.
-  const tex = canvasMap(512, (c) => {
-    const img = c.createImageData(512, 512);
-    let seed = 17;
-    for (let y = 0; y < 512; y++)
-      for (let x = 0; x < 512; x++) {
-        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-        const grain = (seed / 4294967296 - 0.5) * 7;
-        const mottle = 4 * Math.sin(x * 0.019 + Math.sin(y * 0.011) * 2.1) * Math.sin(y * 0.016 + Math.sin(x * 0.007) * 1.7);
-        const v = 104 + grain + mottle;
-        img.data.set([v, v + 3, v + 3, 255], 4 * (x + y * 512));
+  // Mid-grey epoxy resin: a fine speckle and a faint cloud in the colour, saw-cut joints with
+  // slightly worn edges. One repeat = 2.8 m (a joint at every edge). The gloss map is a soft
+  // cloud too (no strokes), so the strips' reflections spread evenly instead of streaking.
+  const lcg = (s: number) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const tex = canvasMap(1024, (c) => {
+    const img = c.createImageData(1024, 1024);
+    const rnd = lcg(17);
+    for (let y = 0; y < 1024; y++)
+      for (let x = 0; x < 1024; x++) {
+        const fleck = rnd();
+        const grain = (rnd() - 0.5) * 5 + (fleck > 0.985 ? 9 : fleck < 0.012 ? -8 : 0);
+        const u = (x / 1024) * Math.PI * 2;
+        const v = (y / 1024) * Math.PI * 2;
+        const cloud = 2.2 * Math.sin(u * 2 + Math.sin(v * 3) * 1.3) * Math.sin(v * 2 + Math.sin(u * 1) * 1.7) + 1.2 * Math.sin(u * 5 + v * 3);
+        const k = 92 + grain + cloud;
+        img.data.set([k, k + 2, k + 2, 255], 4 * (x + y * 1024));
       }
     c.putImageData(img, 0, 0);
-    c.fillStyle = 'rgba(58,64,62,.55)';
-    c.fillRect(0, 0, 1.6, 512);
-    c.fillRect(0, 0, 512, 1.6);
-    c.fillStyle = 'rgba(214,218,212,.4)';
-    c.fillRect(1.6, 0, 1, 512);
-    c.fillRect(0, 1.6, 512, 1);
+    c.fillStyle = 'rgba(28,32,32,.75)';
+    c.fillRect(0, 0, 2.5, 1024);
+    c.fillRect(0, 0, 1024, 2.5);
+    c.fillStyle = 'rgba(150,156,152,.35)';
+    c.fillRect(2.5, 0, 1.5, 1024);
+    c.fillRect(0, 2.5, 1024, 1.5);
   });
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(12, 12);
   const gloss = canvasMap(256, (c) => {
-    c.fillStyle = 'rgb(120,120,120)';
-    c.fillRect(0, 0, 256, 256);
-    let seed = 91;
-    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
-    for (let i = 0; i < 70; i++) {
-      const g = 95 + rnd() * 70;
-      c.strokeStyle = `rgba(${g},${g},${g},${0.25 + rnd() * 0.3})`;
-      c.lineWidth = 1 + rnd() * 5;
-      c.beginPath();
-      const x = rnd() * 256,
-        y = rnd() * 256,
-        a = rnd() * Math.PI;
-      c.moveTo(x, y);
-      c.quadraticCurveTo(x + Math.cos(a) * 40, y + Math.sin(a) * 40 + 10, x + Math.cos(a) * 80, y + Math.sin(a) * 80);
-      c.stroke();
-    }
+    const img = c.createImageData(256, 256);
+    const rnd = lcg(91);
+    for (let y = 0; y < 256; y++)
+      for (let x = 0; x < 256; x++) {
+        const u = (x / 256) * Math.PI * 2;
+        const v = (y / 256) * Math.PI * 2;
+        const cloud = Math.sin(u * 3 + Math.sin(v * 2) * 1.5) * Math.sin(v * 2 + Math.sin(u * 3) * 1.1);
+        const k = 92 + cloud * 14 + (rnd() - 0.5) * 6;
+        img.data.set([k, k, k, 255], 4 * (x + y * 256));
+      }
+    c.putImageData(img, 0, 0);
   });
   gloss.colorSpace = THREE.NoColorSpace;
   gloss.wrapS = gloss.wrapT = THREE.RepeatWrapping;
-  gloss.repeat.set(9, 9);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.5, roughnessMap: gloss, metalness: 0 }));
+  gloss.repeat.set(5, 5);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.92, roughnessMap: gloss, metalness: 0 }));
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;
   applyContactMap(mesh, mesh.material, 'floor');
