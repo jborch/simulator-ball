@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { installHardware } from './hardware';
+import { compact, installHardware } from './hardware';
 import { applyClearFinishes } from './clear';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -24,6 +24,8 @@ export async function loadModels(): Promise<Models> {
       else {
         gltf.scene.userData.product = true;
         applyClearFinishes(gltf.scene);
+        // The mover is compacted with its per-carrier plates and lights (movers.ts).
+        if (name !== 'mover') compact(gltf.scene, (m) => m.name.endsWith('_label'));
       }
       return [name, gltf.scene] as const;
     }),

@@ -3,11 +3,17 @@ import * as THREE from 'three';
 import type { FeederDef, LineConfig, PartType } from '../sim/config';
 import { gripRadius, heldLength, trayPocket } from '../sim/layout';
 import type { Frame, RobotFrame } from '../sim/protocol';
-import { M, RAIL_Y, type Reach, TABLE, box, cyl, label, local, mat, span } from './build';
+import { M, RAIL_Y, type Reach, TABLE, cyl, label, local, mat, span } from './build';
 import type { Models } from './models';
-import { StockInstances, batch, block, finish, hardware, hose, plate, profile, round } from './hardware';
+import { StockInstances, batch, block, finish, hardware, hose, plate, profile, round, visionCamera } from './hardware';
 import { contactPatch } from './hall';
+import { miniConveyor } from './conveyor';
 import { AssemblyView, HeldView, housingPart } from './movers';
+
+/** A ring light's diffuser: dim when idle, flashed bright while its camera exposes. */
+export function ringLight(): THREE.MeshStandardMaterial {
+  return mat(0xf4f8fa, { emissive: 0xcfeaff, emissiveIntensity: 0.2, roughness: 0.3 });
+}
 
 /** Folded energy chain. Both horizontal runs and the semicircular return
  * share one constant length as the carriage travels. */
@@ -54,7 +60,7 @@ class ArmView {
   private readonly carrier: CableCarrier;
   private readonly glandY: number;
   private readonly held: HeldView;
-  private readonly fingers: THREE.Mesh[] = [];
+  private readonly fingers: THREE.Object3D[] = [];
 
   constructor(
     rMin: number,
@@ -116,7 +122,9 @@ class ArmView {
     const tool = hardware('JawBody');
     this.column.add(tool);
     for (let i = 0; i < 2; i++) {
-      const f = span(-0.004, 0.004, -0.004, 0.022, -0.0025, 0.0025, M.frame);
+      // Jaw fingers hang 4 mm below the tip; the second one is turned to face the first.
+      const f = hardware('Finger', 0, 0.02, 0);
+      if (i) f.rotation.y = Math.PI;
       this.fingers.push(f);
       this.column.add(f);
     }
@@ -291,22 +299,10 @@ export class InspectionView {
   }
 
   /** Camera body pointing down its local -y, with lens and ring light. */
-  private camera(size: number): THREE.Group {
-    const g = new THREE.Group();
-    g.add(box(size * 0.7, size, size * 0.7, M.camera));
-    const lens = cyl(size * 0.2, size * 0.4, M.lens);
-    lens.position.y = -size * 0.65;
-    const ringMat = mat(0xffffff, { emissive: 0xbfe3ff, emissiveIntensity: 0.2 });
+  private camera(size: number): THREE.Object3D {
+    const ringMat = ringLight();
     this.lights.push(ringMat);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(size * 0.38, size * 0.07, 8, 24), ringMat);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = -size * 0.85;
-    for (const offset of [-0.45, -0.56, -0.72]) round(g, 0, size * offset, 0, size * 0.245, size * 0.085, finish.graphite);
-    for (let i = 0; i < 5; i++) block(g, 0, size * (i * 0.12 - 0.21), 0, size * 0.74, 0.0025, size * 0.74, M.axisDark);
-    round(g, 0, -size * 0.83, 0, size * 0.43, 0.004, finish.graphite);
-    round(g, 0, -size * 0.87, 0, size * 0.19, 0.002, M.lens);
-    g.add(lens, ring);
-    return g;
+    return visionCamera(size, ringMat);
   }
 
   /** Ring lights flash while the camera is exposing. */
@@ -344,13 +340,47 @@ export class FeederView {
     const r0 = this.feederR - 0.02;
     const r1 = this.feederR + def.track;
 
-    // Linear track: a guide channel on a vibratory drive block, with a stop at the pick end.
-    this.group.add(span(-0.02, 0.02, trackY - 0.008, trackY, r0, r1, M.rail));
-    this.group.add(span(-0.022, -0.017, trackY, trackY + 0.012, r0, r1, M.rail));
-    this.group.add(span(0.017, 0.022, trackY, trackY + 0.012, r0, r1, M.rail));
-    this.group.add(span(-0.02, 0.02, trackY, trackY + 0.02, r0 - 0.008, r0, M.frame));
-    this.group.add(span(-0.025, 0.025, trackY - 0.05, trackY - 0.008, r0 + 0.03, r1 - 0.03, M.drive));
-    this.group.add(span(-0.012, 0.012, TABLE, trackY - 0.05, (r0 + r1) / 2 - 0.012, (r0 + r1) / 2 + 0.012, M.frame));
+    // Linear track: a stainless channel sized to the part, with side walls and, for tall parts,
+    // two upper guide bars on brackets, on a linear vibratory drive; a stop at the pick end.
+    const part = cfg.parts[def.part];
+    const partR = def.part === 'body' ? 0.0078 : part.radius;
+    const partLen = part.length;
+    const cw = 2 * partR + 0.003;
+    const wallH = Math.min(0.028, Math.max(0.006, partLen * 0.28));
+    const rail = new THREE.Group();
+    block(rail, 0, trackY - 0.004, -(r0 + r1) / 2, cw + 0.012, 0.008, r1 - r0, M.rail);
+    for (const sx of [-1, 1]) {
+      block(rail, sx * (cw / 2 + 0.002), trackY + wallH / 2, -(r0 + r1) / 2, 0.004, wallH, r1 - r0, M.rail);
+      block(rail, sx * (cw / 2 + 0.0042), trackY + wallH - 0.003, -(r0 + r1) / 2, 0.0004, 0.0012, r1 - r0 - 0.004, finish.graphite);
+    }
+    if (partLen > 0.04) {
+      const gy = trackY + partLen * 0.72;
+      for (const sx of [-1, 1]) {
+        const bar = round(rail, sx * (partR + 0.0035), gy, -(r0 + r1) / 2, 0.0022, r1 - r0 - 0.01, M.rail, 12);
+        bar.rotation.x = Math.PI / 2;
+        for (let r = r0 + 0.03; r < r1 - 0.01; r += 0.09) {
+          block(rail, sx * (cw / 2 + 0.006), (trackY + wallH + gy) / 2, -r, 0.004, gy - trackY - wallH + 0.006, 0.012, M.frame);
+          block(rail, sx * (cw / 2 + 0.003), gy, -r, cw / 2 - partR + 0.004, 0.006, 0.012, M.frame);
+        }
+      }
+    }
+    // Pick-end stop with a through-beam part sensor.
+    block(rail, 0, trackY + 0.012, -(r0 - 0.004), cw + 0.012, 0.024, 0.008, M.frame);
+    for (const sx of [-1, 1]) block(rail, sx * (cw / 2 + 0.009), trackY + 0.008, -(r0 + 0.012), 0.008, 0.012, 0.01, M.camera);
+    // Linear drive: magnet body, leaf springs, base plate and a profile stand.
+    const driveY = trackY - 0.008;
+    block(rail, 0, driveY - 0.006, -(r0 + r1) / 2, 0.034, 0.012, r1 - r0 - 0.04, finish.graphite);
+    for (const r of [r0 + 0.035, r1 - 0.035]) {
+      const leaf = block(rail, 0, driveY - 0.022, -r, 0.03, 0.022, 0.0025, M.rail);
+      leaf.rotation.x = 0.35;
+    }
+    block(rail, 0, driveY - 0.03, -(r0 + r1) / 2, 0.05, 0.014, r1 - r0 - 0.02, M.drive);
+    block(rail, 0, driveY - 0.039, -(r0 + r1) / 2, 0.058, 0.004, r1 - r0 - 0.012, finish.graphite);
+    profile(rail, [0, TABLE + 0.006, -(r0 + r1) / 2], [0, driveY - 0.041, -(r0 + r1) / 2], 0.03);
+    block(rail, 0, TABLE + 0.003, -(r0 + r1) / 2, 0.07, 0.006, 0.07, finish.graphite);
+    contactPatch(rail, 0, TABLE + 0.0008, -(r0 + r1) / 2, 0.14, 0.14);
+    batch(rail);
+    this.group.add(rail);
 
     // Bowl: drive drum on the table, stainless bowl whose rim meets the track entry.
     const bowlR = 0.11;
@@ -385,7 +415,7 @@ export class FeederView {
     );
     round(mounting, 0.082, TABLE + 0.002, -bowlC + 0.084, 0.009, 0.003, finish.seal);
     batch(mounting);
-    const profile = [
+    const bowlProfile = [
       [0.0, 0.02],
       [0.03, 0.006],
       [0.06, 0],
@@ -395,8 +425,8 @@ export class FeederView {
       [bowlR, 0.07],
       [bowlR + 0.004, 0.072],
     ].map(([x, y]) => new THREE.Vector2(x, y));
-    const bowl = new THREE.Mesh(new THREE.LatheGeometry(profile.slice(0, 6), 48), this.bowlMat);
-    const openLip = new THREE.Mesh(new THREE.LatheGeometry(profile.slice(5), 64, 0.125, 2 * Math.PI - 0.25), this.bowlMat);
+    const bowl = new THREE.Mesh(new THREE.LatheGeometry(bowlProfile.slice(0, 6), 48), this.bowlMat);
+    const openLip = new THREE.Mesh(new THREE.LatheGeometry(bowlProfile.slice(5), 64, 0.125, 2 * Math.PI - 0.25), this.bowlMat);
     openLip.castShadow = true;
     openLip.receiveShadow = true;
     bowl.add(openLip);
@@ -440,7 +470,7 @@ export class FeederView {
     block(this.group, 0, trackY + 0.0006, -r1, 0.026, 0.0012, 0.047, M.rail);
     for (const x of [-0.014, 0.014]) block(this.group, x, trackY + 0.005, -r1 - 0.012, 0.0015, 0.009, 0.03, M.rail);
 
-    if (def.inline) this.inline = this.buildInline(def.inline, trackY);
+    if (def.inline) this.inline = this.buildInline(def.inline, trackY, partLen);
 
     const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings' };
     this.name = names[def.part] ?? def.id;
@@ -455,19 +485,34 @@ export class FeederView {
       if (def.part === 'springBase') return models.spring_base.clone(true);
       return housingPart(models);
     };
-    // Bulk parts lie on the bowl floor in a deterministic jumble, roughly along the wall.
+    // Bulk parts lie on the bowl floor in layers, roughly along the wall: placed one by one where
+    // they touch neither the bowl nor each other (deterministic, so every viewer sees the same).
     const bulkTransforms: THREE.Matrix4[] = [];
-    for (let i = 0; i < 12; i++) {
-      const r = (k: number) => (((Math.sin((i + 3) * 37.77 + k * 11.3) * 9631.17) % 1) + 1) % 1;
-      const holder = new THREE.Object3D();
-      const ang = r(1) * Math.PI * 2;
-      const rad = 0.02 + r(2) * 0.025;
-      holder.position.set(Math.cos(ang) * rad, (i % 3) * 0.009, Math.sin(ang) * rad);
-      holder.rotation.y = -ang;
-      holder.updateMatrix();
-      const laying = new THREE.Matrix4().makeRotationX(Math.PI / 2);
-      laying.setPosition(0, 0, -heldLength(cfg, parts) / 2);
-      bulkTransforms.push(holder.matrix.multiply(laying));
+    const L = heldLength(cfg, parts);
+    const pr = def.part === 'body' ? 0.0068 : part.radius;
+    const placed: { y: number; a: THREE.Vector2; b: THREE.Vector2 }[] = [];
+    let seed = 977 + id.length * 31;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    // Bowl wall radius at height h above its floor, and the raised centre cone.
+    const wallAt = (h: number) => (h < 0.012 ? 0.085 + h * 0.75 : 0.094 + (h - 0.012) * 0.125);
+    const coneAt = (rho: number) => (rho < 0.03 ? 0.02 - rho * 0.467 : Math.max(0, 0.006 - (rho - 0.03) * 0.2));
+    for (let tries = 0; tries < 900 && placed.length < 12; tries++) {
+      const layer = Math.min(2, Math.floor(tries / 300));
+      const y = pr + layer * 2 * pr + 0.0004;
+      const ang = rnd() * Math.PI * 2;
+      const rho = 0.045 + rnd() * 0.04;
+      const c = new THREE.Vector2(Math.cos(ang) * rho, Math.sin(ang) * rho);
+      const dir = new THREE.Vector2(-Math.sin(ang), Math.cos(ang)).rotateAround(new THREE.Vector2(), (rnd() - 0.5) * 0.9);
+      const a = c.clone().addScaledVector(dir, -L / 2);
+      const b = c.clone().addScaledVector(dir, L / 2);
+      if (Math.max(a.length(), b.length()) > wallAt(y) - pr - 0.002) continue;
+      if (coneAt(segmentToOrigin(a, b)) > y - pr + 0.0015) continue;
+      if (placed.some((q) => Math.abs(q.y - y) < 2 * pr - 0.0005 && segmentDistance(a, b, q.a, q.b) < 2 * pr + 0.0008)) continue;
+      placed.push({ y, a, b });
+      const m = new THREE.Matrix4().makeRotationY(-Math.atan2(dir.y, dir.x) + Math.PI / 2);
+      m.multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+      m.setPosition(a.x, y - 0.012, a.y);
+      bulkTransforms.push(m);
     }
     this.bulk.add(new StockInstances(make(), bulkTransforms).group);
     const n = Math.ceil(def.track / def.pitch) + 1;
@@ -484,18 +529,25 @@ export class FeederView {
    * EM10 over the track: a camera on a post looking down at the passing parts, an air jet a
    * little further on, and the chute the jet blows bad parts into (on the far side of the track).
    */
-  private buildInline(inline: NonNullable<FeederDef['inline']>, trackY: number): NonNullable<FeederView['inline']> {
+  private buildInline(inline: NonNullable<FeederDef['inline']>, trackY: number, partLen: number): NonNullable<FeederView['inline']> {
     const camR = this.feederR + inline.at;
     const jetR = this.feederR + inline.jetAt;
-    const top = trackY + 0.1;
-    this.group.add(span(-0.06, -0.045, TABLE, top, camR - 0.008, camR + 0.008, M.frame));
-    this.group.add(span(-0.06, 0.008, top - 0.01, top, camR - 0.008, camR + 0.008, M.frame));
-    this.group.add(span(-0.012, 0.012, trackY + 0.05, top - 0.01, camR - 0.012, camR + 0.012, M.camera));
-    const ring = mat(0xffffff, { emissive: 0xbfe3ff, emissiveIntensity: 0.2 });
-    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.01, 0.002, 8, 20), ring);
-    torus.rotation.x = Math.PI / 2;
-    torus.position.copy(local(0, trackY + 0.048, camR));
-    this.group.add(torus);
+    const camY = trackY + partLen + 0.006 + 0.0458;
+    const top = camY + 0.03;
+    const post = new THREE.Group();
+    profile(post, [-0.062, TABLE, -camR], [-0.062, top, -camR], 0.025);
+    const shoe = hardware('ColumnShoe', -0.062, TABLE, -camR);
+    shoe.scale.setScalar(0.62);
+    post.add(shoe);
+    profile(post, [-0.075, top + 0.0125, -camR], [0.012, top + 0.0125, -camR], 0.025);
+    block(post, 0, top - 0.002, -camR, 0.03, 0.004, 0.03, finish.graphite);
+    contactPatch(post, -0.062, TABLE + 0.0008, -camR, 0.09, 0.09);
+    batch(post);
+    this.group.add(post);
+    const ring = ringLight();
+    const cam = visionCamera(0.036, ring);
+    cam.position.copy(local(0, camY, camR));
+    this.group.add(cam);
     // Jet nozzle on one side of the track, chute on the other.
     const nozzle = cyl(0.003, 0.02, M.rail, 12);
     nozzle.rotation.z = Math.PI / 2;
@@ -549,7 +601,7 @@ class TrayLoad {
       const p = trayPocket(cfg, i);
       return new THREE.Matrix4().makeTranslation(p.a - t.a, penBase, -(p.r - t.r));
     });
-    this.pens = new StockInstances(finishedPen(cfg, models), transforms);
+    this.pens = new StockInstances(finishedPen(cfg, models, true), transforms);
     this.pens.count(0);
     this.group.add(this.pens.group);
   }
@@ -592,24 +644,26 @@ export class TrayView {
     const half = (t.rows * t.pitch) / 2 + 0.02;
     const a0 = tl.destack - 0.07;
     const a1 = tl.end + 0.07;
-    // Conveyor: frame on the table with a dark belt on top, side guides at tray height.
-    this.group.add(span(a0, a1, TABLE, y - 0.004, t.r - half, t.r + half, M.frame));
-    this.group.add(span(a0, a1, y - 0.004, y, t.r - half + 0.005, t.r + half - 0.005, M.drive));
-    for (const r of [t.r - half - 0.003, t.r + half + 0.003]) this.group.add(span(a0, a1, y - 0.004, y + 0.012, r - 0.003, r + 0.003, M.rail));
+    // Conveyor: a low twin-strand belt conveyor standing on the table, guided either side.
+    this.group.add(
+      miniConveyor({
+        a0,
+        a1,
+        r: t.r,
+        y,
+        width: 2 * half - 0.012,
+        frame: y - TABLE - 0.003,
+        strands: 0.03,
+        guide: { gap: 2 * half - 0.004, height: 0.014 },
+        drive: { end: 1, side: 1, scale: 0.62 },
+      }),
+    );
     const trackFrame = new THREE.Group();
-    for (const r of [t.r - half, t.r + half]) {
-      block(trackFrame, (a0 + a1) / 2, y - 0.025, -r, a1 - a0, 0.006, 0.003, finish.graphite);
-      for (const a of [a0 + 0.016, a0 + 0.23, a1 - 0.016]) {
-        round(trackFrame, a, y - 0.019, -r + Math.sign(t.r - r) * 0.007, 0.004, 0.013, M.rail, 12).rotation.x = Math.PI / 2;
+    for (const a of [a0 + 0.02, a1 - 0.02])
+      for (const r of [t.r - half - 0.004, t.r + half + 0.004]) {
+        block(trackFrame, a, TABLE + 0.003, -r, 0.04, 0.006, 0.03, finish.graphite);
+        contactPatch(trackFrame, a, TABLE + 0.0009, -r, 0.08, 0.07);
       }
-    }
-    for (const a of [a0 + 0.009, a1 - 0.009]) {
-      round(trackFrame, a, y - 0.018, -t.r, 0.017, 2 * half + 0.01, M.rail, 24).rotation.x = Math.PI / 2;
-    }
-    const drive = hardware('Servo', a1 - 0.022, y - 0.025, -t.r - half - 0.006);
-    drive.scale.setScalar(0.68);
-    drive.rotation.y = Math.PI / 2;
-    trackFrame.add(drive);
     // Through-beam tray detector and M8 lead on the inspection stop.
     block(trackFrame, tl.check.a, y + 0.024, -t.r - half - 0.014, 0.023, 0.041, 0.017, M.camera);
     round(trackFrame, tl.check.a, y + 0.03, -t.r - half - 0.004, 0.004, 0.004, M.lens).rotation.x = Math.PI / 2;
@@ -633,9 +687,28 @@ export class TrayView {
     this.current = make();
     this.line = [make(), make(), make()];
 
-    // Destacker: four posts holding a stack of empty trays above the conveyor upstream of the packing position.
+    // Destacker: four angle guides round a stack of empty trays above the conveyor, upstream of
+    // the packing position, on a frame with the separating cylinders that let one tray down.
     const w = (t.cols * t.pitch) / 2 + 0.015;
-    for (const da of [-w, w]) for (const dr of [-half, half]) this.group.add(span(tl.destack + da - 0.004, tl.destack + da + 0.004, y, y + 0.03 + 0.012 * TrayView.STACK, t.r + dr - 0.004, t.r + dr + 0.004, M.frame));
+    const destacker = new THREE.Group();
+    const topY = y + 0.042 + 0.012 * TrayView.STACK;
+    for (const da of [-w, w])
+      for (const dr of [-half, half]) {
+        const ax = tl.destack + da;
+        block(destacker, ax, (y + 0.016 + topY) / 2, -(t.r + dr), 0.012, topY - y - 0.016, 0.002, M.rail);
+        block(destacker, ax + Math.sign(da) * 0.005, (y + 0.016 + topY) / 2, -(t.r + dr - Math.sign(dr) * 0.005), 0.002, topY - y - 0.016, 0.012, M.rail);
+        block(destacker, ax, topY + 0.004, -(t.r + dr), 0.014, 0.008, 0.014, finish.graphite);
+      }
+    for (const dr of [-half - 0.008, half + 0.008]) {
+      block(destacker, tl.destack, y + 0.022, -(t.r + dr), 2 * w + 0.03, 0.012, 0.008, M.frame);
+      for (const da of [-w * 0.5, w * 0.5]) {
+        block(destacker, tl.destack + da, y + 0.034, -(t.r + dr + Math.sign(dr) * 0.01), 0.018, 0.016, 0.024, M.axisDark);
+        round(destacker, tl.destack + da, y + 0.044, -(t.r + dr + Math.sign(dr) * 0.014), 0.0024, 0.004, finish.pipe, 12);
+      }
+      for (const da of [-w - 0.012, w + 0.012]) profile(destacker, [tl.destack + da, TABLE, -(t.r + dr)], [tl.destack + da, y + 0.016, -(t.r + dr)], 0.02);
+    }
+    batch(destacker);
+    this.group.add(destacker);
     for (let k = 0; k < TrayView.STACK; k++) {
       const empty = models.tray.clone(true);
       empty.position.copy(local(tl.destack, y + 0.03 + k * 0.012, t.r));
@@ -647,16 +720,32 @@ export class TrayView {
     this.destacker = ds.element;
     this.group.add(ds);
 
-    // EM61: camera on a post outside the conveyor, looking down at the tray it stops.
+    // EM61: camera on a profile post outside the conveyor, looking down at the tray it stops.
     const check = tl.check;
-    this.group.add(span(check.a - 0.01, check.a + 0.01, TABLE, y + 0.26, t.r + half + 0.03, t.r + half + 0.05, M.frame));
-    this.group.add(span(check.a - 0.01, check.a + 0.01, y + 0.25, y + 0.27, t.r - 0.01, t.r + half + 0.05, M.frame));
-    this.group.add(span(check.a - 0.025, check.a + 0.025, y + 0.19, y + 0.25, t.r - 0.025, t.r + 0.025, M.camera));
-    this.ring = mat(0xffffff, { emissive: 0xbfe3ff, emissiveIntensity: 0.2 });
-    const torus = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.004, 8, 28), this.ring);
-    torus.rotation.x = Math.PI / 2;
-    torus.position.copy(local(check.a, y + 0.185, t.r));
-    this.group.add(torus);
+    const mast = new THREE.Group();
+    const postR = t.r + half + 0.045;
+    profile(mast, [check.a, TABLE, -postR], [check.a, y + 0.3, -postR], 0.03);
+    mast.add(hardware('ColumnShoe', check.a, TABLE, -postR));
+    profile(mast, [check.a, y + 0.285, -(postR + 0.015)], [check.a, y + 0.285, -(t.r - 0.03)], 0.03);
+    block(mast, check.a, y + 0.266, -t.r, 0.05, 0.008, 0.05, finish.graphite);
+    hose(
+      mast,
+      [
+        [check.a + 0.012, y + 0.27, -t.r - 0.012],
+        [check.a + 0.03, y + 0.31, -t.r - 0.06],
+        [check.a + 0.024, y + 0.3, -postR],
+        [check.a + 0.02, y + 0.1, -postR - 0.018],
+        [check.a + 0.04, TABLE + 0.004, -postR - 0.04],
+      ],
+      0.0035,
+    );
+    contactPatch(mast, check.a, TABLE + 0.0009, -postR, 0.12, 0.12);
+    batch(mast);
+    this.group.add(mast);
+    this.ring = ringLight();
+    const head = visionCamera(0.05, this.ring);
+    head.position.copy(local(check.a, y + 0.233, t.r));
+    this.group.add(head);
     const name = label(`${check.id} ${check.name}`, 'label feeder');
     name.position.copy(local(check.a, y + 0.33, t.r + half + 0.04));
     this.group.add(name);
@@ -726,9 +815,10 @@ export class TrayView {
 const SAMPLE_CODE = '(01)05712345000014(17)291114(10)B261114(21)A7K2P9X4Q1RZ';
 
 /** A finished, labelled pen, origin at the body's base. */
-export function finishedPen(cfg: LineConfig, models: Models): THREE.Object3D {
+export function finishedPen(cfg: LineConfig, models: Models, stock = false): THREE.Object3D {
   const a = new AssemblyView(cfg, models);
-  a.show(['body', 'spring', 'springBase', 'cartridge', 'housing']);
+  // Stock copies leave out the spring and its base: the housing hides them.
+  a.show(stock ? ['body', 'cartridge', 'housing'] : ['body', 'spring', 'springBase', 'cartridge', 'housing']);
   a.setMark(SAMPLE_CODE);
   return a.root;
 }
@@ -800,4 +890,23 @@ export class ScrapView {
       this.group.add(o);
     }
   }
+}
+
+/** Shortest distance between plan segments ab and cd. */
+function segmentDistance(a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, d: THREE.Vector2): number {
+  const cross = (p: THREE.Vector2, q: THREE.Vector2, r: THREE.Vector2) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  if (Math.sign(cross(a, b, c)) !== Math.sign(cross(a, b, d)) && Math.sign(cross(c, d, a)) !== Math.sign(cross(c, d, b))) return 0;
+  const toSeg = (p: THREE.Vector2, s0: THREE.Vector2, s1: THREE.Vector2) => {
+    const v = s1.clone().sub(s0);
+    const t = THREE.MathUtils.clamp(p.clone().sub(s0).dot(v) / v.lengthSq(), 0, 1);
+    return p.distanceTo(s0.clone().addScaledVector(v, t));
+  };
+  return Math.min(toSeg(a, c, d), toSeg(b, c, d), toSeg(c, a, b), toSeg(d, a, b));
+}
+
+/** Distance from the plan origin to segment ab. */
+function segmentToOrigin(a: THREE.Vector2, b: THREE.Vector2): number {
+  const v = b.clone().sub(a);
+  const t = THREE.MathUtils.clamp(-a.dot(v) / v.lengthSq(), 0, 1);
+  return a.clone().addScaledVector(v, t).length();
 }

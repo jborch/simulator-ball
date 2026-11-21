@@ -17,6 +17,8 @@ const components = [
   'GuideClip',
   'Stopper',
   'StopHead',
+  'Finger',
+  'VisionCamera',
   'Vibrator',
   'Indexer',
   'ValveBank',
@@ -30,6 +32,51 @@ export function installHardware(root: THREE.Object3D): void {
     if (!obj) throw new Error(`Missing machine component ${name}`);
     kit.set(name, obj);
   }
+  // Printed plates modelled as UV-mapped quads get their artwork here.
+  const rating = ratingPlate();
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Motor nameplate') mesh.material = rating;
+  });
+}
+
+/** Silver rating plate of the servo motors: maker band, type line, small print and a code. */
+function ratingPlate(): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 156;
+  const p = c.getContext('2d')!;
+  p.fillStyle = '#c9cdcc';
+  p.fillRect(0, 0, 256, 156);
+  p.fillStyle = '#2a3336';
+  p.fillRect(0, 0, 256, 34);
+  p.fillStyle = '#e8ece9';
+  p.font = 'bold 24px Arial';
+  p.fillText('SERVO  AC', 10, 25);
+  p.fillStyle = '#1f2628';
+  p.font = 'bold 17px Arial';
+  p.fillText('MSM-04  400 W  3000 rpm', 10, 60);
+  p.font = '13px Arial';
+  for (let i = 0; i < 4; i++) p.fillText(['200 V  2.6 A  1.27 Nm', 'IP65  Ins. F  IEC 60034', 'Enc 23 bit abs.  S/N 4471', 'Made in EU  CE'][i], 10, 84 + i * 18);
+  for (let i = 0; i < 18; i++) p.fillRect(196 + (i % 6) * 8, 92 + Math.floor(i / 6) * 8, (i * 7) % 3 ? 6 : 3, 6);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return mat(0xffffff, { map: tex, metalness: 0.35, roughness: 0.4, name: 'Motor nameplate' });
+}
+
+/**
+ * Machine vision camera looking down its local -y with a ring light, `size` the housing height
+ * (the catalogue model is 0.056). `ring` lights the diffuser (flashed while exposing).
+ */
+export function visionCamera(size: number, ring: THREE.Material): THREE.Object3D {
+  const cam = hardware('VisionCamera');
+  cam.scale.setScalar(size / 0.056);
+  cam.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Ring light') mesh.material = ring;
+  });
+  return cam;
 }
 
 export function hardware(name: (typeof components)[number], x = 0, y = 0, z = 0): THREE.Object3D {
@@ -124,30 +171,63 @@ export function plate(
 
 /** Bake a rigid group into one draw per finish. Positions stay local to the group. */
 export function batch(group: THREE.Group): void {
-  group.updateWorldMatrix(true, true);
-  const inv = group.matrixWorld.clone().invert();
-  const sets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const meshes: THREE.Mesh[] = [];
   group.traverseVisible((o) => {
-    if (!(o instanceof THREE.Mesh) || Array.isArray(o.material)) return;
+    if (o instanceof THREE.Mesh && !Array.isArray(o.material)) meshes.push(o);
+  });
+  const merged = mergeByMaterial(group, meshes);
+  group.clear();
+  for (const mesh of merged) group.add(mesh);
+}
+
+/**
+ * One mesh per material from `meshes`, in `root`'s local frame (the meshes are left in place).
+ * Clear finishes don't cast shadows.
+ */
+export function mergeByMaterial(root: THREE.Object3D, meshes: THREE.Mesh[]): THREE.Mesh[] {
+  root.updateWorldMatrix(true, true);
+  const inv = root.matrixWorld.clone().invert();
+  const sets = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const o of meshes) {
     const copy = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     copy.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
     for (const attr of Object.keys(copy.attributes)) {
       if (!['position', 'normal', 'uv'].includes(attr)) copy.deleteAttribute(attr);
     }
+    if (!copy.attributes.normal) copy.computeVertexNormals();
     if (!copy.attributes.uv) copy.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(copy.attributes.position.count * 2), 2));
-    const list = sets.get(o.material) ?? [];
+    const material = o.material as THREE.Material;
+    const list = sets.get(material) ?? [];
     list.push(copy);
-    sets.set(o.material, list);
-  });
-  group.clear();
+    sets.set(material, list);
+  }
+  const out: THREE.Mesh[] = [];
   for (const [material, geometries] of sets) {
     const geometry = mergeGeometries(geometries);
     for (const copy of geometries) copy.dispose();
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = !material.transparent;
+    mesh.castShadow = !material.transparent || material.name === 'Drug';
     mesh.receiveShadow = true;
-    group.add(mesh);
+    out.push(mesh);
   }
+  return out;
+}
+
+/**
+ * Merges a loaded model's rigid sub-meshes into one per material, keeping the meshes `keep`
+ * selects (labels and other parts the view changes) as they are, so every copy draws cheaper.
+ */
+export function compact(root: THREE.Object3D, keep: (m: THREE.Mesh) => boolean = () => false): void {
+  const merge: THREE.Mesh[] = [];
+  const kept: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh && !Array.isArray(o.material)) (keep(o) ? kept : merge).push(o);
+  });
+  const merged = mergeByMaterial(root, merge);
+  for (const o of kept) root.attach(o);
+  for (const o of merge) o.removeFromParent();
+  for (const o of [...root.children]) if (!(o instanceof THREE.Mesh) && o.children.length === 0) o.removeFromParent();
+  for (const mesh of merged) root.add(mesh);
 }
 
 /** Laminated yellow/white ISO-style warning decal, sized for guarding. */

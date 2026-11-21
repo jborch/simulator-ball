@@ -15,6 +15,9 @@ const enameled = finish.powder;
 const trim = finish.zinc;
 const amber = mat(0xe5b542);
 const red = mat(0xac312b, { roughness: 0.38 });
+/** Grey PVC wiring duct and its slightly lighter lid. */
+const ductGrey = mat(0x8f9592, { roughness: 0.62, metalness: 0.02 });
+const ductLid = mat(0x9ca29f, { roughness: 0.55, metalness: 0.02 });
 const top = BELT_Y + TABLE;
 
 function levelFoot(g: THREE.Group, x: number, z: number): void {
@@ -93,8 +96,6 @@ function guard(g: THREE.Group, x: number, z: number, w: number, h: number): void
     block(g, x + dx, top + 0.007, z, 0.055, 0.014, 0.055, dark);
   }
   for (const y of [bottom, top + h - 0.012]) profile(g, [x - w / 2, y, z], [x + w / 2, y, z], 0.024);
-  const taskLight = mat(0xe6eee4, { emissive: 0xecfff7, emissiveIntensity: 0.84 });
-  block(g, x, top + h - 0.029, z - 0.008, w * 0.68, 0.007, 0.018, taskLight);
   const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.024, h - 0.078), finish.glass);
   pane.position.set(x, top + (h + 0.045) / 2, z);
   g.add(pane);
@@ -115,13 +116,19 @@ function bench(
   closed: boolean,
   guardWidth: number,
   hmi = false,
+  /** How far the top reaches past the frame toward -x and +x (world), to meet the next bench. */
+  reach: [number, number] = [0, 0],
 ): void {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
   if (z < 0) g.rotation.y = Math.PI;
   const end = w / 2 - 0.074,
     side = d / 2 - 0.064;
-  block(g, 0, top - 0.013, 0, w, 0.026, d, topFinish);
+  // Tops of neighbouring benches butt together (the group is turned for z < 0).
+  const [left, right] = z < 0 ? [reach[1], reach[0]] : reach;
+  block(g, (right - left) / 2, top - 0.013, 0, w + left + right, 0.026, d, topFinish);
+  // Edge band of the top plate.
+  block(g, (right - left) / 2, top - 0.022, d / 2 + 0.0006, w + left + right, 0.008, 0.0012, trim);
   for (const dz of [-side, side]) {
     profile(g, [-end, 0.765, dz], [end, 0.765, dz], 0.055);
     profile(g, [-end, 0.2, dz], [end, 0.2, dz], 0.045);
@@ -160,14 +167,18 @@ function bench(
         i === 0 ? finish.pipe : rubber,
       );
   }
-  // Segregated wiring duct along the equipment side. Fingers and cover
-  // expose a short run of blue instrument air at each service point.
+  // Slotted PVC wiring duct along the operator edge: fingers on both sides, a clip-on lid,
+  // end caps, and cables leaving through the slots at the service points.
   const trayZ = side - 0.044;
-  block(g, 0, top + 0.019, trayZ, w - 0.15, 0.038, 0.039, dark);
-  block(g, 0, top + 0.042, trayZ, w - 0.14, 0.008, 0.045, deck);
-  for (let i = 0; i < (w - 0.18) / 0.025; i++) {
-    block(g, -w / 2 + 0.09 + i * 0.025, top + 0.022, trayZ + 0.02, 0.007, 0.024, 0.002, rubber);
+  const ductW = w - 0.15;
+  block(g, 0, top + 0.0015, trayZ, ductW, 0.003, 0.04, ductGrey);
+  for (const dz of [-0.0185, 0.0185]) {
+    block(g, 0, top + 0.006, trayZ + dz, ductW, 0.006, 0.003, ductGrey);
+    for (let xx = -ductW / 2 + 0.006; xx < ductW / 2 - 0.004; xx += 0.012) block(g, xx, top + 0.022, trayZ + dz, 0.0075, 0.026, 0.003, ductGrey);
   }
+  block(g, 0, top + 0.037, trayZ, ductW + 0.002, 0.004, 0.044, ductGrey);
+  block(g, 0, top + 0.0396, trayZ, ductW - 0.01, 0.0012, 0.03, ductLid);
+  for (const xx of [-ductW / 2, ductW / 2]) block(g, xx, top + 0.019, trayZ, 0.003, 0.039, 0.042, ductGrey);
   if (closed) {
     const bankX = 0.26 * w;
     const bank = hardware('ValveBank', bankX, top + 0.046, trayZ);
@@ -198,7 +209,16 @@ export function buildBases(cfg: LineConfig): THREE.Group {
   const group = new THREE.Group();
   // Each bench ends at its cell boundary. Inner deck edge also carries the
   // side-facing vision reader, while the return arcs have independent frames.
-  for (const c of cells) bench(group, c.x, c.z, c.w, c.d, c.id, c.name, c.closed, c.guard, c.hmi);
+  for (const c of cells) {
+    // Meet the next bench in the same row halfway across the gap between their frames.
+    const row = cells.filter((o) => o !== c && Math.sign(o.z) === Math.sign(c.z));
+    const gap = (dir: number) => {
+      const edge = c.x + (dir * c.w) / 2;
+      const next = row.map((o) => o.x - (dir * o.w) / 2).filter((e) => (e - edge) * dir >= 0 && Math.abs(e - edge) < 0.02);
+      return next.length ? Math.abs(next[0] - edge) / 2 : 0;
+    };
+    bench(group, c.x, c.z, c.w, c.d, c.id, c.name, c.closed, c.guard, c.hmi, [gap(-1), gap(1)]);
+  }
   for (const dir of [-1, 1]) {
     const g = new THREE.Group();
     const x = dir * (cfg.track.straight / 2 + cfg.track.radius - 0.09);

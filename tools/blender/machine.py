@@ -107,6 +107,27 @@ def screws(xs, zs, y, radius=0.0032):
             roundbar(x, y + 0.00085, z, radius * 0.54, 0.0002, seal, 6)
 
 
+def quad(x, y, z, w, h, facing, material):
+    """UV-mapped rectangle (0..1) facing +x/-x/+y/+z/-z, for printed plates the app paints."""
+    hw, hh = w / 2, h / 2
+    if facing == "+z":
+        corners = [(x - hw, y - hh, z), (x + hw, y - hh, z), (x + hw, y + hh, z), (x - hw, y + hh, z)]
+    elif facing == "-z":
+        corners = [(x + hw, y - hh, z), (x - hw, y - hh, z), (x - hw, y + hh, z), (x + hw, y + hh, z)]
+    elif facing == "+x":
+        corners = [(x, y - hh, z + hw), (x, y - hh, z - hw), (x, y + hh, z - hw), (x, y + hh, z + hw)]
+    elif facing == "-x":
+        corners = [(x, y - hh, z - hw), (x, y - hh, z + hw), (x, y + hh, z + hw), (x, y + hh, z - hw)]
+    else:
+        corners = [(x - hw, y, z + hh), (x + hw, y, z + hh), (x + hw, y, z - hh), (x - hw, y, z - hh)]
+    data = bpy.data.meshes.new("component")
+    data.from_pydata([point(*c) for c in corners], [], [(0, 1, 2, 3)])
+    uv = data.uv_layers.new()
+    for loop, (u, v) in zip(data.loops, [(0, 0), (1, 0), (1, 1), (0, 1)]):
+        uv.data[loop.index].uv = (u, v)
+    return part(data, material)
+
+
 def save(name):
     bpy.ops.object.select_all(action="DESELECT")
     for obj in items:
@@ -167,16 +188,27 @@ for s in (-1, 1):
 screws([-0.032, 0.032], [-0.029, 0.029], 0.0088)
 save("ColumnShoe")
 
-# Servo, encoder cover, plugged connector and mounting flange. Axis along X.
-block(-0.002, 0, 0, 0.006, 0.048, 0.048, alu, 0.002)
-block(0.034, 0, 0, 0.066, 0.041, 0.041, dark, 0.004)
-block(0.073, 0, 0, 0.014, 0.038, 0.038, seal, 0.003)
-for z in (-0.020, 0.020):
-    for y in (-0.014, -0.007, 0, 0.007, 0.014):
-        block(0.036, y, z, 0.054, 0.002, 0.004, dark)
-for x in (0.048, 0.066):
-    roundbar(x, 0.023, 0, 0.006, 0.008, steel, 12)
-    roundbar(x, 0.031, 0, 0.005, 0.01, seal)
+# Servo motor: square flange with bolt heads, ribbed black body, rounded encoder
+# cover, angled power and feedback plugs with cable tails, silver rating plate.
+# Axis along +X from the flange face at x = 0.
+nameplate = finish("Motor nameplate", (0.62, 0.64, 0.64), 0.4, 0.42)
+block(0.001, 0, 0, 0.008, 0.05, 0.05, alu, 0.0018)
+for y in (-0.019, 0.019):
+    for z in (-0.019, 0.019):
+        roundbar(-0.0035, y, z, 0.0032, 0.0012, steel, 12, "x")
+        roundbar(-0.0042, y, z, 0.0017, 0.0003, seal, 6, "x")
+block(0.034, 0, 0, 0.058, 0.044, 0.044, dark, 0.003)
+for side in (-1, 1):
+    for k in (-1, 0, 1):
+        block(0.033, k * 0.012, side * 0.0226, 0.046, 0.0026, 0.0018, dark, 0.0005)
+block(0.07, 0, 0, 0.016, 0.041, 0.041, seal, 0.006)
+block(0.0785, 0, 0, 0.002, 0.03, 0.03, dark, 0.001)
+for x, r, h in ((0.05, 0.0072, 0.016), (0.066, 0.0055, 0.013)):
+    block(x, 0.024, 0, 0.016 if r > 0.006 else 0.012, 0.005, 0.018 if r > 0.006 else 0.014, alu, 0.001)
+    roundbar(x, 0.0265 + h / 2, 0, r, h, seal, 20)
+    roundbar(x, 0.031, 0, r + 0.0008, 0.004, steel, 20)
+    tail = roundbar(x + 0.014, 0.0265 + h - 0.003, 0, r * 0.8, 0.026, seal, 16, "x")
+quad(0.03, -0.001, 0.0222, 0.036, 0.022, "+z", nameplate)
 save("Servo")
 
 # Guided pneumatic slide. Two end plates, tie rods, air fittings and wiper.
@@ -193,46 +225,130 @@ roundbar(0, -0.001, 0, 0.017, 0.006, seal)
 screws([-0.024, 0.024], [-0.019, 0.019], 0.137)
 save("Cylinder")
 
-block(0, 0.032, 0, 0.036, 0.022, 0.029, alu, 0.002)
-block(0, 0.019, 0, 0.033, 0.006, 0.028, dark)
-roundbar(0, 0.046, 0, 0.011, 0.007, dark)
-for x in (-0.01, 0.01):
-    roundbar(x, 0.032, 0.015, 0.003, 0.002, steel, 12, "z")
-roundbar(-0.020, 0.034, 0, 0.0037, 0.007, blue, 16, "x")
+# Parallel gripper: anodised body with guide cover, piston cap, air ports and a
+# sensor slot; jaws travel along Z. Origin: tool flange centre at the top.
+block(0, 0.033, 0, 0.038, 0.024, 0.03, alu, 0.0022)
+block(0, 0.0195, 0, 0.034, 0.005, 0.032, dark, 0.0008)
+block(0, 0.033, 0.0152, 0.028, 0.012, 0.0009, dark, 0.0003)
+roundbar(0, 0.047, 0, 0.012, 0.006, dark, 24)
+roundbar(0, 0.0515, 0, 0.0085, 0.003, alu, 24)
+for x in (-0.012, 0.012):
+    roundbar(x, 0.0337, -0.0156, 0.0028, 0.0018, steel, 12, "z")
+    roundbar(x, 0.0337, -0.0168, 0.0031, 0.0016, blue, 16, "z")
+for x in (-0.013, 0.013):
+    for z in (-0.009, 0.009):
+        roundbar(x, 0.0452, z, 0.0017, 0.0008, steel, 10)
 save("JawBody")
 
-# Cast C standard. Extrude the side silhouette, rotate into the Y/Z plane.
-outline = [
-    (-0.048, 0),
-    (0.069, 0),
-    (0.069, 0.023),
-    (0.01, 0.037),
-    (-0.009, 0.062),
-    (-0.009, 0.39),
-    (0.002, 0.42),
-    (0.065, 0.44),
-    (0.065, 0.486),
-    (-0.045, 0.486),
-    (-0.055, 0.455),
-    (-0.055, 0.032),
-]
+# Gripper finger: mounting step bolted to the jaw, slim blade with a V-notch on
+# the gripping face (-Z). Origin: jaw face centre; the blade hangs down -Y.
+mesh(
+    [(x, y, z) for x in (-0.0045, 0.0045) for y, z in [(0.019, 0.0), (0.019, 0.006), (0.004, 0.006), (0.004, 0.003), (-0.024, 0.003), (-0.024, 0.0)]],
+    [(0, 1, 2, 3, 4, 5), (6, 7, 8, 9, 10, 11)] + [(i, (i + 1) % 6, 6 + (i + 1) % 6, 6 + i) for i in range(6)],
+    steel,
+    0.0004,
+)
+block(0, -0.014, -0.0004, 0.004, 0.016, 0.0012, seal, 0.0002)
+for y in (0.009, 0.015):
+    roundbar(0, y, 0.0063, 0.0016, 0.0007, dark, 10, "z")
+save("Finger")
 
+# Machine vision camera looking down -Y: finned housing, M12 plug and cable,
+# lens barrel with knurled focus and iris rings, and a ring light whose
+# diffuser the app lights while the camera exposes. Origin: housing centre.
+ring_light = finish("Ring light", (0.92, 0.95, 0.96), 0.0, 0.3)
+lens = finish("Lens glass", (0.01, 0.012, 0.016), 0.9, 0.06)
+block(0, 0.002, 0, 0.044, 0.056, 0.044, dark, 0.0025)
+for i in range(6):
+    block(0, 0.008 + i * 0.0042, 0, 0.0475, 0.0016, 0.0475, alu, 0.0004)
+block(0, -0.029, 0, 0.048, 0.006, 0.048, alu, 0.0012)
+roundbar(0, 0.0335, 0, 0.0065, 0.008, steel, 20)
+roundbar(0, 0.041, 0, 0.0052, 0.008, seal, 16)
+block(0.0221, 0.004, 0.012, 0.0008, 0.003, 0.003, finish("Status green", (0.05, 0.7, 0.2), 0, 0.3))
+roundbar(0, -0.043, 0, 0.0145, 0.022, dark, 32)
+for y, m in ((-0.04, steel), (-0.05, seal)):
+    roundbar(0, y, 0, 0.0156, 0.006, m, 32)
+roundbar(0, -0.0545, 0, 0.0115, 0.0014, lens, 32)
+ring = prism(
+    [(0.035 * math.cos(i * math.tau / 40), 0.035 * math.sin(i * math.tau / 40)) for i in range(40)],
+    -0.07,
+    -0.058,
+    dark,
+    0.001,
+)
+cut_r = roundbar(0, -0.064, 0, 0.0175, 0.02, dark, 32)
+bool_ = ring.modifiers.new("bore", "BOOLEAN")
+bool_.operation = "DIFFERENCE"
+bool_.object = cut_r
+bpy.context.view_layer.objects.active = ring
+bpy.ops.object.modifier_apply(modifier=bool_.name)
+items.remove(cut_r)
+bpy.data.objects.remove(cut_r, do_unlink=True)
+diffuser = prism(
+    [(0.0325 * math.cos(i * math.tau / 40), 0.0325 * math.sin(i * math.tau / 40)) for i in range(40)],
+    -0.0712,
+    -0.0702,
+    ring_light,
+)
+cut_d = roundbar(0, -0.0707, 0, 0.0195, 0.004, ring_light, 32)
+bool_ = diffuser.modifiers.new("bore", "BOOLEAN")
+bool_.operation = "DIFFERENCE"
+bool_.object = cut_d
+bpy.context.view_layer.objects.active = diffuser
+bpy.ops.object.modifier_apply(modifier=bool_.name)
+items.remove(cut_d)
+bpy.data.objects.remove(cut_d, do_unlink=True)
+for i in range(3):
+    a = i * math.tau / 3 + 0.5
+    block(0.024 * math.cos(a), -0.0525, 0.024 * math.sin(a), 0.004, 0.011, 0.004, dark, 0.0005)
+save("VisionCamera")
 
-def casting(points, half, material):
+# Cast C standard of a press module: a closed column with a chamfered back,
+# the press head arm and a foot, in white enamel with a machined cover over the
+# throat face, bolted side covers and panel joints. Extruded side silhouette.
+def casting(points, half, material, bevel=0.002):
     verts = [(x, y, z) for x in (-half, half) for z, y in points]
     n = len(points)
     faces = [tuple(range(n)), tuple(range(n, n * 2))] + [
         (i, (i + 1) % n, (i + 1) % n + n, i + n) for i in range(n)
     ]
-    mesh(verts, faces, material, 0.002)
+    mesh(verts, faces, material, bevel)
 
 
-casting(outline, 0.032, paint)
+white = finish("Press enamel", (0.74, 0.75, 0.72), 0.05, 0.36)
 casting(
-    [(-0.047, 0.045), (-0.018, 0.067), (-0.018, 0.405), (0.035, 0.446), (0.035, 0.461), (-0.047, 0.461)],
-    0.034,
-    alu,
+    [
+        (-0.058, 0.012),
+        (0.069, 0.012),
+        (0.069, 0.03),
+        (0.024, 0.042),
+        (-0.004, 0.068),
+        (-0.004, 0.39),
+        (0.012, 0.414),
+        (0.066, 0.43),
+        (0.066, 0.486),
+        (-0.046, 0.486),
+        (-0.058, 0.472),
+    ],
+    0.032,
+    white,
+    0.0035,
 )
+# Throat cover with countersunk screws, and the guarded slot of the head arm.
+block(0, 0.229, -0.0028, 0.05, 0.3, 0.0026, alu, 0.0009)
+for y in (0.088, 0.37):
+    for x in (-0.019, 0.019):
+        roundbar(x, y, -0.0012, 0.0022, 0.0009, steel, 12, "z")
+block(0, 0.4555, 0.0668, 0.046, 0.04, 0.0016, alu, 0.0006)
+for s_ in (-1, 1):
+    x = s_ * 0.0322
+    # Bolted side cover and two panel joints on each cheek.
+    block(x + s_ * 0.0005, 0.155, -0.031, 0.0012, 0.11, 0.042, alu, 0.0004)
+    for y in (0.106, 0.204):
+        for z in (-0.047, -0.015):
+            roundbar(x + s_ * 0.0012, y, z, 0.0018, 0.0008, steel, 10, "x")
+    for y in (0.262, 0.35):
+        block(x + s_ * 0.0002, y, -0.031, 0.0006, 0.0014, 0.054, seal)
 block(0, 0.006, 0, 0.106, 0.012, 0.154, dark, 0.003)
 screws([-0.044, 0.044], [-0.064, 0.064], 0.013)
 save("PressStandard")

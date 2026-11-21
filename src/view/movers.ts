@@ -3,7 +3,8 @@ import type { LineConfig, PartType } from '../sim/config';
 import { heldLength } from '../sim/layout';
 import type { MoverFrame } from '../sim/protocol';
 import type { Pose } from '../sim/track';
-import { type Models, findMesh } from './models';
+import { batch } from './hardware';
+import type { Models } from './models';
 import { hash01 } from './scene';
 import { dataMatrixTexture, numberTexture } from './textures';
 
@@ -158,6 +159,33 @@ export interface MoverLook {
   skew?: number;
 }
 
+/** Placeholders the carrier template is merged with, swapped per carrier for its own plates and lights. */
+const TOP_PLATE = new THREE.MeshStandardMaterial();
+const SIDE_PLATE = new THREE.MeshStandardMaterial();
+const LIGHT_PIPE = new THREE.MeshStandardMaterial();
+const templates = new WeakMap<THREE.Object3D, THREE.Group>();
+
+/** The carrier model merged into one mesh per finish (and one each for its plates and lights). */
+function carrierTemplate(models: Models): THREE.Group {
+  let t = templates.get(models.mover);
+  if (!t) {
+    const src = models.mover.clone(true);
+    src.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const name = mesh.name || mesh.parent?.name || '';
+      if (name === 'label_top') mesh.material = TOP_PLATE;
+      else if (name.startsWith('label_side')) mesh.material = SIDE_PLATE;
+      else if (name.startsWith('status_led')) mesh.material = LIGHT_PIPE;
+    });
+    t = new THREE.Group();
+    t.add(src);
+    batch(t);
+    templates.set(models.mover, t);
+  }
+  return t;
+}
+
 export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
@@ -175,25 +203,19 @@ export class MoverView {
     this.root.userData.moverId = id;
     this.root.userData.track = { cls: 'mover', id: `mover-${id}` };
 
-    const mover = models.mover.clone(true);
+    const mover = carrierTemplate(models).clone(true);
     // Laminated ID plates, printed at their own aspect so the digits keep their shape.
     const sideMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 52 / 18.5), roughness: 0.42 });
     const topMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 46 / 22), roughness: 0.42 });
-    for (const [name, m] of [
-      ['label_top', topMat],
-      ['label_side_a', sideMat],
-      ['label_side_b', sideMat],
-    ] as const) {
-      const mesh = findMesh(mover, name);
-      if (mesh) mesh.material = m;
-    }
     mover.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      if (mesh.name.startsWith('status_led')) {
+      if (mesh.material === TOP_PLATE) mesh.material = topMat;
+      else if (mesh.material === SIDE_PLATE) mesh.material = sideMat;
+      else if (mesh.material === LIGHT_PIPE) {
         this.leds.push(mesh);
         mesh.castShadow = false;
-      } else if (mesh.material !== sideMat && mesh.material !== topMat) this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
+      } else this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
     });
     this.root.add(mover);
 

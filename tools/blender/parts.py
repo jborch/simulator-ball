@@ -59,11 +59,11 @@ TOOLPLATE = lambda: mat("ToolPlate", (0.58, 0.6, 0.61), metallic=0.9, rough=0.34
 FIXTURE = lambda: mat("FixtureBlack", (0.022, 0.024, 0.027), metallic=0.6, rough=0.3)
 BUMPER = lambda: mat("Bumper", (0.018, 0.018, 0.02), rough=0.78)
 LED = lambda: mat("StatusLed", (0.08, 0.08, 0.08), rough=0.15)
-TRAY = lambda: mat("TrayPET", (0.31, 0.46, 0.49), rough=0.32)
+TRAY = lambda: mat("TrayHIPS", (0.74, 0.76, 0.75), rough=0.34)
 NEST = lambda: mat("NestWhite", (0.95, 0.95, 0.95), rough=0.6)
 LIQUID = lambda: mat("Drug", (0.9, 0.85, 0.4), rough=0.1, alpha=0.6)
 LABEL = lambda: mat("MoverLabel", (0.97, 0.97, 0.95), rough=0.6)
-BASE = lambda: mat("SpringBaseAcetal", (0.54, 0.51, 0.40), rough=0.4)
+BASE = lambda: mat("SpringBaseAcetal", (0.66, 0.65, 0.6), rough=0.38)
 # Pen bodies are frosted translucent plastic, so the spring and cartridge show through.
 BODY = lambda: mat("BodyFrost", (0.93, 0.95, 0.97), rough=0.35, alpha=0.5)
 
@@ -230,10 +230,13 @@ def spring_base():
     """Seat that caps the spring: a boss into the spring's top coil, a disc that fits the body's
     bore, and a notch the spring's hook engages (what EM15 looks for). 6 mm tall, origin at its base."""
     boss = cyl(0.0034, 0.002, 0.0, BASE(), "base_boss")
-    disc = cyl(0.0048, 0.004, 0.002, BASE(), "base_disc")
+    disc = cyl(0.0048, 0.004, 0.002, BASE(), "base_disc", verts=40)
     cut(disc, box(0.0016, 0.004, 0.0025, (0, -0.0042, 0.003), BASE(), "base_hook_notch"))
-    rim = cyl(0.0042, 0.0006, 0.0054, BASE(), "base_rim")
-    return group("SpringBase", [boss, disc, rim])
+    # Centre bore for the plunger guide: a dark recess reads as a moulded part, not a bead.
+    cut(disc, cyl(0.0022, 0.003, 0.0038, BASE(), "base_bore", verts=24))
+    bevel(disc, 0.0003, 1)
+    floor = cyl(0.0022, 0.0002, 0.0039, DARK(), "base_bore_floor", verts=24)
+    return group("SpringBase", [boss, disc, floor])
 
 
 def cartridge():
@@ -341,11 +344,11 @@ def mover(num=None):
     for sx in (-1, 1):
         pads.append(bevel(box(0.0014, 0.03, 0.009, (sx * 0.0604, 0, 0.0115), STEEL(), "mover_stop_plate"), 0.0004))
         for y in (-0.038, 0.038):
-            bpy.ops.mesh.primitive_cylinder_add(radius=0.0042, depth=0.0026, vertices=20, location=(sx * 0.0611, y, 0.0115), rotation=(0, math.radians(90), 0))
+            bpy.ops.mesh.primitive_cylinder_add(radius=0.0042, depth=0.0026, vertices=12, location=(sx * 0.0611, y, 0.0115), rotation=(0, math.radians(90), 0))
             buffer = bpy.context.object
             buffer.name = "mover_buffer"
             buffer.data.materials.append(BUMPER())
-            bevel(buffer, 0.0007, 2)
+            bevel(buffer, 0.0007, 1)
             pads.append(buffer)
     # Laminated ID plates: top (operator view from above) and both long sides (station cameras).
     lt = label_plane(0.046, 0.022, (-0.004, -0.0345, 0.02945), (0, 0, 0), "label_top")
@@ -367,7 +370,7 @@ def mover(num=None):
         bezel = bpy.context.object
         bezel.name = "led_bezel"
         bezel.data.materials.append(RUBBER())
-        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.0033, segments=20, ring_count=10, location=(0, 0, 0.0012))
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.0033, segments=14, ring_count=6, location=(0, 0, 0.0012))
         lens = bpy.context.object
         lens.scale.z = 0.55
         bpy.ops.object.transform_apply(scale=True)
@@ -402,26 +405,42 @@ def mover(num=None):
 
 
 def tray(cols=4, rows=8, pitch=0.021):
-    """Tray of 32 pens (the original packs 32), matching LINE.layout.tray."""
+    """Thermoformed tray of 32 pens (the original packs 32), matching LINE.layout.tray: a deck
+    with drawn pockets, tapered skirt, a stiffening bead and a flange lip, stacking lugs."""
     w, d = cols * pitch + 0.02, rows * pitch + 0.02
-    plate = bevel(box(w, d, 0.006, (0, 0, 0.003), TRAY(), "tray_plate"), 0.002)
-    rim = bevel(box(w, d, 0.02, (0, 0, 0.01), TRAY(), "tray_rim"), 0.002)
-    cut(rim, box(w - 0.006, d - 0.006, 0.02, (0, 0, 0.016), TRAY(), "tray_cut"))
-    # Deep pocket collars hold the pens upright.
+    t = TRAY()
+    # Skirt: tapered open box with a wall, from the foot to the deck.
+    skirt = bevel(box(w, d, 0.03, (0, 0, 0.015), t, "tray_skirt"), 0.002)
+    cut(skirt, box(w - 0.003, d - 0.003, 0.032, (0, 0, 0.014), t, "tray_skirt_cut"))
+    for v in skirt.data.vertices:
+        if v.co.z < 0.015:
+            v.co.x *= 0.96
+            v.co.y *= 0.975
+    deck = bevel(box(w - 0.002, d - 0.002, 0.0016, (0, 0, 0.0292), t, "tray_deck"), 0.0006)
+    lip = bevel(box(w + 0.007, d + 0.007, 0.0014, (0, 0, 0.0293), t, "tray_lip"), 0.0006)
+    cut(lip, box(w - 0.001, d - 0.001, 0.004, (0, 0, 0.0293), t, "tray_lip_cut"))
+    bead = bevel(box(w + 0.0012, d + 0.0012, 0.0022, (0, 0, 0.0245), t, "tray_bead"), 0.0008)
+    cut(bead, box(w - 0.0015, d - 0.0015, 0.004, (0, 0, 0.0245), t, "tray_bead_cut"))
     pockets = []
     for i in range(cols):
         for j in range(rows):
             x = (i - (cols - 1) / 2) * pitch
             y = (j - (rows - 1) / 2) * pitch
-            pockets.append(tube(0.0102, 0.009, 0.028, 0.006, TRAY(), f"tray_pocket_{i}_{j}", verts=16))
+            hole = cyl(0.0099, 0.004, 0.027, t, "tray_hole", verts=14)
+            hole.location.x, hole.location.y = x, y
+            cut(deck, hole)
+            pockets.append(tube(0.0099, 0.0093, 0.024, 0.006, t, f"tray_pocket_{i}_{j}", floor=0.0008, verts=14))
             pockets[-1].location.x, pockets[-1].location.y = x, y
-    bpy.data.objects.remove(plate, do_unlink=True)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            lug = bevel(box(0.008, 0.008, 0.004, (sx * (w / 2 - 0.007), sy * (d / 2 - 0.007), 0.032), t, "tray_lug"), 0.0012)
+            pockets.append(lug)
     bpy.ops.object.select_all(action="DESELECT")
     for obj in pockets:
         obj.select_set(True)
     bpy.context.view_layer.objects.active = pockets[0]
     bpy.ops.object.join()
-    return group("Tray", [rim, pockets[0]])
+    return group("Tray", [skirt, deck, lip, bead, pockets[0]])
 
 
 def export(root, filename):
