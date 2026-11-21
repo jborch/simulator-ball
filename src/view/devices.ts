@@ -769,10 +769,22 @@ export class TrayView {
       this.group.add(tr);
     }
     this.top = make();
-    // Spare empty trays for the destacker, stacked on the next bench along.
+    // Spare empty trays for the destacker, stacked on the next bench along. Nested trays show
+    // only their skirt band and lip, so all but the top one of each stack are drawn as just that.
     const spares: THREE.Matrix4[] = [];
-    for (const a of [tl.end + 0.36, tl.end + 0.58])
-      for (let k = 0; k < 9; k++) spares.push(new THREE.Matrix4().makeTranslation(a, TABLE + k * 0.012, -(t.r + 0.03)));
+    const nested = new THREE.Group();
+    const tw = t.cols * t.pitch + 0.02;
+    const td = t.rows * t.pitch + 0.02;
+    const trayFinish = trayMaterial(models.tray);
+    for (const a of [tl.end + 0.36, tl.end + 0.58]) {
+      spares.push(new THREE.Matrix4().makeTranslation(a, TABLE + 8 * 0.012, -(t.r + 0.03)));
+      for (let k = 0; k < 8; k++) {
+        block(nested, a, TABLE + k * 0.012 + 0.024, -(t.r + 0.03), tw * 0.985, 0.012, td * 0.99, trayFinish);
+        block(nested, a, TABLE + k * 0.012 + 0.0293, -(t.r + 0.03), tw + 0.007, 0.0014, td + 0.007, trayFinish);
+      }
+    }
+    batch(nested);
+    this.group.add(nested);
     const spare = new StockInstances(models.tray.clone(true), spares);
     spare.group.userData.product = false;
     this.group.add(spare.group);
@@ -931,4 +943,13 @@ function segmentToOrigin(a: THREE.Vector2, b: THREE.Vector2): number {
   const v = b.clone().sub(a);
   const t = THREE.MathUtils.clamp(-a.dot(v) / v.lengthSq(), 0, 1);
   return a.clone().addScaledVector(v, t).length();
+}
+
+/** The tray model's moulding finish (for simplified stacks of the same trays). */
+function trayMaterial(tray: THREE.Object3D): THREE.Material {
+  let m: THREE.Material | null = null;
+  tray.traverse((o) => {
+    if (!m && o instanceof THREE.Mesh && !Array.isArray(o.material)) m = o.material;
+  });
+  return m ?? M.nest;
 }

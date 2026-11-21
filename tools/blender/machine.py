@@ -248,9 +248,11 @@ mesh(
     steel,
     0.0004,
 )
-block(0, -0.014, -0.0004, 0.004, 0.016, 0.0012, seal, 0.0002)
+# One finish per finger (each finger is its own draw): the grip insert and screw heads are
+# machined in the same steel.
+block(0, -0.014, -0.0004, 0.004, 0.016, 0.0012, steel, 0.0002)
 for y in (0.009, 0.015):
-    roundbar(0, y, 0.0063, 0.0016, 0.0007, dark, 10, "z")
+    roundbar(0, y, 0.0063, 0.0016, 0.0007, steel, 10, "z")
 save("Finger")
 
 # Machine vision camera looking down -Y: finned housing, M12 plug and cable,
