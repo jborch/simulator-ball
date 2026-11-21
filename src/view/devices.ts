@@ -933,7 +933,8 @@ export class TrayView {
     this.group.add(spare.group);
     for (const a of [tl.end + 0.36, tl.end + 0.58]) {
       const patch = new THREE.Group();
-      contactPatch(patch, a, TABLE + 0.0009, -(t.r + 0.03), 0.16, 0.26);
+      // Reaching a few centimetres past the stack, so the darkening shows round its foot.
+      contactPatch(patch, a, TABLE + 0.0009, -(t.r + 0.03), tw + 0.08, td + 0.09);
       this.group.add(patch);
     }
     const out = label('Trays out: 0', 'label feeder');
