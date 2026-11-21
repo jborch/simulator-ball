@@ -9,6 +9,7 @@ import { StockInstances, batch, block, finish, gland, hardware, hose, plate, pro
 import { contactPatch } from './hall';
 import { miniConveyor } from './conveyor';
 import { AssemblyView, HeldView, housingPart } from './movers';
+import { BOWL, RAMP_R, dischargeAt, floorProfile, housingBowlLayout, laneAt, measureHousing } from './bowl';
 
 /** Ring light diffuser brightness: always on (as most are), and flashed while exposing. */
 export const RING_IDLE = 1.1;
@@ -409,94 +410,140 @@ export class InspectionView {
   }
 }
 
-/** A full-size housing is 120 mm long. The 440 mm bowl keeps loose stock
- * inside the climbing shelf; its final tangent discharges into the upright guide. */
+/**
+ * Sweeps a closed (lateral, up) section along a path of (point, lateral unit) samples, one strip
+ * per section edge so the edges stay crisp; `caps` closes both ends.
+ */
+function sweep(path: { p: THREE.Vector3; n: THREE.Vector3 }[], section: [number, number][], caps = true): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const at = (k: number, [l, h]: [number, number]) => path[k].p.clone().addScaledVector(path[k].n, l).setY(path[k].p.y + h);
+  for (let e = 0; e < section.length; e++) {
+    const s0 = section[e];
+    const s1 = section[(e + 1) % section.length];
+    const base = pos.length / 3;
+    for (let k = 0; k < path.length; k++) pos.push(...at(k, s0).toArray(), ...at(k, s1).toArray());
+    for (let k = 1; k < path.length; k++) {
+      const i = base + 2 * k;
+      idx.push(i - 2, i - 1, i, i - 1, i + 1, i);
+    }
+  }
+  if (caps) {
+    const tris = THREE.ShapeUtils.triangulateShape(section.map(([l, h]) => new THREE.Vector2(l, h)), []);
+    for (const k of [0, path.length - 1]) {
+      const base = pos.length / 3;
+      for (const pt of section) pos.push(...at(k, pt).toArray());
+      for (const [a, b, c] of tris) idx.push(base + a, base + (k ? b : c), base + (k ? c : b));
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A straight rod between two points. */
+function rod(g: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, r: number, m: THREE.Material): void {
+  const mesh = cyl(r, a.distanceTo(b), m, 10);
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+  g.add(mesh);
+}
+
+/**
+ * The 440 mm housing bowl (see bowl.ts for the layout and its non-overlap rules): a cylindrical
+ * bowl with a stepped helical ledge climbing its wall; loose housings lying in the well; a single
+ * file lying on the ledge; one housing being up-ended by a ramp wire; and the upright queue
+ * between low strips and two rails each side, out through the wall along the tongue.
+ */
 function housingBowl(entryR: number, deckY: number, material: THREE.Material, models: Models): { frame: THREE.Group; stock: THREE.Group } {
   const frame = new THREE.Group();
   const stock = new THREE.Group();
-  const exitRadius = 0.198;
-  const floor = deckY - 0.083;
-  frame.position.set(-exitRadius, floor, -entryR - 0.13);
+  stock.name = 'housing-bowl-stock';
+  const floor = deckY - BOWL.top;
+  frame.position.set(-BOWL.exit, floor, -entryR - 0.13);
   const drive = hardware('Vibrator', 0, TABLE - floor, 0);
   drive.scale.set(2, (floor - TABLE) / 0.1385, 2);
   frame.add(drive);
-  const wall = [[0, 0.002], [0.055, 0.002], [0.158, 0], [0.19, 0.006], [0.215, 0.062], [0.221, 0.091], [0.225, 0.093]];
-  // Leave the wall open over the discharge tongue.
-  const section = wall.map(([r, y]) => new THREE.Vector2(r, y));
-  frame.add(new THREE.Mesh(new THREE.LatheGeometry(section.slice(0, 5), 96), material));
-  frame.add(new THREE.Mesh(new THREE.LatheGeometry(section.slice(4), 96, Math.PI / 2 + 0.04, 2 * Math.PI - 0.63), material));
-  const path: THREE.Vector3[] = [];
-  const edge: THREE.Vector3[] = [];
-  const vertices: number[] = [], indices: number[] = [];
-  for (let i = 0; i <= 120; i++) {
-    const t = i / 120;
-    const angle = (t - 1) * 2 * Math.PI * 1.18;
-    const radius = 0.15 + t * (exitRadius - 0.15);
-    const y = 0.009 + t * 0.074;
-    const point = (r: number) => new THREE.Vector3(r * Math.cos(angle), y, r * Math.sin(angle));
-    path.push(point(radius));
-    edge.push(point(radius - 0.013));
-    vertices.push(...edge[i].toArray(), ...point(radius + 0.013).toArray());
-    if (i) {
-      const next = i * 2;
-      indices.push(next - 2, next, next - 1, next - 1, next, next + 1);
-    }
+  const env = measureHousing(housingPart(models));
+  const layout = housingBowlLayout(env);
+
+  // Bowl: centre cone and floor, cylindrical wall, rolled rim; the rim is open over the exit.
+  const lower = [...floorProfile(), [BOWL.wall, 0.075]].map(([r, y]) => new THREE.Vector2(r, y));
+  const upper = [
+    [BOWL.wall, 0.075],
+    [BOWL.wall, 0.088],
+    [BOWL.wall + 0.002, BOWL.rim],
+    [BOWL.lip, BOWL.rim],
+    [BOWL.lip + 0.002, BOWL.rim - 0.004],
+    [BOWL.lip + 0.002, BOWL.rim - 0.011],
+  ].map(([r, y]) => new THREE.Vector2(r, y));
+  frame.add(new THREE.Mesh(new THREE.LatheGeometry(lower, 128), material));
+  frame.add(new THREE.Mesh(new THREE.LatheGeometry(upper, 128, Math.PI / 2 + 0.04, 2 * Math.PI - 0.38), material));
+
+  // Stepped helical track: a ledge with a raised bead on its inner edge, from the floor to the exit.
+  const helix: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+  for (let a = BOWL.start; ; a = Math.min(0, a + 0.025)) {
+    helix.push({ p: new THREE.Vector3(0, laneAt(a), 0), n: new THREE.Vector3(Math.cos(a), 0, Math.sin(a)) });
+    if (a === 0) break;
   }
-  const shelf = new THREE.BufferGeometry();
-  shelf.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  shelf.setIndex(indices);
-  shelf.computeVertexNormals();
-  frame.add(new THREE.Mesh(shelf, material));
-  frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(edge), 140, 0.002, 8), M.rail));
-  block(frame, exitRadius, 0.0805, 0.065, 0.026, 0.005, 0.13, M.rail);
-  // Retaining rails continue around the last turn and along the tongue.
-  for (const side of [-1, 1]) {
-    const points = path.slice(-22).map(p => {
-      const scale = 1 + side * 0.011 / Math.hypot(p.x, p.z);
-      return new THREE.Vector3(p.x * scale, p.y + 0.052, p.z * scale);
-    });
-    points.push(new THREE.Vector3(exitRadius + side * 0.011, 0.135, 0.13));
-    frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 40, 0.0025, 8), M.rail));
-    for (const i of [2, 14, 22]) {
-      const p = points[i];
-      block(frame, p.x + side * 0.002, p.y - 0.025, p.z, 0.004, 0.054, 0.006, M.frame);
+  const lane = BOWL.lane;
+  const ledge = sweep(helix, [
+    [BOWL.wall, 0],
+    [lane + 0.0015, 0],
+    [lane + 0.0015, BOWL.bead],
+    [lane, BOWL.bead],
+    [lane, -BOWL.ledge],
+    [BOWL.wall, -BOWL.ledge],
+  ]);
+  frame.add(new THREE.Mesh(ledge, material));
+
+  // Discharge tongue through the wall onto the linear feeder, with a bracket to the bowl.
+  block(frame, BOWL.exit, BOWL.top - 0.003, (BOWL.tongue - 0.002) / 2, 0.035, 0.006, BOWL.tongue + 0.002, material);
+  block(frame, BOWL.exit + 0.008, BOWL.top - 0.022, 0.075, 0.016, 0.032, 0.01, M.frame);
+  const along = (s0: number, s1: number) => {
+    const out: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+    for (let s = s0; ; s = Math.min(s1, s + 0.004)) {
+      const { p, n } = dischargeAt(s);
+      out.push({ p: new THREE.Vector3(p.x, BOWL.top, p.y), n: new THREE.Vector3(n.x, 0, n.y) });
+      if (s === s1) break;
     }
+    return out;
+  };
+  for (const st of layout.strips) {
+    const l0 = st.side * (st.offset - st.thickness / 2);
+    const l1 = st.side * (st.offset + st.thickness / 2);
+    frame.add(new THREE.Mesh(sweep(along(st.s0, st.s1), [[l0, 0], [l1, 0], [l1, st.height], [l0, st.height]]), M.rail));
   }
-  const upright = [104, 112, 120].map(i => new THREE.Matrix4().makeTranslation(path[i].x, path[i].y, path[i].z));
-  for (const z of [0.050, 0.096]) upright.push(new THREE.Matrix4().makeTranslation(exitRadius, 0.083, z));
-  const oriented = new StockInstances(housingPart(models), upright);
+  for (const path of layout.rails.paths) frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path, false, 'centripetal'), path.length * 2, layout.rails.r, 8), M.rail));
+  const postTop = Math.max(...layout.rails.paths.map((p) => p[1].y)) + 0.003;
+  for (const post of layout.rails.posts) {
+    const { p, n } = dischargeAt(post.s);
+    const o = post.side * layout.rails.postOffset;
+    round(frame, p.x + n.x * o, (post.y0 + postTop) / 2, p.y + n.y * o, layout.rails.postR, postTop - post.y0, M.frame, 12);
+    round(frame, p.x + n.x * o, postTop, p.y + n.y * o, layout.rails.postR + 0.0006, 0.002, finish.graphite, 12);
+  }
+  // Up-ending ramp wire, welded to the ledge at both ends.
+  layout.ramp.slice(1).forEach((b, i) => rod(frame, layout.ramp[i], b, RAMP_R, M.rail));
+  for (const joint of layout.ramp.slice(1, -1)) {
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(RAMP_R, 10, 8), M.rail);
+    knuckle.position.copy(joint);
+    frame.add(knuckle);
+  }
+  frame.traverse((o) => {
+    if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true;
+  });
   batch(frame);
-  frame.add(oriented.group);
-  // Settle full-length blanks in the well. Each upper blank rests across two
-  // in the layer below. Reserve the swept shelf envelope all the way around.
-  let seed = 3412;
-  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-  const pile: THREE.Matrix4[] = [];
-  type Blank = { a: THREE.Vector2; b: THREE.Vector2 };
-  let below: Blank[] = [];
-  for (let layer = 0; layer < 4; layer++) {
-    const placed: Blank[] = [];
-    for (let attempt = 0; attempt < 900; attempt++) {
-      const a = new THREE.Vector2((random() - 0.5) * 0.26, (random() - 0.5) * 0.26);
-      const angle = random() * Math.PI * 2;
-      const b = a.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(0.12));
-      if (Math.max(a.length(), b.length()) > 0.130) continue;
-      const gap = (other: Blank) => segmentDistance(a, b, other.a, other.b);
-      if (placed.some(other => gap(other) < 0.021)) continue;
-      if (layer && below.filter(other => gap(other) < 0.011).length < 2) continue;
-      placed.push({ a, b });
-      const matrix = new THREE.Matrix4().makeRotationY(Math.PI / 2 - angle);
-      matrix.multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
-      matrix.setPosition(a.x, 0.0105 + layer * 0.0175, a.y);
-      pile.push(matrix);
-    }
-    below = placed;
-  }
+  const queue = new StockInstances(housingPart(models), [...layout.lying, ...layout.tipping, ...layout.upright]).group;
+  queue.name = 'housing-bowl-lane';
+  frame.add(queue);
+
   // Mirror the left-hand discharge so the bowl sits inboard of the feeder.
   frame.position.x *= -1;
   frame.scale.x = -1;
   stock.position.copy(frame.position);
-  stock.add(new StockInstances(housingPart(models), pile).group);
+  stock.add(new StockInstances(housingPart(models), layout.pile).group);
   return { frame, stock };
 }
 

@@ -56,10 +56,10 @@ const amber = hall(0xb49856, { metalness: 0.66, roughness: 0.4 });
 const safetyRed = hall(0xa83a2e, { roughness: 0.38, metalness: 0 });
 
 function floor(): THREE.Mesh {
-  // Mid-grey self-levelling epoxy: seamless, a fine speckle and a faint cloud in the colour (one
-  // repeat = 2.8 m). Glossy, so the ceiling's luminaires show in it as faint soft reflections; the
-  // gloss map is a broad cloud at another period (roller and wear marks), so the reflections vary
-  // across the hall without streaking and the repeats don't line up.
+  // Mid-grey self-levelling epoxy: seamless and uniform, with only a fine speckle (one repeat =
+  // 1.4 m, too fine to read as a pattern from the cameras). Glossy, so the ceiling's luminaires
+  // show in it as faint soft reflections; the gloss map is a fine, even grain at another period,
+  // so the reflections break up slightly without any broad light/dark clouds.
   const lcg = (s: number) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const tex = canvasMap(1024, (c) => {
     const img = c.createImageData(1024, 1024);
@@ -67,33 +67,26 @@ function floor(): THREE.Mesh {
     for (let y = 0; y < 1024; y++)
       for (let x = 0; x < 1024; x++) {
         const fleck = rnd();
-        const grain = (rnd() - 0.5) * 5 + (fleck > 0.985 ? 9 : fleck < 0.012 ? -8 : 0);
-        const u = (x / 1024) * Math.PI * 2;
-        const v = (y / 1024) * Math.PI * 2;
-        const cloud = 2.2 * Math.sin(u * 2 + Math.sin(v * 3) * 1.3) * Math.sin(v * 2 + Math.sin(u * 1) * 1.7) + 1.2 * Math.sin(u * 5 + v * 3);
-        const k = 80 + grain + 0.6 * cloud;
+        const k = 80 + (rnd() - 0.5) * 3 + (fleck > 0.99 ? 6 : fleck < 0.008 ? -5 : 0);
         img.data.set([k, k + 2, k + 2, 255], 4 * (x + y * 1024));
       }
     c.putImageData(img, 0, 0);
   });
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(12, 12);
+  tex.repeat.set(24, 24);
   const gloss = canvasMap(256, (c) => {
     const img = c.createImageData(256, 256);
     const rnd = lcg(91);
     for (let y = 0; y < 256; y++)
       for (let x = 0; x < 256; x++) {
-        const u = (x / 256) * Math.PI * 2;
-        const v = (y / 256) * Math.PI * 2;
-        const cloud = Math.sin(u * 3 + Math.sin(v * 2) * 1.5) * Math.sin(v * 2 + Math.sin(u * 3) * 1.1) + 0.4 * Math.sin(u * 7 + v * 2);
-        const k = 92 + cloud * 18 + (rnd() - 0.5) * 6;
+        const k = 92 + (rnd() - 0.5) * 8;
         img.data.set([k, k, k, 255], 4 * (x + y * 256));
       }
     c.putImageData(img, 0, 0);
   });
   gloss.colorSpace = THREE.NoColorSpace;
   gloss.wrapS = gloss.wrapT = THREE.RepeatWrapping;
-  gloss.repeat.set(5, 5);
+  gloss.repeat.set(37, 37);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.62, roughnessMap: gloss, metalness: 0 }));
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;
