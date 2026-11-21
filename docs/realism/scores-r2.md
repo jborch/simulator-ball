@@ -53,3 +53,32 @@ hero-robot 3.4 → 3.6 (r1 → r2, same-day measurement). 6 feeds with camera re
 - Jagged stair-stepped edges on the feeder chute and tray rack (infeed, hero-movers background).
 - Conduit crosses a wall sign (hero-movers); "…/03" sign clipped by the frame.
 - Press label/caution sticker lost from the camera-facing face (hero-presses).
+
+## Addendum: GPT-6.2 Sol (scored after the Codex limit reset)
+
+Absolute, blind, same rubric. Sol is the harshest judge and weighs mechanical function heavily.
+
+| image | before | r1 | r2 |
+|---|---:|---:|---:|
+| overview | 4 | 7 | 7 |
+| infeed | 4 | 6 | 6 |
+| springbase | 4 | 6 | 6 |
+| cartridge | 5 | 6 | 6 |
+| housing | 4 | 6 | 5 |
+| outfeed | 3 | 6 | 6 |
+| hero-robot | 5 | 6 | 6 |
+| hero-presses | 4 | 7 | 7 |
+| hero-dial | 5 | 6 | 6 |
+| hero-outfeed | 4 | 6 | 6 |
+| hero-movers | 5 | 7 | 6 |
+| **per-view mean** | **4.3** | **6.3** | **6.1** |
+| **overall** | 4 | 6 | 6 |
+
+Sol sees no gain from r1 to r2. Its complaints are about working interfaces: generic rectangular
+end tools (how is the part held?), feeder tracks without escapements, dial nests without inserts,
+shallow tray pockets without stops, hoses ending in mid-air (springbase, hero-presses), tray
+stacks hovering (hero-outfeed), press tool offset from the tube mouth (hero-presses), guard panels
+indistinguishable from open frames, faceted dial rim, weak contact shadows under pucks and stacks,
+exaggerated worktop brushing, wall clock clipped by the grille (infeed, cartridge).
+
+Three-judge r2 per-view mean: (7.05 + 6.64 + 6.09) / 3 = **6.6** (before: 4.1).
