@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { box, cyl, mat } from './build';
+import { clearMaterial } from './clear';
 
 const kit = new Map<string, THREE.Object3D>();
 const components = [
@@ -19,6 +20,8 @@ const components = [
   'StopHead',
   'Finger',
   'VisionCamera',
+  'AirPrep',
+  'JunctionBox',
   'Vibrator',
   'Indexer',
   'ValveBank',
@@ -33,11 +36,58 @@ export function installHardware(root: THREE.Object3D): void {
     kit.set(name, obj);
   }
   // Printed plates modelled as UV-mapped quads get their artwork here.
-  const rating = ratingPlate();
+  const replace: Record<string, THREE.Material> = {
+    'Motor nameplate': ratingPlate(),
+    'Gauge face': gaugeFace(),
+    'Filter bowl': clearMaterial({ color: 0xdfe7ea, edge: 0x7f9197, opacity: [0.25, 0.85], roughness: 0.1 }),
+  };
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Motor nameplate') mesh.material = rating;
+    if (mesh.isMesh && !Array.isArray(mesh.material) && replace[mesh.material.name]) mesh.material = replace[mesh.material.name];
   });
+}
+
+/** Pressure gauge dial (0–10 bar, needle near 6), round on a transparent square. */
+function gaugeFace(): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const p = c.getContext('2d')!;
+  p.translate(64, 64);
+  p.fillStyle = '#f2f2ee';
+  p.beginPath();
+  p.arc(0, 0, 62, 0, Math.PI * 2);
+  p.fill();
+  p.strokeStyle = '#1d2224';
+  p.fillStyle = '#1d2224';
+  p.font = 'bold 15px Arial';
+  p.textAlign = 'center';
+  p.textBaseline = 'middle';
+  for (let i = 0; i <= 10; i++) {
+    const a = -Math.PI * 1.25 + (i / 10) * Math.PI * 1.5;
+    p.lineWidth = i % 5 ? 2 : 4;
+    p.beginPath();
+    p.moveTo(Math.cos(a) * 54, Math.sin(a) * 54);
+    p.lineTo(Math.cos(a) * 44, Math.sin(a) * 44);
+    p.stroke();
+    if (i % 2 === 0) p.fillText(String(i), Math.cos(a) * 33, Math.sin(a) * 33);
+  }
+  p.strokeStyle = '#2f8f4e';
+  p.lineWidth = 5;
+  p.beginPath();
+  p.arc(0, 0, 50, -Math.PI * 1.25 + 0.75 * Math.PI, -Math.PI * 1.25 + 1.05 * Math.PI);
+  p.stroke();
+  p.strokeStyle = '#b3261e';
+  p.lineWidth = 3;
+  const n = -Math.PI * 1.25 + 0.6 * Math.PI * 1.5;
+  p.beginPath();
+  p.moveTo(-Math.cos(n) * 8, -Math.sin(n) * 8);
+  p.lineTo(Math.cos(n) * 46, Math.sin(n) * 46);
+  p.stroke();
+  p.font = '10px Arial';
+  p.fillText('bar', 0, 22);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return mat(0xffffff, { map: tex, alphaTest: 0.5, roughness: 0.25, name: 'Gauge face' });
 }
 
 /** Silver rating plate of the servo motors: maker band, type line, small print and a code. */
@@ -120,10 +170,41 @@ export function profile(g: THREE.Object3D, from: number[], to: number[], width =
   return p;
 }
 
-export function hose(g: THREE.Object3D, coords: number[][], r = 0.003, m = finish.seal): void {
+const collar = mat(0x2b5f9e, { roughness: 0.38 });
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** A short cylinder from `p` along `dir`. */
+function along(g: THREE.Object3D, p: THREE.Vector3, dir: THREE.Vector3, r: number, len: number, m: THREE.Material, seg = 10): void {
+  const c = cyl(r, len, m, seg);
+  c.quaternion.setFromUnitVectors(UP, dir);
+  c.position.copy(p).addScaledVector(dir, len / 2);
+  g.add(c);
+}
+
+/**
+ * Air line or cable through the given points. Air lines (`finish.pipe`) end in push-in fittings
+ * with a release collar, cables in a gland nut; longer runs are tied at their inner points.
+ */
+export function hose(g: THREE.Object3D, coords: number[][], r = 0.003, m: THREE.Material = finish.seal, ends = true): void {
   const path = new THREE.CatmullRomCurve3(coords.map((p) => new THREE.Vector3().fromArray(p)));
   const tube = new THREE.Mesh(new THREE.TubeGeometry(path, coords.length * 5, r, 6, false), m);
   g.add(tube);
+  if (!ends) return;
+  const air = m === finish.pipe;
+  for (const t of [0, 1]) {
+    const p = path.getPointAt(t);
+    const out = path.getTangentAt(t).multiplyScalar(t ? 1 : -1);
+    if (air) {
+      along(g, p.clone().addScaledVector(out, -r * 1.2), out, r * 1.55, r * 1.4, collar);
+      along(g, p.clone().addScaledVector(out, r * 0.2), out, r * 1.35, r * 3.2, finish.zinc);
+    } else along(g, p.clone().addScaledVector(out, -r * 0.8), out, r * 1.5, r * 2.6, finish.graphite, 6);
+  }
+  if (coords.length >= 5)
+    for (let i = 1; i < coords.length - 1; i++) {
+      const t = i / (coords.length - 1);
+      const dir = path.getTangentAt(t);
+      along(g, path.getPointAt(t).addScaledVector(dir, -0.0015), dir, r * 1.3, 0.003, finish.seal, 8);
+    }
 }
 
 const decals = new Map<string, THREE.MeshStandardMaterial>();

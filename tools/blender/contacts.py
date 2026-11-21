@@ -19,6 +19,10 @@ machine.visible_camera = False
 
 bpy.ops.mesh.primitive_plane_add(size=12)
 receiver = bpy.context.object
+# Seen only by the camera: occlusion rays must not hit the receiver's own
+# triangles (that drew a seam along the plane's diagonal).
+for flag in ("visible_diffuse", "visible_glossy", "visible_transmission", "visible_volume_scatter", "visible_shadow"):
+    setattr(receiver, flag, False)
 material = bpy.data.materials.new("Irradiance fraction")
 material.use_nodes = True
 tree = material.node_tree

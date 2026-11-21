@@ -122,7 +122,7 @@ export class SpringBaseLineView {
     const lane = new THREE.Group();
     // End stop where parts nobody takes queue.
     block(lane, length + 0.009, y + 0.006, -d.r, 0.006, 0.012, 0.03, finish.graphite);
-    plate(lane, 0.29, y - 0.017, -d.r + 0.0165, 0.13, 0.021, 'EM13', 'SPRING BASE FEED');
+    plate(lane, 0.29, y - 0.017, -d.r + 0.0212, 0.13, 0.021, 'EM13', 'SPRING BASE FEED');
     batch(lane);
     this.group.add(lane);
 
@@ -586,11 +586,25 @@ export class CartridgeCellView {
     const bed = new THREE.Mesh(chassis, finish.graphite);
     bed.position.y = col.base - 0.03;
     transfer.add(bed);
+    // Sprocket wheels under each end, on a profile stand with foot plates and cross members,
+    // and the gearmotor hanging under the fill end.
+    const under = col.base - 0.03;
     for (const r of [start, end]) {
-      round(transfer, 0, col.base - 0.036, -r, 0.048, 0.02, M.rail, 32);
-      round(transfer, 0, (TABLE + col.base - 0.045) / 2, -r, 0.036, col.base - 0.045 - TABLE, finish.powder);
-      round(transfer, 0, TABLE + 0.006, -r, 0.05, 0.012, finish.graphite);
+      round(transfer, 0, under - 0.011, -r, 0.05, 0.016, finish.graphite, 32);
+      round(transfer, 0, under - 0.002, -r, 0.022, 0.004, M.rail, 24);
+      for (const a of [-0.042, 0.042]) {
+        profile(transfer, [a, TABLE + 0.008, -r], [a, under - 0.019, -r], 0.03);
+        block(transfer, a, TABLE + 0.004, -r, 0.055, 0.008, 0.055, finish.graphite);
+        for (const dz of [-0.019, 0.019]) round(transfer, a + 0.019, TABLE + 0.0085, -r + dz, 0.0032, 0.001, finish.zinc, 10);
+      }
+      block(transfer, 0, under - 0.025, -r, 0.115, 0.012, 0.03, finish.graphite);
+      contactPatch(transfer, 0, TABLE + 0.0009, -r, 0.17, 0.1);
     }
+    for (const a of [-0.042, 0.042]) profile(transfer, [a, TABLE + 0.04, -start], [a, TABLE + 0.04, -end], 0.025);
+    const gear = hardware('Gearmotor', 0.012, under - 0.06, -end);
+    gear.scale.setScalar(0.38);
+    gear.rotation.z = -Math.PI / 2;
+    transfer.add(gear);
     plate(transfer, 0, col.base - 0.021, -(start - rad - 0.002), 0.061, 0.012, 'CF12', 'COLLET FEED');
     batch(transfer);
     this.group.add(transfer);

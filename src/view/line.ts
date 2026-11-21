@@ -26,6 +26,8 @@ export class LineView {
   private readonly cartridges: CartridgeCellView;
   private readonly beltTex: THREE.Texture;
   private beltTravel = 0;
+  /** Splice of the belt strands, carried round with the belt. */
+  private readonly seam = new THREE.Group();
   private readonly L: number;
 
   constructor(
@@ -104,6 +106,21 @@ export class LineView {
       belt.receiveShadow = true;
       this.group.add(belt);
     }
+    // Finger splice across each strand: a slightly lighter, glossier zig-zag band.
+    const splice = new THREE.MeshStandardMaterial({ color: 0x3b4140, roughness: 0.5 });
+    for (const [r0, r1] of [
+      [STRAND_IN, BELT_W / 2],
+      [-BELT_W / 2, -STRAND_IN],
+    ]) {
+      for (let k = 0; k < 4; k++) {
+        const w = (r1 - r0) / 4;
+        const tooth = new THREE.Mesh(new THREE.PlaneGeometry(0.012, w * 0.9).rotateX(-Math.PI / 2), splice);
+        tooth.position.set(k % 2 ? 0.004 : -0.004, 0, -(r0 + w * (k + 0.5)));
+        tooth.rotation.y = k % 2 ? 0.5 : -0.5;
+        this.seam.add(tooth);
+      }
+    }
+    this.group.add(this.seam);
     const channel = new THREE.Mesh(this.strip(-STRAND_IN, STRAND_IN, BELT_Y - 0.0055, n), finish.graphite);
     channel.receiveShadow = true;
     this.group.add(channel);
@@ -184,6 +201,10 @@ export class LineView {
 
     this.beltTravel += f.beltSpeed * dt;
     this.beltTex.offset.y = -this.beltTravel / RIB;
+    // The belt's splice travels round with it.
+    const sp = pose(this.cfg.track, ((this.beltTravel % this.L) + this.L) % this.L);
+    this.seam.position.set(sp.x, BELT_Y - 0.0016, -sp.y);
+    this.seam.rotation.y = sp.heading;
 
     this.stations.forEach((sv, i) => sv.update(sample.a, f, sample.alpha, i, sample.t));
     this.springBases.update(sample.a, sample.t);

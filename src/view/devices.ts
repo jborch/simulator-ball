@@ -759,6 +759,18 @@ export class TrayView {
       this.group.add(tr);
     }
     this.top = make();
+    // Spare empty trays for the destacker, stacked on the next bench along.
+    const spares: THREE.Matrix4[] = [];
+    for (const a of [tl.end + 0.36, tl.end + 0.58])
+      for (let k = 0; k < 9; k++) spares.push(new THREE.Matrix4().makeTranslation(a, TABLE + k * 0.012, -(t.r + 0.03)));
+    const spare = new StockInstances(models.tray.clone(true), spares);
+    spare.group.userData.product = false;
+    this.group.add(spare.group);
+    for (const a of [tl.end + 0.36, tl.end + 0.58]) {
+      const patch = new THREE.Group();
+      contactPatch(patch, a, TABLE + 0.0009, -(t.r + 0.03), 0.16, 0.26);
+      this.group.add(patch);
+    }
     const out = label('Trays out: 0', 'label feeder');
     out.position.copy(local(tl.end + 0.12, y + 0.2, t.r));
     this.outLabel = out.element;

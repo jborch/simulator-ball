@@ -6,7 +6,7 @@ import type { Pose } from '../sim/track';
 import { batch } from './hardware';
 import type { Models } from './models';
 import { hash01 } from './scene';
-import { dataMatrixTexture, numberTexture } from './textures';
+import { carrierWear, dataMatrixTexture, numberTexture } from './textures';
 
 /**
  * A housing, origin at its base (as fed and as picked). Call `showLabel` to show the label EM31
@@ -238,6 +238,12 @@ export class MoverView {
       m.color.setHSL(hsl.h + (h(2) - 0.5) * 0.02, Math.max(0, hsl.s * (1 - 0.35 * worn) + (h(3) - 0.5) * 0.06), Math.max(0, hsl.l * (1 - 0.25 * worn) + (h(4) - 0.5) * 0.04));
       m.roughness = Math.min(1, base.roughness + 0.3 * worn);
       m.metalness = base.metalness * (1 - 0.5 * worn);
+      // Worn carriers carry grime and scuffs on their body and tooling plate.
+      if (worn > 0.4 && (base.name === 'MoverBody' || base.name === 'ToolPlate')) {
+        const w = carrierWear();
+        m.map = w.map;
+        m.roughnessMap = w.rough;
+      }
       const old = mesh.material as THREE.Material;
       mesh.material = m;
       if (old !== base) old.dispose();

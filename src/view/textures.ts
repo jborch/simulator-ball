@@ -96,21 +96,147 @@ export function beltTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Fine directional finishing marks in the roughness channel. */
-export function brushedFinish():THREE.CanvasTexture {
-  const c=document.createElement('canvas');
-  c.width=256; c.height=256;
-  const ctx=c.getContext('2d')!;
-  let seed=931;
-  for(let y=0;y<256;y++){
-    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    const k=198+Math.round(seed/4294967296*34);
-    ctx.fillStyle=`rgb(${k},${k},${k})`;
-    ctx.fillRect(0,y,256,1);
+/** Brushed grain in the roughness channel, with polished wear patches and a few scratches. */
+export function brushedFinish(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const ctx = c.getContext('2d')!;
+  let seed = 931;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let y = 0; y < 512; y++) {
+    const k = 196 + Math.round(rnd() * 36);
+    ctx.fillStyle = `rgb(${k},${k},${k})`;
+    ctx.fillRect(0, y, 512, 1);
   }
-  const tex=new THREE.CanvasTexture(c);
-  tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
-  tex.anisotropy=8;
-  tex.repeat.set(2,6);
+  // Polished patches where parts and hands rest, and short scratches across the grain.
+  for (let i = 0; i < 14; i++) {
+    const x = rnd() * 512,
+      y = rnd() * 512,
+      r = 30 + rnd() * 90;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(120,120,120,${0.25 + rnd() * 0.25})`);
+    g.addColorStop(1, 'rgba(120,120,120,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  for (let i = 0; i < 60; i++) {
+    const k = rnd() < 0.5 ? 140 : 250;
+    ctx.strokeStyle = `rgba(${k},${k},${k},${0.3 + rnd() * 0.4})`;
+    ctx.lineWidth = 0.6 + rnd() * 1.2;
+    const x = rnd() * 512,
+      y = rnd() * 512,
+      a = rnd() * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * (10 + rnd() * 50), y + Math.sin(a) * (10 + rnd() * 50));
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.repeat.set(1, 2);
+  return tex;
+}
+
+/** Grime and scuffs for worn carriers: a colour map near white with smudges, and its roughness. */
+let wear: { map: THREE.CanvasTexture; rough: THREE.CanvasTexture } | null = null;
+export function carrierWear(): { map: THREE.CanvasTexture; rough: THREE.CanvasTexture } {
+  if (wear) return wear;
+  const make = (paint: (ctx: CanvasRenderingContext2D, rnd: () => number) => void, color: boolean) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const ctx = c.getContext('2d')!;
+    let seed = 4711;
+    paint(ctx, () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296));
+    const tex = new THREE.CanvasTexture(c);
+    if (color) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  const marks = (ctx: CanvasRenderingContext2D, rnd: () => number, base: string, smudge: (a: number) => string, line: (a: number) => string) => {
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 18; i++) {
+      const x = rnd() * 256,
+        y = rnd() * 256,
+        r = 10 + rnd() * 40;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, smudge(0.15 + rnd() * 0.2));
+      g.addColorStop(1, smudge(0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    }
+    for (let i = 0; i < 40; i++) {
+      ctx.strokeStyle = line(0.25 + rnd() * 0.4);
+      ctx.lineWidth = 0.7 + rnd();
+      const x = rnd() * 256,
+        y = rnd() * 256,
+        a = rnd() * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * (6 + rnd() * 26), y + Math.sin(a) * (6 + rnd() * 26));
+      ctx.stroke();
+    }
+  };
+  wear = {
+    map: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(120,118,110,${a})`, (a) => `rgba(150,150,146,${a})`), true),
+    rough: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(200,200,200,${a})`, (a) => `rgba(110,110,110,${a})`), false),
+  };
+  return wear;
+}
+
+/**
+ * Cleanroom coverall fabric, tinted by the garment colour: fine weave, side seams with stitching,
+ * the front zip (u = 0.25) and soft folds. Shared by every operator.
+ */
+let fabric: THREE.CanvasTexture | null = null;
+export function fabricTexture(): THREE.CanvasTexture {
+  if (fabric) return fabric;
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(512, 512);
+  let seed = 2027;
+  for (let y = 0; y < 512; y++)
+    for (let x = 0; x < 512; x++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const weave = ((x + y) % 4 < 2 ? 4 : -4) + (seed / 4294967296 - 0.5) * 10;
+      const v = 236 + weave;
+      img.data.set([v, v, v, 255], 4 * (x + y * 512));
+    }
+  g.putImageData(img, 0, 0);
+  let s2 = 77;
+  const rnd = () => ((s2 = (Math.imul(s2, 1664525) + 1013904223) >>> 0) / 4294967296);
+  // Folds: long soft shadows, mostly diagonal and around the joints.
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * 512,
+      y = rnd() * 512,
+      len = 60 + rnd() * 160,
+      a = -0.4 + rnd() * 0.8 + (rnd() < 0.5 ? 0 : Math.PI / 2);
+    g.strokeStyle = `rgba(90,96,100,${0.05 + rnd() * 0.07})`;
+    g.lineWidth = 10 + rnd() * 18;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + Math.cos(a) * len * 0.5 + 20, y + Math.sin(a) * len * 0.5, x + Math.cos(a) * len, y + Math.sin(a) * len);
+    g.stroke();
+  }
+  // Side seams with stitching, and the front zip with its placket.
+  for (const u of [0, 0.5, 1]) {
+    const x = u * 512;
+    g.fillStyle = 'rgba(70,76,80,.45)';
+    g.fillRect(x - 2, 0, 4, 512);
+    g.fillStyle = 'rgba(255,255,255,.6)';
+    for (let y = 0; y < 512; y += 8) g.fillRect(x + 4, y, 1.5, 4);
+  }
+  g.fillStyle = 'rgba(60,66,70,.5)';
+  g.fillRect(124, 120, 7, 392);
+  g.fillStyle = 'rgba(160,166,170,.8)';
+  for (let y = 120; y < 512; y += 5) g.fillRect(125, y, 5, 2);
+  g.fillStyle = 'rgba(80,86,90,.35)';
+  g.fillRect(132, 120, 3, 392);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  fabric = tex;
   return tex;
 }

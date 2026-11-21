@@ -460,6 +460,49 @@ for x in (-0.09, 0.09):
         block(x, 0.0015, z, 0.02, 0.003, 0.02, red, 0.0005)
 save("Tote")
 
+# Air service unit on a wall bracket: shut-off valve, filter regulator with a
+# guarded polycarbonate bowl and a gauge, soft-start valve, manifold block.
+# Origin: bracket foot centre on the table; the unit faces +Z.
+gauge_face = finish("Gauge face", (0.85, 0.86, 0.84), 0.0, 0.3)
+bowl_poly = finish("Filter bowl", (0.55, 0.6, 0.62), 0.0, 0.12)
+red_lever = finish("Valve lever", (0.42, 0.04, 0.03), 0.0, 0.4)
+block(0, 0.003, -0.012, 0.2, 0.006, 0.05, dark, 0.001)
+block(0, 0.09, -0.032, 0.2, 0.17, 0.004, alu, 0.0012)
+for x in (-0.07, 0.0, 0.07):
+    block(x, 0.142, -0.0105, 0.044, 0.044, 0.04, paint if x else alu, 0.003)
+    block(x, 0.142, 0.0105, 0.04, 0.004, 0.003, dark)
+block(-0.07, 0.173, -0.0105, 0.03, 0.018, 0.03, paint, 0.002)
+lever = block(-0.07, 0.142, 0.016, 0.012, 0.05, 0.008, red_lever, 0.002)
+roundbar(0, 0.177, -0.0105, 0.012, 0.026, dark, 24)
+roundbar(0, 0.093, -0.0105, 0.017, 0.054, bowl_poly, 24)
+roundbar(0, 0.093, -0.0105, 0.0185, 0.05, steel, 6)
+roundbar(0, 0.062, -0.0105, 0.006, 0.01, dark, 16)
+roundbar(0, 0.142, 0.0175, 0.0165, 0.008, dark, 32, "z")
+quad(0, 0.142, 0.0217, 0.0296, 0.0296, "+z", gauge_face)
+for x in (-0.108, 0.108):
+    roundbar(x, 0.142, -0.0105, 0.0055, 0.012, steel, 16, "x")
+    roundbar(x * 1.06, 0.142, -0.0105, 0.0062, 0.004, blue, 16, "x")
+for x in (-0.035, 0.035):
+    roundbar(x, 0.142, -0.0105, 0.0225, 0.004, dark, 4, "x")
+save("AirPrep")
+
+# Terminal box: grey moulded enclosure with a lid seam, captive lid screws, a
+# rating label and cable glands on the bottom face. Origin: base centre.
+grey_box = finish("Enclosure grey", (0.42, 0.44, 0.43), 0.0, 0.48)
+block(0, 0.06, 0, 0.26, 0.12, 0.09, grey_box, 0.006)
+block(0, 0.06, 0.0455, 0.25, 0.11, 0.002, grey_box, 0.004)
+block(0, 0.06, 0.045, 0.2595, 0.1195, 0.0012, seal)
+for x in (-0.115, 0.115):
+    for y in (0.013, 0.107):
+        roundbar(x, y, 0.047, 0.0035, 0.0012, grey_box, 12, "z")
+        roundbar(x, y, 0.0477, 0.0018, 0.0004, seal, 6, "z")
+quad(0.07, 0.085, 0.0468, 0.06, 0.03, "+z", nameplate)
+for i in range(5):
+    x = (i - 2) * 0.042
+    roundbar(x, 0.0, 0.0, 0.009, 0.008, seal, 6)
+    roundbar(x, -0.007, 0.0, 0.0065, 0.008, seal, 16)
+save("JunctionBox")
+
 # Conveyor return gearmotor: cast reduction housing, motor fins and fan cowl.
 block(0, 0, 0, 0.112, 0.134, 0.095, alu, 0.011)
 roundbar(0, 0, 0.054, 0.051, 0.018, dark, 32, "z")
@@ -531,7 +574,7 @@ mask = finish("Surgical mask", (0.72, 0.79, 0.77), 0, 0.86)
 eye = finish("Iris", (0.047, 0.033, 0.025), 0, 0.45)
 
 
-def loft(rings, material, segments=24):
+def loft(rings, material, segments=32):
     verts = [
         (cx + w * math.cos(i * math.tau / segments), y, cz + d * math.sin(i * math.tau / segments))
         for y, w, d, cx, cz in rings
@@ -544,6 +587,17 @@ def loft(rings, material, segments=24):
             (j * n + i, j * n + (i + 1) % n, (j + 1) * n + (i + 1) % n, (j + 1) * n + i) for i in range(n)
         ]
     obj = mesh(verts, faces, material)
+    # Cylindrical UVs (u round the body from +X, so the front is u = 0.25; v up the rings), for
+    # the garment's seams and weave.
+    uv = obj.data.uv_layers.new()
+    for f in obj.data.polygons:
+        idx = [obj.data.loops[k].vertex_index for k in f.loop_indices]
+        wraps = any(v % n == n - 1 for v in idx) and any(v % n == 0 for v in idx)
+        for k in f.loop_indices:
+            v = obj.data.loops[k].vertex_index
+            i, j = v % n, v // n
+            u = 1.0 if (wraps and i == 0) else i / n
+            uv.data[k].uv = (u, j / max(1, len(rings) - 1))
     for f in list(obj.data.polygons)[2:]:
         f.use_smooth = True
 
@@ -599,8 +653,13 @@ loft(
     ],
     mask,
 )
-for x in (-0.034, 0.034):
-    obj = roundbar(x, 1.639, 0.093, 0.005, 0.007, eye, 12, "z")
+# Safety goggles over the eyes, with a strap round the hood.
+goggle = finish("Goggle visor", (0.03, 0.04, 0.045), 0.6, 0.08)
+loft(
+    [(1.622, 0.083, 0.088, 0, 0.004), (1.637, 0.085, 0.09, 0, 0.004), (1.656, 0.084, 0.089, 0, 0.003)],
+    goggle,
+)
+block(0, 1.639, 0.094, 0.082, 0.026, 0.006, goggle, 0.002)
 save("Smock")
 loft(
     [
@@ -623,7 +682,7 @@ loft(
         (-0.607, 0.038, 0.028, 0, 0.027),
         (-0.587, 0.03, 0.03, 0, 0.017),
     ],
-    mask,
+    finish("Nitrile glove", (0.08, 0.17, 0.45), 0.0, 0.42),
 )
 save("Sleeve")
 loft(

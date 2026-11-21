@@ -143,7 +143,7 @@ function clock(g: THREE.Group, x: number, y: number, z: number): void {
     }
   });
   const dial = new THREE.Mesh(new THREE.CircleGeometry(0.15, 48), mat(0xffffff, { map: face, roughness: 0.3 }));
-  dial.position.set(x, y, z + 0.012);
+  dial.position.set(x, y, z + 0.0168);
   g.add(dial);
   const rim = round(g, x, y, z + 0.004, 0.163, 0.024, trim, 48);
   rim.rotation.x = Math.PI / 2;

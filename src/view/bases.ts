@@ -16,6 +16,11 @@ const enameled = finish.powder;
 const trim = finish.zinc;
 const amber = mat(0xe5b542);
 const red = mat(0xac312b, { roughness: 0.38 });
+/** Corrugated board cartons with tape and a label, and a grey (non-reject) tote. */
+const carton = mat(0xa88a62, { roughness: 0.9 });
+const tape = mat(0xc4a777, { roughness: 0.4 });
+const cartonLabel = mat(0xeeeee6, { roughness: 0.6 });
+const spareTote = mat(0x5d6a70, { roughness: 0.55 });
 /** Grey PVC wiring duct and its slightly lighter lid. */
 const ductGrey = mat(0x8f9592, { roughness: 0.62, metalness: 0.02 });
 const ductLid = mat(0x9ca29f, { roughness: 0.55, metalness: 0.02 });
@@ -30,57 +35,122 @@ function levelFoot(g: THREE.Group, x: number, z: number): void {
   contactPatch(g, x, 0.004, z, 0.21, 0.19);
 }
 
-/** Printed touchscreen under a single glass cover. */
+/** Operator touchscreen: line mimic with station states, output figures, alarm banner, softkeys. */
 function screen(): THREE.Material {
   const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 300;
+  c.width = 1024;
+  c.height = 576;
   const p = c.getContext('2d')!;
-  p.fillStyle = '#15292f';
-  p.fillRect(0, 0, 512, 300);
-  p.fillStyle = '#286667';
-  p.fillRect(0, 0, 512, 57);
-  p.fillStyle = '#e6efea';
-  p.font = 'bold 26px Arial';
-  p.fillText('L07   /   LINE CONTROL', 18, 38);
-  p.font = '18px Arial';
-  p.fillText('AUTOMATIC', 20, 102);
-  p.fillText('Station overview', 20, 156);
-  for (let i = 0; i < 6; i++) {
-    p.fillStyle = '#68b6a4';
-    p.fillRect(19 + i * 80, 175, 62, 37);
-    p.fillStyle = '#34525a';
-    p.fillRect(19 + i * 80, 222, 62, 26);
+  p.fillStyle = '#1b2427';
+  p.fillRect(0, 0, 1024, 576);
+  // Header bar.
+  p.fillStyle = '#2b3a3f';
+  p.fillRect(0, 0, 1024, 58);
+  p.fillStyle = '#e8efec';
+  p.font = 'bold 30px Arial';
+  p.fillText('L07  PEN ASSEMBLY', 22, 39);
+  p.font = '22px Arial';
+  p.fillText('AUTO', 520, 38);
+  p.fillStyle = '#3ccf72';
+  p.beginPath();
+  p.arc(500, 31, 9, 0, Math.PI * 2);
+  p.fill();
+  p.fillStyle = '#b8c6c2';
+  p.fillText('Operator   14:32:07', 790, 38);
+  // Line mimic: the loop with station boxes in their states.
+  p.strokeStyle = '#7f9a97';
+  p.lineWidth = 6;
+  p.beginPath();
+  p.roundRect(40, 92, 600, 200, 100);
+  p.stroke();
+  const states = ['#3ccf72', '#3ccf72', '#e6c34a', '#3ccf72', '#3ccf72', '#3ccf72', '#3ccf72', '#5fa8e8', '#3ccf72', '#3ccf72'];
+  states.forEach((col, i) => {
+    const top = i < 5;
+    const x = 120 + (i % 5) * 110;
+    const y = top ? 74 : 274;
+    p.fillStyle = '#26363a';
+    p.fillRect(x - 32, y, 64, 36);
+    p.fillStyle = col;
+    p.fillRect(x - 32, y + 30, 64, 6);
+    p.fillStyle = '#dce6e3';
+    p.font = 'bold 17px Arial';
+    p.fillText(['EM11', 'EM12', 'EM13', 'EM14', 'EM15', 'EM60', 'EM50', 'EM41', 'EM40', 'EM32'][i], x - 24, y + 23);
+  });
+  // Figures.
+  p.font = '20px Arial';
+  p.fillStyle = '#9fb3ae';
+  [
+    ['OUTPUT / h', '1 184'],
+    ['GOOD', '96.1 %'],
+    ['OEE', '82.4 %'],
+    ['BATCH', 'B261114'],
+  ].forEach(([k, v], i) => {
+    p.fillStyle = '#26363a';
+    p.fillRect(680, 80 + i * 56, 316, 48);
+    p.fillStyle = '#9fb3ae';
+    p.fillText(k, 694, 111 + i * 56);
+    p.fillStyle = '#eef4f1';
+    p.font = 'bold 24px Arial';
+    p.fillText(v, 860, 112 + i * 56);
+    p.font = '20px Arial';
+  });
+  // Trend.
+  p.strokeStyle = '#3e5157';
+  p.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    p.beginPath();
+    p.moveTo(40, 336 + i * 30);
+    p.lineTo(640, 336 + i * 30);
+    p.stroke();
   }
+  p.strokeStyle = '#5fc0d8';
+  p.lineWidth = 3;
+  p.beginPath();
+  for (let x = 0; x <= 600; x += 12) p.lineTo(40 + x, 400 - Math.sin(x * 0.03) * 14 - Math.sin(x * 0.11) * 6);
+  p.stroke();
+  // Alarm banner and softkeys.
+  p.fillStyle = '#5a4a1c';
+  p.fillRect(680, 312, 316, 52);
+  p.fillStyle = '#f2d36b';
+  p.font = 'bold 19px Arial';
+  p.fillText('W 2031  EM13 feeder low', 694, 344);
+  ['START', 'STOP', 'RESET', 'JOG', 'MENU'].forEach((k, i) => {
+    p.fillStyle = i === 1 ? '#7a2b25' : i === 0 ? '#245c3a' : '#33474c';
+    p.fillRect(30 + i * 198, 496, 180, 62);
+    p.fillStyle = '#eef4f1';
+    p.font = 'bold 24px Arial';
+    p.fillText(k, 62 + i * 198, 536);
+  });
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  return mat(0xffffff, { map: tex, roughness: 0.2, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.22 });
+  tex.anisotropy = 8;
+  return mat(0x000000, { map: tex, roughness: 0.12, metalness: 0, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.9 });
 }
 
 function consolePanel(g: THREE.Group, x: number, z: number): void {
   profile(g, [x - 0.12, top, z - 0.1], [x - 0.12, 1.15, z - 0.1], 0.037);
   block(g, x - 0.04, 1.15, z - 0.1, 0.18, 0.037, 0.038, dark);
   round(g, x, 1.15, z - 0.057, 0.024, 0.08, dark).rotation.x = Math.PI / 2;
-  block(g, x, 1.16, z - 0.024, 0.278, 0.184, 0.019, dark);
-  block(g, x, 1.16, z, 0.3, 0.206, 0.055, enameled);
-  block(g, x - 0.018, 1.176, z + 0.029, 0.235, 0.134, 0.013, rubber);
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.111), screen());
-  panel.position.set(x - 0.018, 1.177, z + 0.036);
+  block(g, x, 1.16, z - 0.012, 0.29, 0.196, 0.03, dark);
+  block(g, x, 1.16, z + 0.0055, 0.3, 0.206, 0.005, trim);
+  block(g, x - 0.012, 1.17, z + 0.0085, 0.258, 0.148, 0.002, rubber);
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.248, 0.14), screen());
+  panel.position.set(x - 0.012, 1.17, z + 0.0097);
   g.add(panel);
   for (const [dx, color, r] of [
     [0.098, red, 0.016],
     [-0.087, dark, 0.008],
     [-0.052, finish.pipe, 0.008],
   ] as const) {
-    round(g, x + dx, 1.089, z + 0.033, r * 1.35, 0.006, dx > 0 ? amber : trim).rotation.x = Math.PI / 2;
-    round(g, x + dx, 1.089, z + 0.043, r, 0.016, color).rotation.x = Math.PI / 2;
+    round(g, x + dx, 1.077, z + 0.011, r * 1.35, 0.006, dx > 0 ? amber : trim).rotation.x = Math.PI / 2;
+    round(g, x + dx, 1.077, z + 0.021, r, 0.016, color).rotation.x = Math.PI / 2;
   }
-  plate(g, x + 0.057, 1.195, z - 0.035, 0.078, 0.025, 'HMI 07', '24 VDC', '#276c6e', Math.PI);
-  round(g, x, 1.12, z - 0.038, 0.009, 0.012, trim, 12).rotation.x = Math.PI / 2;
+  plate(g, x + 0.057, 1.195, z - 0.0275, 0.078, 0.025, 'HMI 07', '24 VDC', '#276c6e', Math.PI);
+  round(g, x, 1.12, z - 0.031, 0.009, 0.012, trim, 12).rotation.x = Math.PI / 2;
   hose(
     g,
     [
-      [x, 1.12, z - 0.043],
+      [x, 1.12, z - 0.036],
       [x, 1.04, z - 0.064],
       [x - 0.12, 1.055, z - 0.12],
       [x - 0.12, top, z - 0.12],
@@ -167,6 +237,25 @@ function bench(
         0.005,
         i === 0 ? finish.pipe : rubber,
       );
+    // Stock on the lower shelf: taped cartons of empty trays, and a spare tote.
+    const shelf = 0.235;
+    const n = Math.max(1, Math.floor((w - 0.5) / 0.36));
+    for (let i = 0; i < n; i++) {
+      const cx = -w / 2 + 0.2 + i * 0.36;
+      const stack = 1 + ((i + Math.round(w * 10)) % 2);
+      for (let k = 0; k < stack; k++) {
+        const y = shelf + 0.07 + k * 0.141;
+        block(g, cx + k * 0.008, y, 0.13, 0.3, 0.14, 0.4, carton);
+        block(g, cx + k * 0.008, y + 0.0702, 0.13, 0.3, 0.0012, 0.05, tape);
+        block(g, cx + k * 0.008 - 0.08, y + 0.03, 0.3302, 0.09, 0.05, 0.0012, cartonLabel);
+      }
+    }
+    const tote = hardware('Tote', w / 2 - 0.2, shelf, 0.02);
+    tote.scale.set(1, 0.85, 1);
+    tote.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.material = spareTote;
+    });
+    g.add(tote);
   }
   // Slotted PVC wiring duct along the operator edge: fingers on both sides, a clip-on lid,
   // end caps, and cables leaving through the slots at the service points.
@@ -234,6 +323,60 @@ export function buildBases(cfg: LineConfig): THREE.Group {
     batch(g);
     group.add(g);
   }
+  // Infill between the two rows of benches inside the loop: a bolted cover plate at deck height,
+  // so the loop stands on one continuous machine base.
+  const inner = cells.filter((c) => c.z < 0).map((c) => c.z + c.d / 2);
+  const outer = cells.filter((c) => c.z > 0).map((c) => c.z - c.d / 2);
+  const z0 = Math.max(...inner);
+  const z1 = Math.min(...outer);
+  const x0 = Math.max(Math.min(...cells.filter((c) => c.z < 0).map((c) => c.x - c.w / 2)), Math.min(...cells.filter((c) => c.z > 0).map((c) => c.x - c.w / 2)));
+  const x1 = Math.min(Math.max(...cells.filter((c) => c.z < 0).map((c) => c.x + c.w / 2)), Math.max(...cells.filter((c) => c.z > 0).map((c) => c.x + c.w / 2)));
+  const infill = new THREE.Group();
+  const panels = Math.round((x1 - x0) / 0.9);
+  for (let i = 0; i < panels; i++) {
+    const pw = (x1 - x0) / panels;
+    const cx = x0 + (i + 0.5) * pw;
+    block(infill, cx, top - 0.004, (z0 + z1) / 2, pw - 0.003, 0.008, z1 - z0 - 0.002, topFinish);
+    for (const dx of [-pw / 2 + 0.03, pw / 2 - 0.03]) for (const dz of [z0 + 0.025, z1 - 0.025]) round(infill, cx + dx, top + 0.0004, dz, 0.0042, 0.0008, trim, 12);
+  }
+  block(infill, (x0 + x1) / 2, top - 0.03, (z0 + z1) / 2, x1 - x0, 0.04, 0.03, dark);
+  batch(infill);
+  group.add(infill);
+  // Services on the tray outfeed bench: the line's air service unit and a terminal box,
+  // with their air line and cable dropping into the operator-side duct.
+  const services = new THREE.Group();
+  const air = hardware('AirPrep', -2.32, top, 0.6);
+  services.add(air);
+  contactPatch(services, -2.32, top + 0.0009, 0.59, 0.3, 0.12);
+  hose(
+    services,
+    [
+      [-2.204, top + 0.142, 0.589],
+      [-2.17, top + 0.13, 0.62],
+      [-2.18, top + 0.03, 0.8],
+      [-2.2, top + 0.012, 1.0],
+      [-2.22, top + 0.02, 1.16],
+    ],
+    0.0042,
+    finish.pipe,
+  );
+  const box = hardware('JunctionBox', -1.98, top + 0.012, 0.63);
+  services.add(box);
+  block(services, -1.98, top + 0.006, 0.63, 0.28, 0.012, 0.11, dark);
+  contactPatch(services, -1.98, top + 0.0009, 0.63, 0.36, 0.17);
+  for (let i = 0; i < 3; i++)
+    hose(
+      services,
+      [
+        [-2.04 + i * 0.042, top + 0.006, 0.63],
+        [-2.04 + i * 0.042, top + 0.004, 0.7],
+        [-2.06 + i * 0.03, top + 0.006, 0.95],
+        [-2.08 + i * 0.02, top + 0.02, 1.16],
+      ],
+      0.0035,
+    );
+  batch(services);
+  group.add(services);
   applyContactMap(group, topFinish, 'deck');
   return group;
 }

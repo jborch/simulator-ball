@@ -12,6 +12,7 @@ import type { Exposure } from './camerafx';
 import type { RoomLight } from './environment';
 import { cells } from './cells';
 import { hardware } from './hardware';
+import { fabricTexture } from './textures';
 import type { MoverView } from './movers';
 import type { Stage } from './stage';
 
@@ -66,7 +67,7 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sun: 1.0,
     sunColor: 0xffc58f,
     env: 0.75,
-    room: { strips: 5, stripColor: 0xffd9b0, room: 0.62, windows: 0.3, windowColor: 0xd9a77a },
+    room: { strips: 6, stripColor: 0xffd9b0, room: 0.7, windows: 0.3, windowColor: 0xd9a77a },
     lamps: 1.5,
     exposure: { gain: 1.3, flicker: 0.025, blur: 0.35 },
   },
@@ -75,9 +76,9 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sky: 0xb8c8ff,
     sun: 0.25,
     sunColor: 0xc8d8ff,
-    env: 0.7,
-    room: { strips: 1.4, stripColor: 0xd8e4ff, room: 0.16, windows: 0.05, windowColor: 0x2a3550 },
-    lamps: 3,
+    env: 0.9,
+    room: { strips: 2.4, stripColor: 0xd8e4ff, room: 0.24, windows: 0.06, windowColor: 0x2a3550 },
+    lamps: 4,
     exposure: { gain: 2.0, flicker: 0.04, blur: 0.5 },
   },
   dim: {
@@ -111,7 +112,7 @@ class Person {
     }
     // Garments share their finish across one operator, with subtle variation
     // between operators. The mask and badge keep their original finishes.
-    const fabric = new THREE.MeshStandardMaterial({ color: clothes, roughness: 0.85 });
+    const fabric = new THREE.MeshPhysicalMaterial({ color: clothes, map: fabricTexture(), roughness: 0.82, sheen: 0.6, sheenRoughness: 0.7, sheenColor: 0xffffff });
     const face = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.74 });
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh) {
@@ -134,7 +135,7 @@ class Person {
   }
 }
 
-const CLOTHES = [0x92acb1, 0xabbabc, 0xd1d7cf, 0x91aba3];
+const CLOTHES = [0xc9d6dc, 0xdfe3e2, 0xb6c9d4, 0xd7dcd7];
 const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
 /** Aisle along each straight, this far out from the belt (m). */
 const AISLE = 1.85;
