@@ -4,7 +4,7 @@
 import { CatchAiApi } from '../catchai/api';
 import { Reporter, type ReporterStatus } from '../catchai/reporter';
 import { catalogue } from '../catchai/catalogue';
-import type { Command, ToClient } from '../sim/protocol';
+import type { CameraObject, Command, ToClient } from '../sim/protocol';
 import { Simulation } from '../sim/simulation';
 import { type Incident, type IncidentKind, INCIDENT_TEXT } from '../sim/incidents';
 import type { Lighting, SimEvent } from '../sim/types';
@@ -220,6 +220,13 @@ export class LineHost {
     if (p) this.log(`CATCH.AI problem (${p.kind}): ${p.detail}`);
     else if (this.loggedProblem && status) this.log('CATCH.AI reachable again');
     this.loggedProblem = key;
+  }
+
+  /** Passes a camera feed's object boxes on to the viewers (dropped for slow viewers, like frames). */
+  relayObjects(camera: string, time: string, objects: CameraObject[]): void {
+    if (this.viewers.size === 0) return;
+    const json = encode({ type: 'objects', camera, time, objects });
+    for (const v of this.viewers) v.send(json, true);
   }
 
   private broadcast(msg: ToClient): void {

@@ -135,10 +135,22 @@ export type ToHost =
   /** Turns CATCH.AI reporting on or off for the line. */
   | { type: 'catchai'; enabled: boolean };
 
+/**
+ * An object a camera sees, from the scene itself (ground truth, for demos of object annotations):
+ * its box in fractions of the frame from the top left, [x, y, width, height].
+ */
+export interface CameraObject {
+  cls: 'mover' | 'person' | 'robot' | 'pen' | 'part';
+  id: string;
+  box: [number, number, number, number];
+}
+
 /** Host → client. On connect a viewer gets the current frame, recent events and reporting status. */
 export type ToClient =
   | { type: 'snapshot'; state: SimState }
   | { type: 'frame'; frame: Frame }
   | { type: 'events'; events: SimEvent[] }
   /** Reporting status, about once a second; null when reporting is off. */
-  | { type: 'catchai'; status: ReporterStatus | null };
+  | { type: 'catchai'; status: ReporterStatus | null }
+  /** Objects in a camera feed's view at `time` (ISO 8601, when that video frame was rendered). */
+  | { type: 'objects'; camera: string; time: string; objects: CameraObject[] };

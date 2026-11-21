@@ -172,6 +172,7 @@ export class MoverView {
   ) {
     this.root.name = `mover-${id}`;
     this.root.userData.moverId = id;
+    this.root.userData.track = { cls: 'mover', id: `mover-${id}` };
 
     const mover = models.mover.clone(true);
     const labelMat = new THREE.MeshStandardMaterial({ map: numberTexture(id), roughness: 0.6 });

@@ -41,6 +41,11 @@ class ArmView {
     this.arm.add(this.carriage);
   }
 
+  /** Names the arm's gripper column for the object oracle (see oracle.ts). */
+  tag(id: string): void {
+    this.column.userData.track = { cls: 'robot', id };
+  }
+
   update(r: RobotFrame): void {
     this.arm.position.x = r.a;
     this.carriage.position.z = -r.r;
@@ -100,6 +105,11 @@ export class RobotView {
       this.laser = beam;
       this.group.add(beam);
     }
+  }
+
+  /** Names the robots of station `station` for the object oracle. */
+  tag(station: string): void {
+    this.arms.forEach((a, i) => a.tag(this.arms.length > 1 ? `${station}-${i + 1}` : station));
   }
 
   update(robots: RobotFrame[], laser: boolean): void {
