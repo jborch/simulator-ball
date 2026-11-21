@@ -126,10 +126,12 @@ The view then becomes a free view until you pick a camera again.
 The five station cameras are mounted on the line, so you can see them in the other views. Each
 one stands inside the loop on a ball head and a 20 mm aluminium post bolted to the table, and its
 cable runs down the post (`src/view/cameramounts.ts`, model from `tools/blender/camera_mount.py`).
-The mounts are built from the camera poses, so a camera body sits exactly where its view is
-rendered from. A camera never sees itself: the model lies wholly behind the lens and below the
-picture, and the view through a camera also leaves out that camera's own mount (a render layer of
-its own). The overview has no mount.
+The mounts are built from the cameras' nominal poses, so a camera body sits where its view is
+rendered from (camera realism then shifts each feed's view by up to about 1.5 cm per run, while
+the hardware stays put). A camera never sees itself: the view through a camera leaves out that
+camera's own mount and its shadow (each mount is on a render layer of its own), whatever the
+realism offset. At the nominal pose the model also lies behind the lens and below the picture.
+The overview has no mount.
 
 **Auto-hide** (button or **H**) hides the controls after 3 s without input, and moving the mouse
 brings them back. While they're hidden, the view shows only the camera name and time, like a

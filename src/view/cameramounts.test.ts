@@ -3,9 +3,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LINE } from '../sim/config';
-import { BELT_Y, BELT_W, TABLE } from './build';
+import { pose } from '../sim/track';
+import { BELT_Y, BELT_W, TABLE, v3 } from './build';
 import { CameraMountsView, mountLayer, viewThrough } from './cameramounts';
 import { CAMERAS, cameraPose } from './cameras';
+import { InspectionView } from './devices';
 import type { Models } from './models';
 
 let mounts: CameraMountsView;
@@ -19,6 +21,17 @@ beforeAll(async () => {
 
 function mountOf(id: string): THREE.Object3D {
   return mounts.group.getObjectByName(`mount-${id}`)!;
+}
+
+/**
+ * Boxes that enclose a mesh: its own box for a rigid part, a small box around each vertex for the
+ * cable, whose bends would make one box cover empty space.
+ */
+function solids(m: THREE.Mesh): THREE.Box3[] {
+  if (m.name !== 'cable') return [new THREE.Box3().setFromObject(m, true)];
+  const pos = m.geometry.getAttribute('position');
+  const v = new THREE.Vector3();
+  return Array.from({ length: pos.count }, (_, i) => new THREE.Box3().setFromCenterAndSize(v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld), new THREE.Vector3(0.001, 0.001, 0.001)));
 }
 
 function meshes(o: THREE.Object3D): THREE.Mesh[] {
@@ -47,7 +60,8 @@ describe('camera mounts', () => {
       view.position.copy(pose.position);
       view.lookAt(pose.target);
       view.updateMatrixWorld();
-      // Below the picture's bottom edge, with room for the per-run mount variation (camerafx.ts).
+      // At the nominal pose; the bottom edge widened a little. (Under camera realism's per-run
+      // offset it's the render layer that keeps the mount out of the picture; see the last test.)
       const h = THREE.MathUtils.degToRad((pose.fov * 1.04) / 2 + 2);
       const head = mountOf(cam.id).getObjectByName('cam_head')!;
       let ahead = -Infinity;
@@ -79,17 +93,38 @@ describe('camera mounts', () => {
       new THREE.Box3(new THREE.Vector3(-S / 2, BELT_Y + TABLE + 0.001, side * R - frame), new THREE.Vector3(S / 2, moverTop, side * R + frame)),
       new THREE.Box3(new THREE.Vector3(-S / 2, BELT_Y, side * R - 0.03), new THREE.Vector3(S / 2, penTop, side * R + 0.03)),
     ]);
-    const v = new THREE.Vector3();
     for (const cam of CAMERAS) {
-      let hits = 0;
       for (const m of meshes(mountOf(cam.id))) {
-        const pos = m.geometry.getAttribute('position');
-        for (let i = 0; i < pos.count; i++) {
-          v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-          if (corridors.some((c) => c.containsPoint(v))) hits++;
+        for (const part of solids(m)) for (const c of corridors) expect(part.intersectsBox(c), `${cam.id} ${m.name}`).toBe(false);
+      }
+    }
+  });
+
+  test('mounts keep clear of the inspection stations (e.g. EM50\'s side reader by the springbase camera)', () => {
+    const equipment: THREE.Box3[] = [];
+    for (const def of LINE.stations.filter((s) => s.kind === 'inspect')) {
+      const view = new InspectionView(LINE, !!def.readsCode);
+      const p = pose(LINE.track, def.s);
+      view.group.position.copy(v3(p.x, p.y, BELT_Y));
+      view.group.rotation.y = p.heading;
+      view.group.updateMatrixWorld(true);
+      for (const m of meshes(view.group)) equipment.push(new THREE.Box3().setFromObject(m, true));
+    }
+    for (const cam of CAMERAS) {
+      for (const m of meshes(mountOf(cam.id))) {
+        for (const part of solids(m)) {
+          const near = part.clone().expandByScalar(0.002);
+          for (const e of equipment) expect(near.intersectsBox(e), `${cam.id} ${m.name}`).toBe(false);
         }
       }
-      expect(hits, cam.id).toBe(0);
+    }
+  });
+
+  test('only a few large parts of each mount cast shadows', () => {
+    for (const cam of CAMERAS) {
+      const casters = meshes(mountOf(cam.id)).filter((m) => m.castShadow).length;
+      expect(casters, cam.id).toBeGreaterThan(0);
+      expect(casters, cam.id).toBeLessThanOrEqual(4);
     }
   });
 

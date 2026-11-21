@@ -208,7 +208,7 @@ FOOT_FRONT = 0.032
 
 def foot():
     """Foot plate bolted to the table, with an angle bracket on each side of the post."""
-    w = 0.056
+    w = 0.048  # narrow enough to clear EM50's side reader next to the springbase camera
     plate = bevel(box(w, FOOT_BACK + FOOT_FRONT, FOOT_T, (0, (FOOT_FRONT - FOOT_BACK) / 2, FOOT_T / 2), STEEL(), "foot_plate"), 0.001, 2)
     parts = [plate]
     for s in (-1, 1):

@@ -1,14 +1,14 @@
 // The station cameras as hardware on the line (tools/blender/camera_mount.py): each camera sits on a
 // ball head, clamped on an aluminium post that is bolted to the table, with its cable running down
-// the post. The mounts are built from the cameras' poses (cameras.ts), so each camera body sits
-// exactly where its view is rendered from.
+// the post. The mounts are built from the cameras' nominal poses (cameras.ts), so each camera body
+// sits where its view is rendered from. Camera realism (camerafx.ts) shifts and turns a feed's view
+// a little on every run (up to about 1.5 cm and 1.5°); the hardware stays at the nominal pose.
 //
-// A camera must never film itself. The model already lies wholly behind the lens and below the
-// picture (cameramounts.test.ts checks both), and on top of that each camera's mount is on a render
-// layer of its own, which the view through that camera leaves out (`viewThrough`), so neither the
-// per-run mount variation (camerafx.ts) nor a later change to a camera's aim can bring it into its
-// own picture. (Its shadow goes with it: shadow maps follow the viewing camera's layers.) Other
-// cameras and the overview still see it.
+// A camera must never film itself. What guarantees that is the render layer: each camera's mount is
+// on a layer of its own, which the view through that camera leaves out (`viewThrough`), whatever
+// the realism offset or a later change to the camera's aim. (Its shadow goes with it: shadow maps
+// follow the viewing camera's layers.) At the nominal pose the model also lies behind the lens and
+// below the picture (cameramounts.test.ts). Other cameras and the overview still see it.
 import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { BELT_Y, TABLE } from './build';
@@ -18,6 +18,8 @@ import type { Models } from './models';
 /** Camera i's mount is on layer FIRST_LAYER + i; layer 0 is everything else. */
 const FIRST_LAYER = 1;
 const CABLE_R = 0.0025;
+/** The camera body, lens, clamp and post (the materials they're made of) cast shadows; small parts don't. */
+const SHADOW_MATERIALS = new Set(['CamBody', 'CamBlack', 'ProfileAlu']);
 /** Half the post's width (20 mm profile). */
 const POST_HALF = 0.01;
 
@@ -94,7 +96,7 @@ function buildMount(cfg: LineConfig, cam: CameraDef, model: THREE.Object3D): THR
   g.add(clamp, foot, post);
 
   // Cable: from the connector behind the camera, under the clamp to the back of the post, down
-  // the post and into the foot plate.
+  // the post and into the foot plate (its end bends in under the post, inside the plate).
   const back = forward.clone().negate();
   const atPost = (y: number) => new THREE.Vector3(pivot.x, y, pivot.z).addScaledVector(back, POST_HALF + CABLE_R);
   const clampBottom = postTop - 0.01;
@@ -105,16 +107,22 @@ function buildMount(cfg: LineConfig, cam: CameraDef, model: THREE.Object3D): THR
       atPost(clampBottom - 0.016).addScaledVector(back, 0.025),
       atPost(clampBottom - 0.03),
       atPost(postBottom + 0.02),
-      atPost(postBottom - 0.002),
+      atPost(postBottom + 0.004),
+      atPost(postBottom - 0.003).addScaledVector(back, -0.004),
     ],
     false,
     'centripetal',
   );
   const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, CABLE_R, 8, false), cableMat);
-  cable.castShadow = true;
+  cable.name = 'cable';
   g.add(cable);
 
   const layer = mountLayer(cam.id);
-  g.traverse((o) => o.layers.set(layer));
+  g.traverse((o) => {
+    o.layers.set(layer);
+    // Only the big parts cast shadows: 4 draws per mount in each feed's shadow pass, not 15.
+    const m = o as THREE.Mesh;
+    if (m.isMesh) m.castShadow = SHADOW_MATERIALS.has((m.material as THREE.Material).name);
+  });
   return g;
 }
