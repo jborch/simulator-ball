@@ -165,20 +165,32 @@ function consolePanel(g: THREE.Group, x: number, z: number): void {
 }
 
 /** A glazed outer access panel. Narrow hardware and clear work zone on the belt side. */
-function guard(g: THREE.Group, x: number, z: number, w: number, h: number): void {
+function guard(g: THREE.Group, x: number, z: number, w: number, h: number, endReturn: number): void {
   const bottom = top + 0.055;
   for (const dx of [-w / 2, w / 2]) {
-    profile(g, [x + dx, top, z], [x + dx, top + h, z], 0.025);
-    block(g, x + dx, top + 0.007, z, 0.055, 0.014, 0.055, dark);
+    const postZ = dx > 0 ? z - endReturn : z;
+    profile(g, [x + dx, top, postZ], [x + dx, top + h, postZ], 0.025);
+    block(g, x + dx, top + 0.007, postZ, 0.055, 0.014, 0.055, dark);
   }
   for (const y of [bottom, top + h - 0.012]) profile(g, [x - w / 2, y, z], [x + w / 2, y, z], 0.024);
+  if (endReturn) {
+    // Wrap the fixed pane around the press bay. The corner is supported
+    // by the two return rails, so the aisle-side sightline stays clear.
+    const ex = x + w / 2;
+    for (const y of [bottom, top + h - 0.012]) profile(g, [ex, y, z], [ex, y, z - endReturn], 0.024);
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(endReturn - 0.014, h - 0.082), finish.glass);
+    side.rotation.y = Math.PI / 2;
+    side.position.set(ex, top + (h + 0.046) / 2, z - endReturn / 2);
+    g.add(side);
+    block(g, ex, side.position.y, z - 0.003, 0.005, h - 0.082, 0.003, cutEdge);
+  }
   // A fixed light and an opening leaf share the frame. Expose the polished
   // edges at the meeting line, which is visible even looking square-on.
   const paneHeight = h - 0.082;
   const centerY = top + (h + 0.046) / 2;
   const clearWidth = w - 0.026;
   for (const sign of [-1, 1]) {
-    const cx = x + sign * clearWidth / 4;
+    const cx = x + (sign * clearWidth) / 4;
     const pane = new THREE.Mesh(new THREE.PlaneGeometry(clearWidth / 2 - 0.004, paneHeight), finish.glass);
     pane.position.set(cx, centerY, z);
     g.add(pane);
@@ -194,12 +206,19 @@ function guard(g: THREE.Group, x: number, z: number, w: number, h: number): void
   // Coded interlock at the free end of the door, wired into the top rail.
   block(g, x - 0.04, top + h - 0.021, z + 0.014, 0.056, 0.021, 0.018, dark);
   block(g, x - 0.04, top + h - 0.043, z + 0.008, 0.043, 0.013, 0.015, rubber);
-  hose(g, [[x - 0.068, top + h - 0.02, z + 0.014], [x - 0.08, top + h - 0.02, z + 0.019],
-    [x - 0.095, top + h - 0.012, z + 0.012]], 0.0024);
+  hose(
+    g,
+    [
+      [x - 0.068, top + h - 0.02, z + 0.014],
+      [x - 0.08, top + h - 0.02, z + 0.019],
+      [x - 0.095, top + h - 0.012, z + 0.012],
+    ],
+    0.0024,
+  );
   warning(g, x - w * 0.33, top + 0.122, z + 0.003, 0.079);
   for (const y of [0.13, h - 0.08]) {
     block(g, x - w / 2 + 0.012, top + y, z + 0.015, 0.042, 0.032, 0.009, dark);
-    round(g, x-w/2+0.011, top+y, z+0.021, 0.005, 0.042, trim, 12);
+    round(g, x - w / 2 + 0.011, top + y, z + 0.021, 0.005, 0.042, trim, 12);
   }
   for (const y of [0.21, 0.28]) block(g, x - 0.043, top + y, z + 0.017, 0.012, 0.012, 0.033, dark);
   block(g, x - 0.043, top + 0.245, z + 0.033, 0.013, 0.083, 0.015, rubber);
@@ -347,7 +366,7 @@ function bench(
       );
     }
   }
-  if (guardWidth) guard(g, 0, side + 0.01, guardWidth, 0.91);
+  if (guardWidth) guard(g, 0, side + 0.01, guardWidth, 0.91, name === 'EM14' ? 0.17 : 0);
   if (hmi) consolePanel(g, -w * 0.35, side + 0.025);
   batch(g);
   root.add(g);

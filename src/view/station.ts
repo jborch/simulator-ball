@@ -152,6 +152,9 @@ export class StationView {
       // The lines drop through a slotted grommet plate in the press foot.
       block(fittings, 0, TABLE + 0.004, z - 0.093, 0.088, 0.009, 0.019, finish.graphite);
     }
+    // Beam and station fittings share the same fixed station transform.
+    // Keep the independently tracked and moving tools in the robot group.
+    if (this.robot) fittings.add(this.robot.frame);
     batch(fittings);
     this.group.add(fittings);
     colors.forEach((c, i) => {

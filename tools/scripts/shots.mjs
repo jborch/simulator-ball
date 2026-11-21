@@ -6,6 +6,7 @@
 // render the station cameras with camera realism (as the RTSP feeds do).
 // --bake-contacts regenerates the floor/deck textures instead of taking screenshots.
 // --wait-for-mark waits for a labelled mover in the housing/cartridge inspection view.
+// --wait-for-press captures hero-presses during an insertion stroke on EM14A.
 // Starts the dev server (fixed sim and scene seed, so every run shows much the same line), opens
 // each view in headless Chrome with the GPU and saves <out_dir>/<view>.png. The views are the
 // overview, the five installed station cameras (as the RTSP feeds see them, without camera realism)
@@ -101,6 +102,15 @@ try {
           });
           return printed;
         });
+      }, { timeout: 90_000 });
+    }
+    if (args.includes('--wait-for-press') && v.id === 'hero-presses') {
+      // The tool datum follows the top of the insert. Below the body mouth,
+      // the locating nose is visibly inside the tube during the real stroke.
+      await page.waitForFunction(() => {
+        const station = window.line.frames.latest()?.stations.find(s => s.id === 'EM14A');
+        const ram = station?.robots[0];
+        return station?.moverId != null && ram?.phase === 'press' && ram.z < 0.113;
       }, { timeout: 90_000 });
     }
     if (args.includes('--timing')) {

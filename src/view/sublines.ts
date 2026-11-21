@@ -129,6 +129,7 @@ export class SpringBaseLineView {
 
     // At each press: a nest block (the pick cup) beside the conveyor on an arm from a post, a
     // transfer plate between them, and a compact cylinder on the far side that pushes a part across.
+    const cupHardware = new THREE.Group();
     for (const a of cupsAt) {
       const unit = new THREE.Group();
       const postR = d.r + 0.045;
@@ -161,8 +162,7 @@ export class SpringBaseLineView {
         0.0022,
         finish.pipe,
       );
-      batch(unit);
-      this.group.add(unit);
+      cupHardware.add(unit);
       const part = models.spring_base.clone(true);
       part.position.copy(local(a, y, d.cupR));
       this.group.add(part);
@@ -175,6 +175,8 @@ export class SpringBaseLineView {
       this.cups.push({ part, pusher, a });
     }
 
+    batch(cupHardware);
+    this.group.add(cupHardware);
     const n = Math.ceil(length / d.pitch) + 2;
     for (let i = 0; i < n; i++) {
       const o = models.spring_base.clone(true);
@@ -267,7 +269,7 @@ export class HousingDialView {
       // the high-resolution arc, while the concealed cut needs only 24 sides.
       cut.moveTo(a - d.a + 0.013, r - d.r);
       for (let j = 1; j <= 24; j++) {
-        const angle = -j * Math.PI / 12;
+        const angle = (-j * Math.PI) / 12;
         cut.lineTo(a - d.a + 0.013 * Math.cos(angle), r - d.r + 0.013 * Math.sin(angle));
       }
       cut.closePath();
@@ -322,12 +324,22 @@ export class HousingDialView {
       for (const da of [-1.25, 1.25]) round(rotary, x + 0.0137 * Math.cos(out + da), 0.0071, z + 0.0137 * Math.sin(out + da), 0.0017, 0.0008, finish.zinc, 10);
       // Split POM shoulder: an outboard fence while the robot lifts
       // vertically, with the inboard half open for loading and inspection.
-      const shoulder = new THREE.Mesh(new THREE.LatheGeometry([
-        new THREE.Vector2(.013,.0068), new THREE.Vector2(.013,.016),
-        new THREE.Vector2(.0108,.016), new THREE.Vector2(.0093,.014),
-        new THREE.Vector2(.0093,.0068),
-      ], 20, Math.PI/2 - out - 1.22, 2.44), finish.graphite);
-      shoulder.position.set(x,0,z);
+      const shoulder = new THREE.Mesh(
+        new THREE.LatheGeometry(
+          [
+            new THREE.Vector2(0.013, 0.0068),
+            new THREE.Vector2(0.013, 0.016),
+            new THREE.Vector2(0.0108, 0.016),
+            new THREE.Vector2(0.0093, 0.014),
+            new THREE.Vector2(0.0093, 0.0068),
+          ],
+          20,
+          Math.PI / 2 - out - 1.22,
+          2.44,
+        ),
+        finish.graphite,
+      );
+      shoulder.position.set(x, 0, z);
       rotary.add(shoulder);
       // Two rim bolts in each gap between nests.
       for (const off of [-0.18, 0.18]) {
