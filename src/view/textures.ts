@@ -124,9 +124,9 @@ export function brushedFinish(): { map: THREE.DataTexture; rough: THREE.DataText
       const drift = 0.5 * Math.sin((x / W) * Math.PI * 2 * f + phase);
       const g = 0.8 * k + 0.2 * drift + (rnd() - 0.5) * 0.22;
       const i = 4 * (x + y * W);
-      const c = 236 + g * 22;
+      const c = 238 + g * 14;
       color.set([c, c, c, 255], i);
-      const r = 84 + g * 26;
+      const r = 84 + g * 17;
       rough.set([r, r, r, 255], i);
     }
   }

@@ -12,7 +12,7 @@ import { BELT_Y, M, TABLE, cyl, label, lerp, local, mat, span, v3 } from './buil
 import { batch, block, finish, hardware, hose, plate, profile, round, visionCamera } from './hardware';
 import { contactPatch } from './hall';
 import { CLEAR } from './clear';
-import { FeederView, RobotView, ringLight } from './devices';
+import { FeederView, RING_FLASH, RING_IDLE, RobotView, ringLight } from './devices';
 import { miniConveyor } from './conveyor';
 import { housingPart, showLabel } from './movers';
 import type { Models } from './models';
@@ -193,7 +193,7 @@ export class SpringBaseLineView {
     // The chuck turns the part while turning, then holds still for the camera.
     const turning = phase === 'turning';
     if (turning) this.chuck.rotation.y = progress * Math.PI * 3;
-    this.ring.emissiveIntensity = phase === 'measuring' && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
+    this.ring.emissiveIntensity = phase === 'measuring' && Math.floor(t * 8) % 2 === 0 ? RING_FLASH : RING_IDLE;
     this.rejects.textContent = `${this.cfg.orienter.id} rejects: ${f.counters.bins[this.cfg.orienter.id] ?? 0}`;
     const fault = f.alarms.orienter;
     this.status.classList.toggle('jam', fault > 0);
@@ -461,7 +461,7 @@ export class HousingDialView {
       showLabel(h, labels[pos] ?? null);
     });
     this.applicatorPad.position.z = active.label && Math.floor(t * 4) % 2 === 0 ? -0.012 : 0;
-    this.ring.emissiveIntensity = active.inspect && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
+    this.ring.emissiveIntensity = active.inspect && Math.floor(t * 8) % 2 === 0 ? RING_FLASH : RING_IDLE;
     const home = this.ejector.userData.home as THREE.Vector3;
     this.ejector.position.copy(home);
     if (active.eject) this.ejector.position.add(this.ejector.userData.out as THREE.Vector3);
@@ -654,7 +654,8 @@ export class CartridgeCellView {
     const h = denestHeights(cfg);
     const far = t.r + (t.rows * t.pitch) / 2 - col.fill;
     const reach = { aMin: -0.07, aMax: far + 0.07, rMin: -0.12, rMax: (t.cols * t.pitch) / 2 + 0.07 };
-    this.robot = new RobotView(reach, reach.rMax + 0.06, h.tub, cfg, models, 1, false);
+    // Long fingers that hold the cartridge by its barrel, so the part is seen held, not hanging.
+    this.robot = new RobotView(reach, reach.rMax + 0.06, h.tub, cfg, models, 1, false, false, 0.032);
     this.robot.group.position.copy(local(0, 0, col.fill));
     this.robot.group.rotation.y = Math.PI / 2;
     this.group.add(this.robot.group);

@@ -51,7 +51,7 @@ export class LineView {
     this.group.add(this.cartridges.group);
     this.movers = Array.from({ length: cfg.mover.count }, (_, i) => {
       const mv = new MoverView(i + 1, cfg, models);
-      this.group.add(mv.root);
+      this.group.add(mv.root, mv.shadow);
       return mv;
     });
   }

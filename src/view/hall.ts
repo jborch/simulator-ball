@@ -2,6 +2,7 @@
 // service gallery. The shell cuts away as the operator orbits outside it.
 import * as THREE from 'three';
 import { applyContactMap } from './occlusion';
+import { backdrop } from './contact';
 import { mat } from './build';
 import { clearMaterial } from './clear';
 import { batch, block, plate, round } from './hardware';
@@ -31,18 +32,28 @@ const wallMap = canvasMap(512, (c) => {
   c.fillStyle = 'rgba(255,255,255,.55)';
   for (const x of [3, 258]) c.fillRect(x, 0, 1, 512);
 });
-const wall = mat(0x8b8e8b, { map: wallMap, roughness: 0.5, metalness: 0 });
-const trim = mat(0xaab1b1, { roughness: 0.32, metalness: 0.9 });
-const dark = mat(0x3d4446, { roughness: 0.5, metalness: 0 });
-const door = mat(0x7f97a2, { roughness: 0.4, metalness: 0 });
+// The hall's own surfaces take less of the key than the machine (HALL), and the gallery behind
+// the glass less again (GALLERY): a dimmer room seen through a window.
+const hall = (color: number, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) => backdrop(mat(color, extra), 0.3, 0.88);
+const gallery = (color: number, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) => backdrop(mat(color, extra), 0.18, 0.56);
+const wall = hall(0x959893, { map: wallMap, roughness: 0.5, metalness: 0 });
+const trim = hall(0xaab1b1, { roughness: 0.32, metalness: 0.9 });
+const dark = hall(0x3d4446, { roughness: 0.5, metalness: 0 });
+const door = hall(0x7f97a2, { roughness: 0.4, metalness: 0 });
 const beacon = mat(0xfff5dd, { emissive: 0xfff6e2, emissiveIntensity: 2.5 });
 const galleryGlass = clearMaterial({ color: 0xd8e4e6, edge: 0x9fb2b6, opacity: [0.06, 0.3], roughness: 0.04, power: 3, envMapIntensity: 1.2 });
-const sill = mat(0x6f7c80, { roughness: 0.45, metalness: 0 });
-const galleryWall = mat(0x6e7674, { roughness: 0.6, metalness: 0 });
-const cabinet = mat(0xb3b8b6, { roughness: 0.42, metalness: 0 });
-const stainless = mat(0xb5bbbd, { roughness: 0.26, metalness: 1 });
-const amber = mat(0xb49856, { metalness: 0.66, roughness: 0.4 });
-const safetyRed = mat(0xa83a2e, { roughness: 0.38, metalness: 0 });
+const sill = hall(0x6f7c80, { roughness: 0.45, metalness: 0 });
+const galleryWall = gallery(0x737b79, { roughness: 0.6, metalness: 0 });
+const galleryTrim = gallery(0xaab1b1, { roughness: 0.32, metalness: 0.9 });
+const galleryDark = gallery(0x30373a, { roughness: 0.5, metalness: 0 });
+const cabinet = gallery(0xbfc4c1, { roughness: 0.42, metalness: 0 });
+const stainless = gallery(0xbcc2c4, { roughness: 0.22, metalness: 1 });
+/** Brushed bands and girth welds on the tanks. */
+const weld = gallery(0x9ea4a6, { roughness: 0.42, metalness: 1 });
+const sightGlass = gallery(0x9fb0b4, { roughness: 0.1, metalness: 0.2 });
+const valveBlue = gallery(0x34557a, { roughness: 0.45, metalness: 0.1 });
+const amber = hall(0xb49856, { metalness: 0.66, roughness: 0.4 });
+const safetyRed = hall(0xa83a2e, { roughness: 0.38, metalness: 0 });
 
 function floor(): THREE.Mesh {
   // Mid-grey epoxy resin: a fine speckle and a faint cloud in the colour, saw-cut joints with
@@ -59,7 +70,7 @@ function floor(): THREE.Mesh {
         const u = (x / 1024) * Math.PI * 2;
         const v = (y / 1024) * Math.PI * 2;
         const cloud = 2.2 * Math.sin(u * 2 + Math.sin(v * 3) * 1.3) * Math.sin(v * 2 + Math.sin(u * 1) * 1.7) + 1.2 * Math.sin(u * 5 + v * 3);
-        const k = 92 + grain + cloud;
+        const k = 82 + grain + cloud;
         img.data.set([k, k + 2, k + 2, 255], 4 * (x + y * 1024));
       }
     c.putImageData(img, 0, 0);
@@ -112,13 +123,13 @@ export function contactPatch(g: THREE.Object3D, x: number, y: number, z: number,
   g.add(m);
 }
 
-const galleryFloor = mat(0x6f7573, { roughness: 0.45, metalness: 0 });
-const galv = mat(0xa9b0b0, { roughness: 0.42, metalness: 0.9 });
-const cable = mat(0x232829, { roughness: 0.6, metalness: 0 });
-const sprinkler = mat(0x9c2d24, { roughness: 0.4, metalness: 0 });
-const brassHead = mat(0xb79a5a, { roughness: 0.3, metalness: 1 });
-const conduit = mat(0x8e9493, { roughness: 0.5, metalness: 0 });
-const outletFace = mat(0x4d5a8a, { roughness: 0.5, metalness: 0 });
+const galleryFloor = gallery(0x6f7573, { roughness: 0.45, metalness: 0 });
+const galv = hall(0xa9b0b0, { roughness: 0.42, metalness: 0.9 });
+const cable = hall(0x232829, { roughness: 0.6, metalness: 0 });
+const sprinkler = hall(0x9c2d24, { roughness: 0.4, metalness: 0 });
+const brassHead = hall(0xb79a5a, { roughness: 0.3, metalness: 1 });
+const conduit = hall(0x8e9493, { roughness: 0.5, metalness: 0 });
+const outletFace = hall(0x4d5a8a, { roughness: 0.5, metalness: 0 });
 
 /** Wall clock: white dial, black hands and ticks, aluminium bezel. Faces +z. */
 function clock(g: THREE.Group, x: number, y: number, z: number): void {
@@ -212,24 +223,61 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       // instrument cupboards and lights at genuine depth behind the window.
       block(g, x, 2.1, -2.0, pitch + 0.01, 4.2, 0.12, galleryWall);
       block(g, x - 0.72, 1.9, -1.85, 0.08, 3.8, 0.1, cabinet);
-      for (const h of [2.36, 2.45]) block(g, x, h, -1.65, pitch, 0.042, 0.055, trim);
+      for (const h of [2.36, 2.45]) block(g, x, h, -1.65, pitch, 0.042, 0.055, galleryTrim);
       if (i % 3 === 2) {
+        // Two jacketed stainless vessels on legs: dished heads, girth welds, a manway and vent
+        // on top, a level sight glass, and an outlet with a valve at the bottom.
         for (const dx of [-0.48, 0.27]) {
-          round(g, x + dx, 0.96, -1.36, 0.256, 1.56, stainless, 32);
-          const head = new THREE.Mesh(new THREE.SphereGeometry(0.255, 24, 12), stainless);
-          head.position.set(x + dx, 1.74, -1.36);
-          head.scale.y = 0.4;
-          g.add(head);
-          for (const y of [0.44, 1.52]) round(g, x + dx, y, -1.36, 0.258, 0.023, dark, 32);
-          round(g, x + dx, 1.95, -1.36, 0.039, 0.39, stainless);
-          round(g, x + dx, 2.12, -1.36, 0.063, 0.018, dark);
+          const cx = x + dx;
+          const cz = -1.36;
+          round(g, cx, 1.0, cz, 0.256, 1.3, stainless, 40);
+          for (const [y, sy] of [
+            [1.65, 0.36],
+            [0.35, -0.3],
+          ]) {
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.256, 40, 10, 0, Math.PI * 2, 0, Math.PI / 2), stainless);
+            head.position.set(cx, y, cz);
+            head.scale.y = sy;
+            g.add(head);
+          }
+          for (const y of [0.352, 0.79, 1.22, 1.648]) round(g, cx, y, cz, 0.2585, 0.006, weld, 40);
+          for (let k = 0; k < 3; k++) {
+            const a = (k / 3) * Math.PI * 2 + 0.5;
+            const lx = cx + Math.cos(a) * 0.205;
+            const lz = cz + Math.sin(a) * 0.205;
+            round(g, lx, 0.25, lz, 0.022, 0.37, stainless, 12);
+            round(g, lx, 0.072, lz, 0.04, 0.014, weld, 16);
+          }
+          round(g, cx - 0.06, 1.77, cz, 0.085, 0.07, stainless, 24);
+          round(g, cx - 0.06, 1.81, cz, 0.095, 0.018, weld, 24);
+          round(g, cx + 0.1, 1.86, cz, 0.028, 0.3, stainless, 12);
+          round(g, cx + 0.1, 2.02, cz, 0.045, 0.025, galleryDark, 16);
+          // Sight glass on two stand-offs, toward the window.
+          round(g, cx + 0.16, 1.0, cz + 0.22, 0.009, 0.92, sightGlass, 10);
+          for (const y of [0.55, 1.45]) block(g, cx + 0.15, y, cz + 0.2, 0.03, 0.02, 0.05, weld);
+          // Bottom outlet: pipe out toward the glass, a butterfly valve with its blue actuator.
+          const out = round(g, cx, 0.24, cz + 0.2, 0.024, 0.22, stainless, 12);
+          out.rotation.x = Math.PI / 2;
+          round(g, cx, 0.24, cz + 0.33, 0.04, 0.03, weld, 16).rotation.x = Math.PI / 2;
+          block(g, cx, 0.31, cz + 0.33, 0.05, 0.09, 0.05, valveBlue);
+          plate(g, cx - 0.12, 1.1, cz + 0.251, 0.12, 0.04, dx < 0 ? 'T-201' : 'T-202', 'WFI  250 L');
         }
       } else {
-        block(g, x + 0.3, 0.91, -1.43, 0.82, 1.82, 0.48, cabinet);
-        block(g, x + 0.29, 0.94, -1.181, 0.009, 1.72, 0.01, dark);
-        block(g, x + 0.35, 1.09, -1.17, 0.018, 0.16, 0.025, dark);
-        for (let j = 0; j < 6; j++) block(g, x + 0.09, 1.53 + j * 0.031, -1.183, 0.25, 0.013, 0.015, trim);
-        plate(g, x + 0.49, 1.52, -1.183, 0.18, 0.057, 'AHU', 'AIR HANDLING');
+        // Air handling cabinet: double door on a plinth, louvres, a lock, a lamp and cable tray.
+        const cx = x + 0.3;
+        block(g, cx, 0.95, -1.43, 0.82, 1.74, 0.48, cabinet);
+        block(g, cx, 0.05, -1.41, 0.8, 0.1, 0.46, galleryDark);
+        block(g, cx, 1.86, -1.43, 0.84, 0.06, 0.5, cabinet);
+        block(g, cx - 0.01, 0.95, -1.188, 0.006, 1.66, 0.006, galleryDark);
+        for (const sx of [-1, 1]) {
+          block(g, cx + sx * 0.4, 0.95, -1.188, 0.006, 1.66, 0.006, galleryDark);
+          block(g, cx - 0.01 + sx * 0.035, 1.05, -1.177, 0.016, 0.15, 0.022, galleryDark);
+        }
+        for (let j = 0; j < 8; j++) block(g, cx - 0.21, 0.3 + j * 0.03, -1.184, 0.25, 0.012, 0.012, galleryTrim);
+        for (let j = 0; j < 6; j++) block(g, cx - 0.21, 1.53 + j * 0.031, -1.184, 0.25, 0.013, 0.015, galleryTrim);
+        plate(g, cx + 0.19, 1.52, -1.184, 0.18, 0.057, 'AHU', 'AIR HANDLING');
+        round(g, cx + 0.3, 1.92, -1.3, 0.03, 0.05, galleryDark, 12);
+        block(g, cx, 2.0, -1.55, 0.7, 0.04, 0.2, galleryTrim);
       }
       block(g, x, 2.82, -1.19, 1.32, 0.065, 0.11, beacon);
     } else {
@@ -238,8 +286,10 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       if (i % 3 !== 0) {
         // Text signs only on the end walls: the station cameras look at the long walls past
         // their own posts, where a sign would show in pieces. The long walls get a clock.
-        if (!longWall) plate(g, x, 1.83, 0.066, 1.29, 0.36, 'UTILITY  /  03', 'PEN ASSEMBLY   •   CONTROLLED AREA');
-        else if (i % 4 === 0) clock(g, x + 0.5, 2.62, 0.075);
+        // High on the wall, under the grille: the low close-ups along the line see the wall below
+        // it, not a sign cut by their frame.
+        if (!longWall) plate(g, x, 2.33, 0.066, 1.29, 0.36, 'UTILITY  /  03', 'PEN ASSEMBLY   •   CONTROLLED AREA');
+        else if (i % 4 === 0) clock(g, x, 2.24, 0.075);
         block(g, x, 2.9, 0.075, 1.17, 0.52, 0.031, trim);
         for (let j = 0; j < 12; j++) block(g, x, 2.68 + j * 0.039, 0.1, 1.1, 0.012, 0.03, dark);
       }
@@ -294,9 +344,14 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
     round(g, x + 0.9, 3.635, 0.16, 0.018, 0.012, brassHead, 12);
   }
   for (let i = 0; i < n; i++) {
-    // On solid bays only (not in front of the gallery glazing).
+    // On solid bays only (not in front of the gallery glazing), clear of the signs, clocks and
+    // grilles; at a door the conduit feeds the card reader.
     if (gallery && i % 4 !== 0 && i % 5 !== 3) continue;
-    const x = -length / 2 + (i + 0.5) * pitch + 0.62;
+    const x = -length / 2 + (i + 0.5) * pitch + 0.78;
+    if (i % 3 === 0) {
+      round(g, x, 2.215, 0.09, 0.012, 1.67, conduit, 10);
+      continue;
+    }
     round(g, x, 2.13, 0.09, 0.012, 1.84, conduit, 10);
     block(g, x, 1.18, 0.09, 0.09, 0.12, 0.05, conduit);
     block(g, x, 1.18, 0.116, 0.07, 0.07, 0.003, outletFace);
@@ -308,7 +363,7 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
   for (const o of g.children) o.castShadow = false;
   return g;
 }
-const matGlass = mat(0x3f5357, { metalness: 0.2, roughness: 0.08 });
+const matGlass = hall(0x3f5357, { metalness: 0.2, roughness: 0.08 });
 
 export class Hall {
   private readonly cuts: { g: THREE.Group; normal: THREE.Vector3; limit: number }[] = [];
@@ -356,7 +411,14 @@ export class Hall {
       const sign = plate(zone, 0, 2.76, -1.7 + side * 0.0158, 1.62, 0.42, 'L07   PEN ASSEMBLY', 'CLEAN ZONE   •   ISO 8   •   GOWNING REQUIRED');
       if (side < 0) sign.rotation.y = Math.PI;
     }
-    for (const dx of [-0.7, 0.7]) round(zone, dx, 3.76, -1.7, 0.0015, 1.54, dark, 6);
+    // Hung on two threaded rods from ceiling anchors, with clamp brackets on the sign frame
+    // and a turnbuckle to level it.
+    for (const dx of [-0.7, 0.7]) {
+      round(zone, dx, 3.74, -1.7, 0.0045, 1.5, trim, 8);
+      block(zone, dx, 4.48, -1.7, 0.09, 0.012, 0.09, dark);
+      block(zone, dx, 3.01, -1.7, 0.035, 0.04, 0.05, dark);
+      round(zone, dx, 3.32, -1.7, 0.009, 0.07, trim, 10);
+    }
     batch(zone);
     scene.add(zone);
     this.cuts.push({ g: zone, normal: new THREE.Vector3(0, 1, 0), limit: 3.84 });

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { cells } from './cells';
 import { BELT_Y, TABLE, mat } from './build';
-import { batch, block, finish, hardware, hose, plate, profile, round, warning } from './hardware';
+import { batch, block, finish, gland, hardware, hose, plate, profile, round, warning } from './hardware';
 import { applyContactMap } from './occlusion';
 import { brushedFinish, brushedUv } from './textures';
 import { contactPatch } from './hall';
@@ -157,7 +157,10 @@ function consolePanel(g: THREE.Group, x: number, z: number): void {
       [x - 0.12, top, z - 0.12],
     ],
     0.006,
+    finish.seal,
+    false,
   );
+  gland(g, x - 0.12, top, z - 0.12, 0.006);
 }
 
 /** A glazed outer access panel. Narrow hardware and clear work zone on the belt side. */
@@ -190,6 +193,8 @@ function bench(
   hmi = false,
   /** How far the top reaches past the frame toward -x and +x (world), to meet the next bench. */
   reach: [number, number] = [0, 0],
+  /** Whether the operator-edge duct runs on into the next bench toward -x and +x (world). */
+  ductOn: [boolean, boolean] = [false, false],
 ): void {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
@@ -258,18 +263,45 @@ function bench(
     });
     g.add(tote);
   }
-  // Slotted PVC wiring duct along the operator edge: fingers on both sides, a clip-on lid,
-  // end caps, and cables leaving through the slots at the service points.
+  // Slotted PVC wiring duct along the operator edge: fingers on both sides and a clip-on lid.
+  // Where the next bench's duct lines up it runs on into it; a free end has an end cap and the
+  // cables drop through a grommeted cut-out in the deck there.
   const trayZ = side - 0.044;
-  const ductW = w - 0.15;
-  block(g, 0, top + 0.0015, trayZ, ductW, 0.003, 0.04, ductGrey);
+  const [onL, onR] = z < 0 ? [ductOn[1], ductOn[0]] : ductOn;
+  const d0 = onL ? -w / 2 - left : -w / 2 + 0.075;
+  const d1 = onR ? w / 2 + right : w / 2 - 0.075;
+  const ductW = d1 - d0;
+  const dc = (d0 + d1) / 2;
+  block(g, dc, top + 0.0015, trayZ, ductW, 0.003, 0.04, ductGrey);
   for (const dz of [-0.0185, 0.0185]) {
-    block(g, 0, top + 0.006, trayZ + dz, ductW, 0.006, 0.003, ductGrey);
-    for (let xx = -ductW / 2 + 0.006; xx < ductW / 2 - 0.004; xx += 0.012) block(g, xx, top + 0.022, trayZ + dz, 0.0075, 0.026, 0.003, ductGrey);
+    block(g, dc, top + 0.006, trayZ + dz, ductW, 0.006, 0.003, ductGrey);
+    for (let xx = d0 + 0.006; xx < d1 - 0.004; xx += 0.012) block(g, xx, top + 0.022, trayZ + dz, 0.0075, 0.026, 0.003, ductGrey);
   }
-  block(g, 0, top + 0.037, trayZ, ductW + 0.002, 0.004, 0.044, ductGrey);
-  block(g, 0, top + 0.0396, trayZ, ductW - 0.01, 0.0012, 0.03, ductLid);
-  for (const xx of [-ductW / 2, ductW / 2]) block(g, xx, top + 0.019, trayZ, 0.003, 0.039, 0.042, ductGrey);
+  block(g, dc, top + 0.037, trayZ, ductW + (onL ? 0 : 0.001) + (onR ? 0 : 0.001), 0.004, 0.044, ductGrey);
+  block(g, dc, top + 0.0396, trayZ, ductW - (onL ? 0 : 0.005) - (onR ? 0 : 0.005), 0.0012, 0.03, ductLid);
+  for (const [xx, on, dir] of [
+    [d0, onL, -1],
+    [d1, onR, 1],
+  ] as const) {
+    if (on) continue;
+    block(g, xx, top + 0.019, trayZ, 0.003, 0.039, 0.042, ductGrey);
+    // Cut-out with a rubber edge just past the end; the cable bundle bends down into it.
+    block(g, xx + dir * 0.03, top + 0.0007, trayZ, 0.044, 0.0014, 0.05, rubber);
+    block(g, xx + dir * 0.03, top + 0.0009, trayZ, 0.034, 0.0014, 0.04, dark);
+    for (let k = 0; k < 3; k++)
+      hose(
+        g,
+        [
+          [xx - dir * 0.012, top + 0.012, trayZ - 0.008 + k * 0.008],
+          [xx + dir * 0.012, top + 0.009, trayZ - 0.008 + k * 0.008],
+          [xx + dir * 0.026, top - 0.002, trayZ - 0.008 + k * 0.008],
+          [xx + dir * 0.03, top - 0.02, trayZ - 0.008 + k * 0.008],
+        ],
+        0.0028,
+        k === 1 ? finish.pipe : rubber,
+        false,
+      );
+  }
   if (closed) {
     const bankX = 0.26 * w;
     const bank = hardware('ValveBank', bankX, top + 0.046, trayZ);
@@ -308,7 +340,11 @@ export function buildBases(cfg: LineConfig): THREE.Group {
       const next = row.map((o) => o.x - (dir * o.w) / 2).filter((e) => (e - edge) * dir >= 0 && Math.abs(e - edge) < 0.02);
       return next.length ? Math.abs(next[0] - edge) / 2 : 0;
     };
-    bench(group, c.x, c.z, c.w, c.d, c.id, c.name, c.closed, c.guard, c.hmi, [gap(-1), gap(1)]);
+    // The operator-edge ducts of neighbouring benches line up when their front edges do.
+    const front = (o: (typeof cells)[number]) => o.z + (Math.sign(o.z) * o.d) / 2;
+    const lined = (dir: number) =>
+      gap(dir) > 0 && row.some((o) => Math.abs(o.x - (dir * o.w) / 2 - (c.x + (dir * c.w) / 2)) < 0.4 && Math.abs(front(o) - front(c)) < 0.005);
+    bench(group, c.x, c.z, c.w, c.d, c.id, c.name, c.closed, c.guard, c.hmi, [gap(-1), gap(1)], [lined(-1), lined(1)]);
   }
   for (const dir of [-1, 1]) {
     const g = new THREE.Group();

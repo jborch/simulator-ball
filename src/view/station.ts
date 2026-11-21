@@ -48,6 +48,9 @@ export class StationView {
         robots.length,
         robots.some((r) => r.laser),
         def.group === 'EM14',
+        // Cartridge grippers hold the slim cartridge by its barrel (long fingers), so the part is
+        // seen held even when only the tool's lower end is in the station camera's frame.
+        robots.some((r) => r.source === 'collet') ? 0.032 : undefined,
       );
       this.robot.tag(def.id);
       this.group.add(this.robot.group);
@@ -70,7 +73,9 @@ export class StationView {
       const length = def.kind === 'reject' ? heldLength(cfg, built) : heldLength(cfg, ['body', 'housing']);
       this.bin = new BinView(def.bin, rejected, length);
       const b = cfg.layout.bins[def.bin];
-      this.bin.group.position.copy(local(b.a, TABLE, b.r));
+      // At the tray line the tote stands 4 cm further out along the belt, clear of the
+      // destacker's legs; the robot's drop point (b) is still well inside it.
+      this.bin.group.position.copy(local(b.a + (def.kind === 'unload' ? -0.04 : 0), TABLE, b.r));
     }
     // What a robot drops when a part doesn't seat: the last part it places.
     const source = def.robots?.filter((r) => r.source).at(-1)?.source;
@@ -123,8 +128,10 @@ export class StationView {
       const beamR = StationView.beamR(cfg, def, reach);
       const z = -beamR - 0.026;
       plate(fittings, 0, 0.291, z + 0.01, 0.057, 0.018, def.id, 'INSERTION');
-      plate(fittings, 0, 0.305, z - 0.056, 0.059, 0.019, def.id, 'PNEUMATIC PRESS', '#286e74', Math.PI);
-      warning(fittings, 0, 0.267, z - 0.056, 0.054, Math.PI);
+      // On the column's back face (toward the operator aisle), just proud of the enamel.
+      const back = z - 0.0596;
+      plate(fittings, 0, 0.305, back, 0.059, 0.019, def.id, 'PNEUMATIC PRESS', '#286e74', Math.PI);
+      warning(fittings, 0, 0.267, back, 0.054, Math.PI);
       const bank = hardware('ValveBank', 0, 0.105, z - 0.056);
       bank.scale.setScalar(0.72);
       bank.rotation.y = Math.PI;
@@ -138,12 +145,15 @@ export class StationView {
             [x, 0.132, z - 0.086],
             [x + 0.005, 0.082, z - 0.095],
             [x + 0.04, 0.051, z - 0.076],
-            [x + 0.048, TABLE + 0.003, z - 0.054],
+            [x + 0.048, TABLE + 0.016, z - 0.054],
           ],
           0.0021,
           i % 2 ? finish.seal : finish.pipe,
+          false,
         );
       }
+      // The lines drop through a slotted grommet plate in the press foot.
+      block(fittings, 0.048, TABLE + 0.016, z - 0.054, 0.07, 0.003, 0.016, finish.seal);
     }
     batch(fittings);
     this.group.add(fittings);

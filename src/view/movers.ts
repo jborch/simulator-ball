@@ -186,6 +186,23 @@ function carrierTemplate(models: Models): THREE.Group {
   return t;
 }
 
+/** A blurred square: the carriers' contact shadow (their footprint fills 70 % of the patch). */
+let shadowMat: THREE.MeshBasicMaterial | null = null;
+function footprintShadow(): THREE.MeshBasicMaterial {
+  if (shadowMat) return shadowMat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.filter = 'blur(7px)';
+  g.fillStyle = 'rgba(8,10,10,0.78)';
+  g.beginPath();
+  g.roundRect(19, 19, 90, 90, 8);
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  shadowMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  return shadowMat;
+}
+
 export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
@@ -193,6 +210,11 @@ export class MoverView {
   /** The model's own materials, before wear. */
   private readonly baseMaterials = new Map<THREE.Mesh, THREE.MeshStandardMaterial>();
   look: MoverLook | null = null;
+  /**
+   * Soft contact shadow round the carrier's footprint on the belt. Kept out of `root`, whose
+   * bounds are the carrier's ground-truth box (oracle.ts); the line adds it beside the root.
+   */
+  readonly shadow: THREE.Mesh;
 
   constructor(
     readonly id: number,
@@ -218,6 +240,8 @@ export class MoverView {
       } else this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
     });
     this.root.add(mover);
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(cfg.mover.length + 0.05, cfg.mover.length + 0.05).rotateX(-Math.PI / 2), footprintShadow());
+    this.shadow.renderOrder = -1;
 
     this.assembly = new AssemblyView(cfg, models);
     this.assembly.root.position.y = cfg.mover.seat;
@@ -254,6 +278,8 @@ export class MoverView {
     this.root.position.set(p.x, height, -p.y);
     const look = this.look;
     this.root.rotation.y = p.heading + (look?.skew ?? 0);
+    this.shadow.position.set(this.root.position.x, height + 0.0004, this.root.position.z);
+    this.shadow.rotation.y = this.root.rotation.y;
     for (const led of this.leds) led.material = LED[f.status];
     this.assembly.show(look?.hide ? f.parts.filter((x) => !look.hide!.includes(x)) : f.parts);
     this.assembly.setMark(look?.hide?.includes('housing') ? null : f.mark);

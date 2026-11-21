@@ -2,7 +2,8 @@
 //
 //   node tools/scripts/shots.mjs <out_dir> [--port 5199] [--wait 25] [--lighting day] [--only overview,hero-robot]
 //
-// Add --timing for 60 gl.finish-synchronised stage renders per view (median and p90).
+// Add --timing for 60 gl.finish-synchronised stage renders per view (median and p90), --fx to
+// render the station cameras with camera realism (as the RTSP feeds do).
 // --bake-contacts regenerates the floor/deck textures instead of taking screenshots.
 // --wait-for-mark waits for a labelled mover in the housing/cartridge inspection view.
 // Starts the dev server (fixed sim and scene seed, so every run shows much the same line), opens
@@ -68,7 +69,8 @@ try {
     page.on('console', (m) => m.type() === 'error' && console.error(`[page ${v.id}] ${m.text()}`));
     page.on('pageerror', (e) => console.error(`[page ${v.id}] ${e.message}`));
     await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 });
-    await page.goto(`${base}/?capture=1&fps=30&cam=${v.mount ? 'overview' : v.id}`, { waitUntil: 'load', timeout: 60_000 });
+    const fx = args.includes('--fx') && !v.mount ? '&fx=1' : '';
+    await page.goto(`${base}/?capture=1&fps=30${fx}&cam=${v.mount ? 'overview' : v.id}`, { waitUntil: 'load', timeout: 60_000 });
     await page.waitForFunction(() => !!window.line?.view, { timeout: 60_000 });
     if (args.includes('--bake-contacts')) {
       const { bakeContacts } = await import('./bake-contacts.mjs');

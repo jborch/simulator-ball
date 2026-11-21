@@ -5,14 +5,17 @@ import { gripRadius, heldLength, trayPocket } from '../sim/layout';
 import type { Frame, RobotFrame } from '../sim/protocol';
 import { M, RAIL_Y, type Reach, TABLE, cyl, label, local, mat, span } from './build';
 import type { Models } from './models';
-import { StockInstances, batch, block, finish, hardware, hose, plate, profile, round, visionCamera } from './hardware';
+import { StockInstances, batch, block, finish, gland, hardware, hose, plate, profile, round, visionCamera } from './hardware';
 import { contactPatch } from './hall';
 import { miniConveyor } from './conveyor';
 import { AssemblyView, HeldView, housingPart } from './movers';
 
-/** A ring light's diffuser: dim when idle, flashed bright while its camera exposes. */
+/** Ring light diffuser brightness: always on (as most are), and flashed while exposing. */
+export const RING_IDLE = 1.1;
+export const RING_FLASH = 2.8;
+/** A ring light's diffuser: lit, and flashed brighter while its camera exposes. */
 export function ringLight(): THREE.MeshStandardMaterial {
-  return mat(0xf4f8fa, { emissive: 0xcfeaff, emissiveIntensity: 0.2, roughness: 0.3 });
+  return mat(0xf4f8fa, { emissive: 0xd8eeff, emissiveIntensity: RING_IDLE, roughness: 0.3 });
 }
 
 /** Folded energy chain. Both horizontal runs and the semicircular return
@@ -68,6 +71,8 @@ class ArmView {
     lowestTip: number,
     private readonly cfg: LineConfig,
     models: Models,
+    /** How far the jaw fingers reach below the tip (m): long fingers grip a slim part's barrel. */
+    fingerReach = 0.004,
   ) {
     this.arm.userData.mobile = true;
     const top = RAIL_Y + 0.02;
@@ -128,8 +133,11 @@ class ArmView {
     const tool = hardware('JawBody');
     this.column.add(tool);
     for (let i = 0; i < 2; i++) {
-      // Jaw fingers hang 4 mm below the tip; the second one is turned to face the first.
-      const f = hardware('Finger', 0, 0.02, 0);
+      // Jaw fingers hang `fingerReach` below the tip (the catalogue finger reaches 4 mm, its
+      // top stays at the jaw); the second one is turned to face the first.
+      const stretch = (0.043 + fingerReach - 0.004) / 0.043;
+      const f = hardware('Finger', 0, 0.039 - 0.019 * stretch, 0);
+      f.scale.y = stretch;
       if (i) f.rotation.y = Math.PI;
       this.fingers.push(f);
       this.column.add(f);
@@ -176,7 +184,17 @@ export class RobotView {
    * `beamR`: where the beam and its legs stand, outside everything on the table below the robots.
    * `lowestTip`: the lowest gripper height the robots go to; the z columns stay in their carriage there.
    */
-  constructor(reach: Reach, beamR: number, lowestTip: number, cfg: LineConfig, models: Models, arms: number, withLaser: boolean, press = false) {
+  constructor(
+    reach: Reach,
+    beamR: number,
+    lowestTip: number,
+    cfg: LineConfig,
+    models: Models,
+    arms: number,
+    withLaser: boolean,
+    press = false,
+    fingerReach?: number,
+  ) {
     const { aMin, aMax, rMin } = reach;
     const top = RAIL_Y + 0.02;
     const frame = new THREE.Group();
@@ -229,7 +247,7 @@ export class RobotView {
     batch(frame);
     this.group.add(frame);
     this.arms = Array.from({ length: arms }, () => {
-      const arm = new ArmView(rMin, beamR, lowestTip, cfg, models);
+      const arm = new ArmView(rMin, beamR, lowestTip, cfg, models, fingerReach);
       this.group.add(arm.arm);
       return arm;
     });
@@ -292,6 +310,7 @@ export class InspectionView {
       ],
       0.0042,
     );
+    gland(mast, 0.018, TABLE, -postR - 0.04, 0.0042);
     batch(mast);
     this.group.add(mast);
     const cam = this.camera(0.07);
@@ -318,7 +337,7 @@ export class InspectionView {
   /** Ring lights flash while the camera is exposing. */
   update(inspecting: boolean, t: number): void {
     const on = inspecting && Math.floor(t * 8) % 2 === 0;
-    for (const m of this.lights) m.emissiveIntensity = on ? 2.5 : 0.2;
+    for (const m of this.lights) m.emissiveIntensity = on ? RING_FLASH : RING_IDLE;
   }
 }
 
@@ -377,16 +396,20 @@ export class FeederView {
     // Pick-end stop with a through-beam part sensor.
     block(rail, 0, trackY + 0.012, -(r0 - 0.004), cw + 0.012, 0.024, 0.008, M.frame);
     for (const sx of [-1, 1]) block(rail, sx * (cw / 2 + 0.009), trackY + 0.008, -(r0 + 0.012), 0.008, 0.012, 0.01, M.camera);
-    // Linear drive: magnet body, leaf springs, base plate and a profile stand.
+    // Linear drive: a carrier bar flush under the track, on two inclined leaf springs over a
+    // compact drive (magnet) body in the middle, its base plate and a profile stand.
     const driveY = trackY - 0.008;
-    block(rail, 0, driveY - 0.006, -(r0 + r1) / 2, 0.034, 0.012, r1 - r0 - 0.04, finish.graphite);
-    for (const r of [r0 + 0.035, r1 - 0.035]) {
-      const leaf = block(rail, 0, driveY - 0.022, -r, 0.03, 0.022, 0.0025, M.rail);
+    const mid = -(r0 + r1) / 2;
+    const Lt = r1 - r0;
+    const Ld = Math.min(0.17, 0.5 * Lt);
+    block(rail, 0, driveY - 0.006, mid, 0.034, 0.012, Lt - 0.003, finish.graphite);
+    for (const dr of [-1, 1]) {
+      const leaf = block(rail, 0, driveY - 0.019, mid + dr * (Ld / 2 - 0.014), 0.03, 0.016, 0.0025, M.rail);
       leaf.rotation.x = 0.35;
     }
-    block(rail, 0, driveY - 0.03, -(r0 + r1) / 2, 0.05, 0.014, r1 - r0 - 0.02, M.drive);
-    block(rail, 0, driveY - 0.039, -(r0 + r1) / 2, 0.058, 0.004, r1 - r0 - 0.012, finish.graphite);
-    profile(rail, [0, TABLE + 0.006, -(r0 + r1) / 2], [0, driveY - 0.041, -(r0 + r1) / 2], 0.03);
+    block(rail, 0, driveY - 0.035, mid, 0.05, 0.018, Ld, M.drive);
+    block(rail, 0, driveY - 0.046, mid, 0.058, 0.004, Ld + 0.016, finish.graphite);
+    profile(rail, [0, TABLE + 0.006, mid], [0, driveY - 0.048, mid], 0.03);
     block(rail, 0, TABLE + 0.003, -(r0 + r1) / 2, 0.07, 0.006, 0.07, finish.graphite);
     contactPatch(rail, 0, TABLE + 0.0008, -(r0 + r1) / 2, 0.14, 0.14);
     batch(rail);
@@ -498,8 +521,10 @@ export class FeederView {
     // Bulk parts lie on the bowl floor in layers, roughly along the wall: placed one by one where
     // they touch neither the bowl nor each other (deterministic, so every viewer sees the same).
     const bulkTransforms: THREE.Matrix4[] = [];
-    const L = heldLength(cfg, parts);
-    const pr = def.part === 'body' ? 0.0068 : part.radius;
+    // The part's own length (a housing is longer than its held length), and its radius with
+    // anything that sticks out (the housing's clip).
+    const L = Math.max(heldLength(cfg, parts), new THREE.Box3().setFromObject(make()).getSize(new THREE.Vector3()).y);
+    const pr = def.part === 'body' ? 0.0068 : def.part === 'housing' ? part.radius + 0.003 : part.radius;
     const placed: { y: number; a: THREE.Vector2; b: THREE.Vector2 }[] = [];
     let seed = 977 + id.length * 31;
     const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -584,7 +609,7 @@ export class FeederView {
     });
     if (this.inline) {
       const { at, ring, count, id } = this.inline;
-      ring.emissiveIntensity = items.some((x) => Math.abs(x - at) < 0.004) ? 2.5 : 0.2;
+      ring.emissiveIntensity = items.some((x) => Math.abs(x - at) < 0.004) ? RING_FLASH : RING_IDLE;
       count.textContent = `${id} rejects: ${bins[id] ?? 0}`;
     }
     const jammed = jam > 0;
@@ -682,10 +707,11 @@ export class TrayView {
       [
         [tl.check.a, y + 0.007, -t.r - half - 0.018],
         [tl.check.a + 0.008, y - 0.016, -t.r - half - 0.038],
-        [tl.check.a + 0.067, TABLE + 0.006, -t.r - half - 0.051],
+        [tl.check.a + 0.067, TABLE + 0.002, -t.r - half - 0.051],
       ],
       0.0026,
     );
+    gland(trackFrame, tl.check.a + 0.067, TABLE, -t.r - half - 0.051, 0.0026);
     plate(trackFrame, tl.check.a - 0.106, y - 0.021, -t.r + half + 0.005, 0.105, 0.025, 'EM61', 'TRAY INSPECTION');
     batch(trackFrame);
     this.group.add(trackFrame);
@@ -745,10 +771,11 @@ export class TrayView {
         [check.a + 0.03, y + 0.31, -t.r - 0.06],
         [check.a + 0.024, y + 0.3, -postR],
         [check.a + 0.02, y + 0.1, -postR - 0.018],
-        [check.a + 0.04, TABLE + 0.004, -postR - 0.04],
+        [check.a + 0.04, TABLE + 0.002, -postR - 0.04],
       ],
       0.0035,
     );
+    gland(mast, check.a + 0.04, TABLE, -postR - 0.04, 0.0035);
     contactPatch(mast, check.a, TABLE + 0.0009, -postR, 0.12, 0.12);
     batch(mast);
     this.group.add(mast);
@@ -778,6 +805,8 @@ export class TrayView {
     const trayFinish = trayMaterial(models.tray);
     for (const a of [tl.end + 0.36, tl.end + 0.58]) {
       spares.push(new THREE.Matrix4().makeTranslation(a, TABLE + 8 * 0.012, -(t.r + 0.03)));
+      // The bottom tray shows its whole skirt, down to the deck; each one above, its top 12 mm.
+      block(nested, a, TABLE + 0.015, -(t.r + 0.03), tw * 0.975, 0.03, td * 0.985, trayFinish);
       for (let k = 0; k < 8; k++) {
         block(nested, a, TABLE + k * 0.012 + 0.024, -(t.r + 0.03), tw * 0.985, 0.012, td * 0.99, trayFinish);
         block(nested, a, TABLE + k * 0.012 + 0.0293, -(t.r + 0.03), tw + 0.007, 0.0014, td + 0.007, trayFinish);
@@ -830,7 +859,7 @@ export class TrayView {
       this.place(load, tr[0]);
       load.fill(tr[1]);
     });
-    this.ring.emissiveIntensity = tray.line.some((x) => x[2] === 1) && Math.floor(t * 8) % 2 === 0 ? 2.5 : 0.2;
+    this.ring.emissiveIntensity = tray.line.some((x) => x[2] === 1) && Math.floor(t * 8) % 2 === 0 ? RING_FLASH : RING_IDLE;
     // The stack shows up to a handful of trays, the top one full.
     const n = Math.min(tray.stacked, TrayView.STACK);
     this.stacked.forEach((s, i) => (s.visible = i < n - 1));

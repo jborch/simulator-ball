@@ -351,9 +351,9 @@ def mover(num=None):
             bevel(buffer, 0.0007, 1)
             pads.append(buffer)
     # Laminated ID plates: top (operator view from above) and both long sides (station cameras).
-    # Two top plates, each upright for someone looking from its own side of the loop.
+    # One top plate, upright for the station cameras' side (-Y, the inside of the loop); on the
+    # other side of the fixture sits the carrier's RFID data tag.
     lt = label_plane(0.046, 0.022, (-0.004, -0.0345, 0.02945), (0, 0, 0), "label_top")
-    lt2 = label_plane(0.046, 0.022, (0.004, 0.0345, 0.02945), (0, 0, math.pi), "label_top_b")
     ls = label_plane(0.052, 0.0185, (-0.006, -0.0606, 0.0135), (math.radians(90), 0, 0), "label_side_a")
     lb = label_plane(0.052, 0.0185, (0.006, 0.0606, 0.0135), (math.radians(90), 0, math.radians(180)), "label_side_b")
     # Recessed pockets the plates sit in (a darker margin frames each plate).
@@ -361,8 +361,14 @@ def mover(num=None):
         box(0.0548, 0.0006, 0.0213, (-0.006, -0.06025, 0.0135), DARK(), "plate_frame"),
         box(0.0548, 0.0006, 0.0213, (0.006, 0.06025, 0.0135), DARK(), "plate_frame"),
         box(0.0488, 0.0245, 0.0004, (-0.004, -0.0345, 0.0291), DARK(), "plate_frame"),
-        box(0.0488, 0.0245, 0.0004, (0.004, 0.0345, 0.0291), DARK(), "plate_frame"),
     ]
+    rfid = bevel(cyl(0.0095, 0.0022, 0.029, DARK(), "rfid_tag", 40), 0.0006)
+    for x in (-0.0125, 0.0125):
+        screw = cyl(0.0016, 0.0005, 0.0312, STEEL(), "rfid_screw", 12)
+        screw.location.x, screw.location.y = x, 0.0345
+        frames.append(screw)
+    rfid.location.x, rfid.location.y = 0.0, 0.0345
+    frames.append(rfid)
     # Status light pipes: black bezel, domed lens (the app swaps the lens material).
     leds = []
     for name, loc, rot in [
@@ -384,7 +390,7 @@ def mover(num=None):
             o.rotation_euler = rot
             o.location = Vector(loc) + (Matrix.Rotation(rot[0], 3, 'X') @ o.location)
         leds += [bezel, lens]
-    parts = [base, groove, top, fixture, flange, hole, *pads, lt, lt2, ls, lb, *frames, *leds]
+    parts = [base, groove, top, fixture, flange, hole, *pads, lt, ls, lb, *frames, *leds]
     # Socket screws retaining the replaceable tooling plate.
     screws = []
     for x, y in [(-.043,-.043),(-.043,.043),(.043,.043),(.026,-.043)]:

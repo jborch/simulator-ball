@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { compact, installHardware } from './hardware';
 import { applyClearFinishes } from './clear';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing', 'machine'] as const;
 export type ModelName = (typeof MODEL_NAMES)[number];
@@ -23,6 +24,12 @@ export async function loadModels(): Promise<Models> {
       if (name === 'machine') installHardware(gltf.scene);
       else {
         gltf.scene.userData.product = true;
+        // The housing tubes come out of Blender's boolean and bevel with banded normals: smooth
+        // them round the tube, keeping the creases at the ends and the sight port.
+        gltf.scene.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh && /_shell$/.test(mesh.name || mesh.parent?.name || '')) mesh.geometry = toCreasedNormals(mesh.geometry, Math.PI / 5);
+        });
         applyClearFinishes(gltf.scene);
         // The mover is compacted with its per-carrier plates and lights (movers.ts).
         if (name !== 'mover') compact(gltf.scene, (m) => m.name.endsWith('_label'));

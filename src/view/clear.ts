@@ -52,7 +52,7 @@ export function clearMaterial(spec: ClearSpec): THREE.MeshStandardMaterial {
 /** Shared finishes for the product's clear parts, replacing the glTF ones by material name. */
 export const CLEAR = {
   /** Pen body: clear polycarbonate with a faint blue cast, lightly frosted. */
-  BodyFrost: clearMaterial({ color: 0xeef3f6, edge: 0x6f8791, opacity: [0.2, 0.88], roughness: 0.24, power: 1.8 }),
+  BodyFrost: clearMaterial({ color: 0xeef3f6, edge: 0x4a6470, opacity: [0.16, 0.93], roughness: 0.22, power: 1.45 }),
   /** Cartridge and window glass. */
   Glass: clearMaterial({ color: 0xf4f9fb, edge: 0x5e7a82, opacity: [0.07, 0.82], roughness: 0.05, power: 2.4, envMapIntensity: 1.8 }),
   /** The drug in the cartridge: a pale amber solution. */

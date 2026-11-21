@@ -40,11 +40,35 @@ export function installHardware(root: THREE.Object3D): void {
     'Motor nameplate': ratingPlate(),
     'Gauge face': gaugeFace(),
     'Filter bowl': clearMaterial({ color: 0xdfe7ea, edge: 0x7f9197, opacity: [0.25, 0.85], roughness: 0.1 }),
+    'Reject polypropylene': moulded(0x9b3f37),
   };
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh && !Array.isArray(mesh.material) && replace[mesh.material.name]) mesh.material = replace[mesh.material.name];
   });
+}
+
+/**
+ * Moulded polypropylene (the reject totes): a muted signal red, satin, with the slightly uneven
+ * gloss of an injection moulding (flow marks, a matt-textured band) in the roughness.
+ */
+function moulded(color: number): THREE.MeshStandardMaterial {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const p = c.getContext('2d')!;
+  const img = p.createImageData(128, 128);
+  let seed = 4242;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let y = 0; y < 128; y++)
+    for (let x = 0; x < 128; x++) {
+      const flow = Math.sin((x + y * 0.6) * 0.09 + Math.sin(y * 0.05) * 2) * 14;
+      const k = 150 + flow + (rnd() - 0.5) * 30;
+      img.data.set([k, k, k, 255], 4 * (x + y * 128));
+    }
+  p.putImageData(img, 0, 0);
+  const rough = new THREE.CanvasTexture(c);
+  rough.wrapS = rough.wrapT = THREE.RepeatWrapping;
+  return mat(color, { roughness: 1, roughnessMap: rough, metalness: 0, name: 'Reject polypropylene' });
 }
 
 /** Pressure gauge dial (0–10 bar, needle near 6), round on a transparent square. */
@@ -205,6 +229,15 @@ export function hose(g: THREE.Object3D, coords: number[][], r = 0.003, m: THREE.
       const dir = path.getTangentAt(t);
       along(g, path.getPointAt(t).addScaledVector(dir, -0.0015), dir, r * 1.3, 0.003, finish.seal, 8);
     }
+}
+
+/**
+ * Where a cable or air line goes down through a deck (at height `y`): a rubber grommet in a
+ * flanged cut-out, so the line visibly continues below instead of ending on the table.
+ */
+export function gland(g: THREE.Object3D, x: number, y: number, z: number, r = 0.004): void {
+  round(g, x, y + 0.0008, z, r * 2.8, 0.0016, finish.graphite, 20);
+  round(g, x, y + 0.0022, z, r * 1.7, 0.0028, finish.seal, 20);
 }
 
 const decals = new Map<string, THREE.MeshStandardMaterial>();

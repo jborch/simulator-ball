@@ -49,6 +49,16 @@ const FRAG_BODY = `#include <aomap_fragment>
 		reflectedLight.indirectSpecular *= mix( 1.0, keyShadow, ${SHADOW_SPECULAR.toFixed(3)} );
 		reflectedLight.indirectDiffuse *= occ * ${AMBIENT_DIFFUSE.toFixed(3)};
 		reflectedLight.indirectSpecular *= mix( 1.0, occ, 0.7 ) * ${AMBIENT_SPECULAR.toFixed(3)};
+		#ifdef BACKDROP_DIRECT
+			// The hall's walls and the gallery behind its glass: lit by the room more than by the
+			// key (which stands for the lamps over the line), and less toward floor and ceiling,
+			// so they sit back behind the machine in layers.
+			float lift = mix( 0.78, 1.06, smoothstep( 0.0, 2.4, h ) ) * mix( 1.0, 0.8, smoothstep( 3.3, 4.5, h ) );
+			reflectedLight.directDiffuse *= BACKDROP_DIRECT * lift;
+			reflectedLight.directSpecular *= BACKDROP_DIRECT;
+			reflectedLight.indirectDiffuse *= BACKDROP_AMBIENT * lift;
+			reflectedLight.indirectSpecular *= BACKDROP_AMBIENT;
+		#endif
 		#ifdef USE_AOMAP
 			// Under a bench the hall's many lamps are mostly hidden, not just the sky.
 			reflectedLight.directDiffuse *= mix( 1.0, ambientOcclusion, ${AO_DIRECT.toFixed(3)} );
@@ -61,6 +71,15 @@ if (!THREE.ShaderChunk.lights_fragment_begin.includes('keyShadow')) {
   const shadowed = /directLight\.color \*= (\( directLight\.visible && receiveShadow \) \? getShadow\( directionalShadowMap\[ i \][^;]*;)/;
   if (!shadowed.test(chunk)) throw new Error('lights_fragment_begin: directional shadow not found');
   THREE.ShaderChunk.lights_fragment_begin = 'float keyShadow = 1.0;\n' + chunk.replace(shadowed, 'keyShadow = $1\n\t\tdirectLight.color *= keyShadow;');
+}
+
+/**
+ * Marks a material as hall backdrop (see BACKDROP_DIRECT above): `direct` scales the key light on
+ * it, `ambient` the room's.
+ */
+export function backdrop<T extends THREE.MeshStandardMaterial>(m: T, direct: number, ambient: number): T {
+  m.defines = { ...m.defines, BACKDROP_DIRECT: direct.toFixed(3), BACKDROP_AMBIENT: ambient.toFixed(3) };
+  return m;
 }
 
 for (const lib of [THREE.ShaderLib.standard, THREE.ShaderLib.physical]) {
