@@ -6,22 +6,30 @@ import { batch, block, finish, gland, hardware, hose, plate, profile, round, war
 import { applyContactMap } from './occlusion';
 import { brushedFinish, brushedUv } from './textures';
 import { contactPatch } from './hall';
+import { powderCoat } from './finishes';
 
 // Brushed stainless deck plates: their look is the room they reflect. A shade darker than the
-// carriers and cabinets, so those stand out on it.
+// carriers and cabinets, so those stand out on it. (An anisotropic sheen bent the reflections up
+// into the ceiling's light and turned the decks white.)
 const deck = mat(0x868c8f, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
-const cutEdge = mat(0x7caaa7, { roughness: 0.24 });
+/** Polished edge of the guard panes: a faint, clear tint (an opaque cyan bar read as a stray part). */
+const cutEdge = mat(0xc2d1ce, { roughness: 0.12, metalness: 0, transparent: true, opacity: 0.4 });
 const dark = finish.graphite;
-const enameled = finish.powder;
+/** RAL 7035 powder coat, a shade warm. */
+const enameled = powderCoat(0xc6c7bd);
 const trim = finish.zinc;
 const amber = mat(0xe5b542);
 const red = mat(0xac312b, { roughness: 0.38 });
-/** Corrugated board cartons with tape and a label, and a grey (non-reject) tote. */
-const carton = mat(0xa88a62, { roughness: 0.9 });
-const tape = mat(0xc4a777, { roughness: 0.4 });
-const cartonLabel = mat(0xeeeee6, { roughness: 0.6 });
+/**
+ * Shelf stock: sealed grey totes (no cardboard in a clean zone) with clip-on lids, a contents
+ * label and a blue tamper seal; and an open grey (non-reject) tote.
+ */
+const stockTote = mat(0x8a9396, { roughness: 0.5 });
+const stockLid = mat(0x737c80, { roughness: 0.45 });
+const toteLabel = mat(0xeeeee6, { roughness: 0.6 });
+const seal = mat(0x2f62a6, { roughness: 0.4 });
 const spareTote = mat(0x5d6a70, { roughness: 0.55 });
 /** Grey PVC wiring duct and its slightly lighter lid. */
 const ductGrey = mat(0x8f9592, { roughness: 0.62, metalness: 0.02 });
@@ -287,17 +295,25 @@ function bench(
         0.005,
         i === 0 ? finish.pipe : rubber,
       );
-    // Stock on the lower shelf: taped cartons of empty trays, and a spare tote.
+    // Stock on the lower shelf: sealed totes of empty trays, and a spare tote.
     const shelf = 0.235;
     const n = Math.max(1, Math.floor((w - 0.5) / 0.36));
     for (let i = 0; i < n; i++) {
       const cx = -w / 2 + 0.2 + i * 0.36;
       const stack = 1 + ((i + Math.round(w * 10)) % 2);
       for (let k = 0; k < stack; k++) {
-        const y = shelf + 0.07 + k * 0.141;
-        block(g, cx + k * 0.008, y, 0.13, 0.3, 0.14, 0.4, carton);
-        block(g, cx + k * 0.008, y + 0.0702, 0.13, 0.3, 0.0012, 0.05, tape);
-        block(g, cx + k * 0.008 - 0.08, y + 0.03, 0.3302, 0.09, 0.05, 0.0012, cartonLabel);
+        const y = shelf + k * 0.149;
+        const x = cx + k * 0.006;
+        const t = hardware('Tote', x, y, 0.13);
+        t.scale.set(1.2, 0.85, 1.5);
+        t.traverse((o) => {
+          if (o instanceof THREE.Mesh) o.material = stockTote;
+        });
+        g.add(t);
+        block(g, x, y + 0.142, 0.13, 0.3, 0.01, 0.315, stockLid);
+        block(g, x, y + 0.1335, 0.13, 0.286, 0.008, 0.3, stockLid);
+        block(g, x - 0.07, y + 0.085, 0.2875, 0.09, 0.045, 0.0012, toteLabel);
+        block(g, x + 0.1, y + 0.134, 0.2885, 0.012, 0.026, 0.002, seal);
       }
     }
     const tote = hardware('Tote', w / 2 - 0.2, shelf, 0.02);

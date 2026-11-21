@@ -56,9 +56,10 @@ const amber = hall(0xb49856, { metalness: 0.66, roughness: 0.4 });
 const safetyRed = hall(0xa83a2e, { roughness: 0.38, metalness: 0 });
 
 function floor(): THREE.Mesh {
-  // Mid-grey epoxy resin: a fine speckle and a faint cloud in the colour, saw-cut joints with
-  // slightly worn edges. One repeat = 2.8 m (a joint at every edge). The gloss map is a soft
-  // cloud too (no strokes), so the strips' reflections spread evenly instead of streaking.
+  // Mid-grey self-levelling epoxy: seamless, a fine speckle and a faint cloud in the colour (one
+  // repeat = 2.8 m). Glossy, so the ceiling's luminaires show in it as faint soft reflections; the
+  // gloss map is a broad cloud at another period (roller and wear marks), so the reflections vary
+  // across the hall without streaking and the repeats don't line up.
   const lcg = (s: number) => () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const tex = canvasMap(1024, (c) => {
     const img = c.createImageData(1024, 1024);
@@ -70,16 +71,10 @@ function floor(): THREE.Mesh {
         const u = (x / 1024) * Math.PI * 2;
         const v = (y / 1024) * Math.PI * 2;
         const cloud = 2.2 * Math.sin(u * 2 + Math.sin(v * 3) * 1.3) * Math.sin(v * 2 + Math.sin(u * 1) * 1.7) + 1.2 * Math.sin(u * 5 + v * 3);
-        const k = 82 + grain + cloud;
+        const k = 80 + grain + 0.6 * cloud;
         img.data.set([k, k + 2, k + 2, 255], 4 * (x + y * 1024));
       }
     c.putImageData(img, 0, 0);
-    c.fillStyle = 'rgba(28,32,32,.75)';
-    c.fillRect(0, 0, 2.5, 1024);
-    c.fillRect(0, 0, 1024, 2.5);
-    c.fillStyle = 'rgba(150,156,152,.35)';
-    c.fillRect(2.5, 0, 1.5, 1024);
-    c.fillRect(0, 2.5, 1024, 1.5);
   });
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(12, 12);
@@ -90,8 +85,8 @@ function floor(): THREE.Mesh {
       for (let x = 0; x < 256; x++) {
         const u = (x / 256) * Math.PI * 2;
         const v = (y / 256) * Math.PI * 2;
-        const cloud = Math.sin(u * 3 + Math.sin(v * 2) * 1.5) * Math.sin(v * 2 + Math.sin(u * 3) * 1.1);
-        const k = 92 + cloud * 14 + (rnd() - 0.5) * 6;
+        const cloud = Math.sin(u * 3 + Math.sin(v * 2) * 1.5) * Math.sin(v * 2 + Math.sin(u * 3) * 1.1) + 0.4 * Math.sin(u * 7 + v * 2);
+        const k = 92 + cloud * 18 + (rnd() - 0.5) * 6;
         img.data.set([k, k, k, 255], 4 * (x + y * 256));
       }
     c.putImageData(img, 0, 0);
@@ -99,7 +94,7 @@ function floor(): THREE.Mesh {
   gloss.colorSpace = THREE.NoColorSpace;
   gloss.wrapS = gloss.wrapT = THREE.RepeatWrapping;
   gloss.repeat.set(5, 5);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.92, roughnessMap: gloss, metalness: 0 }));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.62, roughnessMap: gloss, metalness: 0 }));
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;
   applyContactMap(mesh, mesh.material, 'floor');
@@ -165,42 +160,70 @@ function clock(g: THREE.Group, x: number, y: number, z: number): void {
   rim.rotation.x = Math.PI / 2;
 }
 
-/** Lit emergency exit sign (running figure, door and arrow) over a door. Faces +z. */
+/**
+ * Lit emergency exit sign over a door, faces +z: a 2:1 green panel with a white border, the
+ * running figure heading for a door, and an arrow. Small (300 x 150 mm) and flush over the frame.
+ */
 let exitMat: THREE.MeshStandardMaterial;
 function exitSign(g: THREE.Group, x: number, y: number, z: number, show: boolean): void {
   // Only over the end doors of the long walls, outside the station cameras' views.
   if (!show) return;
   exitMat ??= mat(0xffffff, {
-    map: canvasMap(256, (c) => {
-      c.fillStyle = '#138a4c';
-      c.fillRect(0, 0, 256, 256);
-      c.fillStyle = '#f4fff8';
-      c.fillRect(150, 40, 70, 176);
-      c.fillStyle = '#138a4c';
-      c.fillRect(160, 50, 50, 166);
-      c.fillStyle = '#f4fff8';
-      c.beginPath();
-      c.arc(108, 62, 16, 0, Math.PI * 2);
-      c.fill();
-      c.lineWidth = 16;
-      c.lineCap = 'round';
-      c.strokeStyle = '#f4fff8';
-      for (const [a, b, d, e] of [
-        [104, 84, 92, 140],
-        [92, 140, 122, 178],
-        [92, 140, 66, 186],
-        [104, 92, 132, 112],
-        [104, 92, 70, 104],
-      ])
-        c.beginPath(), c.moveTo(a, b), c.lineTo(d, e), c.stroke();
-    }),
+    map: (() => {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 256;
+      const p = c.getContext('2d')!;
+      p.fillStyle = '#f4fff8';
+      p.fillRect(0, 0, 512, 256);
+      p.fillStyle = '#108a49';
+      p.fillRect(10, 10, 492, 236);
+      p.fillStyle = '#f4fff8';
+      // Door (right): an open frame with the doorway dark green.
+      p.fillRect(300, 36, 112, 184);
+      p.fillStyle = '#108a49';
+      p.fillRect(316, 52, 80, 168);
+      // Running figure in the doorway's direction: head, torso, arms and legs as thick strokes.
+      p.fillStyle = '#f4fff8';
+      p.beginPath();
+      p.arc(218, 62, 20, 0, Math.PI * 2);
+      p.fill();
+      p.strokeStyle = '#f4fff8';
+      p.lineCap = 'round';
+      p.lineJoin = 'round';
+      p.lineWidth = 22;
+      for (const pts of [
+        [[208, 94], [186, 154]],
+        [[186, 154], [222, 184], [214, 222]],
+        [[186, 154], [160, 192], [122, 200]],
+        [[204, 102], [244, 120], [268, 102]],
+        [[204, 102], [168, 112], [148, 140]],
+      ]) {
+        p.beginPath();
+        p.moveTo(pts[0][0], pts[0][1]);
+        for (const [px, py] of pts.slice(1)) p.lineTo(px, py);
+        p.stroke();
+      }
+      // Arrow (left), pointing the way.
+      p.lineWidth = 16;
+      p.beginPath();
+      p.moveTo(104, 128);
+      p.lineTo(40, 128);
+      p.moveTo(68, 98);
+      p.lineTo(38, 128);
+      p.lineTo(68, 158);
+      p.stroke();
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    })(),
     emissive: 0x2bd47a,
     emissiveIntensity: 0.35,
     roughness: 0.3,
   });
-  block(g, x, y, z, 0.42, 0.21, 0.03, trim);
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.19), exitMat);
-  face.scale.x = 2;
+  block(g, x, y, z, 0.32, 0.165, 0.03, trim);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.15), exitMat);
   face.position.set(x, y, z + 0.016);
   g.add(face);
 }
@@ -289,7 +312,9 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
         // High on the wall, under the grille: the low close-ups along the line see the wall below
         // it, not a sign cut by their frame.
         if (!longWall) plate(g, x, 2.33, 0.066, 1.29, 0.36, 'UTILITY  /  03', 'PEN ASSEMBLY   •   CONTROLLED AREA');
-        else if (i % 4 === 0) clock(g, x, 2.24, 0.075);
+        // Not on the outfeed side's wall: the outfeed camera sees its solid bays behind EM60's
+        // transfer axis, where the clock would hang right behind the gripper.
+        else if (i % 4 === 0 && bayName !== 'AIRLOCK 04') clock(g, x, 2.24, 0.075);
         block(g, x, 2.9, 0.075, 1.17, 0.52, 0.031, trim);
         for (let j = 0; j < 12; j++) block(g, x, 2.68 + j * 0.039, 0.1, 1.1, 0.012, 0.03, dark);
       }
@@ -304,7 +329,8 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
           block(g, dx, 0.21, 0.153, 0.616, 0.32, 0.006, trim);
         }
         if (!longWall) plate(g, x, 2.46, 0.067, 0.74, 0.19, bayName, 'CONTROLLED ACCESS');
-        else exitSign(g, x, 2.42, 0.07, i === 0);
+        // Just over the door frame (2.26 m), so the overview frames it whole.
+        else exitSign(g, x, 2.352, 0.07, i === 0);
         block(g, x + 0.78, 1.28, 0.112, 0.122, 0.18, 0.085, dark);
         block(g, x + 0.78, 1.32, 0.16, 0.075, 0.038, 0.018, door);
         round(g, x - 0.81, 0.65, 0.173, 0.076, 0.43, safetyRed);

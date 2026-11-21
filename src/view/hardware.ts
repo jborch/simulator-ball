@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { box, cyl, mat } from './build';
 import { clearMaterial } from './clear';
+import { anodised } from './finishes';
 
 const kit = new Map<string, THREE.Object3D>();
 const components = [
@@ -47,11 +48,16 @@ export function installHardware(root: THREE.Object3D): void {
     'Gripper plate': jawPlate(),
     'Gauge face': gaugeFace(),
     'Filter bowl': clearMaterial({ color: 0xdfe7ea, edge: 0x7f9197, opacity: [0.25, 0.85], roughness: 0.1 }),
-    'Reject polypropylene': moulded(0x9b3f37),
+    'Reject polypropylene': moulded(0x86423c),
   };
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh && !Array.isArray(mesh.material) && replace[mesh.material.name]) mesh.material = replace[mesh.material.name];
+  });
+  // The structural profiles are clear-anodised, unlike the bead-blasted parts mounted on them.
+  kit.get('Profile40')!.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Bead blasted aluminium') mesh.material = anodised;
   });
 }
 

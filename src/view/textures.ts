@@ -10,28 +10,41 @@ function canvasTexture(canvas: HTMLCanvasElement, flipY = false): THREE.CanvasTe
   return tex;
 }
 
-/** Laminated carrier ID plate: two-digit number and a small code strip, at width/height `aspect`. */
-export function numberTexture(n: number, aspect = 2): THREE.CanvasTexture {
+/**
+ * Laminated carrier ID plate: two-digit number and a small code strip, at width/height `aspect`.
+ * `flat`: the plate on the carrier's top, which the station cameras see almost edge-on (squashed
+ * several times over): a lighter, wider-set print whose strokes don't run together there.
+ */
+export function numberTexture(n: number, aspect = 2, flat = false): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = Math.round(512 / aspect);
+  const W = flat ? 1024 : 512;
+  const s = W / 512;
+  c.width = W;
+  c.height = Math.round(W / aspect);
   const g = c.getContext('2d')!;
   const h = c.height;
   g.fillStyle = '#f6f6f2';
   g.fillRect(0, 0, c.width, h);
   // Thin printed keyline just inside the laminate edge.
   g.strokeStyle = '#2a2f33';
-  g.lineWidth = 5;
-  g.strokeRect(9, 9, c.width - 18, h - 18);
+  g.lineWidth = 5 * s;
+  g.strokeRect(9 * s, 9 * s, c.width - 18 * s, h - 18 * s);
   g.fillStyle = '#121416';
-  g.font = `bold ${Math.round(h * 0.78)}px Arial, Helvetica, sans-serif`;
+  g.font = `${flat ? '' : 'bold '}${Math.round(h * (flat ? 0.7 : 0.78))}px Arial, Helvetica, sans-serif`;
+  if (flat) g.letterSpacing = `${Math.round(h * 0.06)}px`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(String(n).padStart(2, '0'), c.width * 0.42, h / 2 + h * 0.045);
+  if (flat) {
+    // Arial has no semibold: thicken the regular strokes a little.
+    g.strokeStyle = '#121416';
+    g.lineWidth = h * 0.022;
+    g.strokeText(String(n).padStart(2, '0'), c.width * 0.42, h / 2 + h * 0.045);
+  }
   g.fillStyle = '#2b3438';
   for (let i = 0; i < 11; i++) {
-    const w = ((n >> i % 6) % 2) * 3 + 3;
-    g.fillRect(392 + i * 9, h * 0.2, w, h * 0.6);
+    const w = (((n >> i % 6) % 2) * 3 + 3) * s;
+    g.fillRect((392 + i * 9) * s, h * 0.2, w, h * 0.6);
   }
   const tex = canvasTexture(c);
   tex.anisotropy = 16;
@@ -99,10 +112,10 @@ export function beltTexture(): THREE.CanvasTexture {
 }
 
 /** Metres of deck one repeat of the brushed finish covers (along and across the grain). */
-export const BRUSHED_REPEAT = { u: 0.5, v: 0.125 };
+export const BRUSHED_REPEAT = { u: 0.5, v: 0.07 };
 
 /**
- * Fine brushed grain for stainless plate: random grain lines along u (one texel ≈ 0.5 mm), in
+ * Fine brushed grain for stainless plate: random grain lines along u (one texel ≈ 0.27 mm), in
  * the colour (very faint) and the roughness. No scratches or patches, nothing that would show
  * the repeat: a cleanroom deck, not a workshop bench. Sized by `BRUSHED_REPEAT`, so the meshes'
  * UVs must be in those units (see `brushedUv`).
@@ -122,11 +135,11 @@ export function brushedFinish(): { map: THREE.DataTexture; rough: THREE.DataText
     const { k, phase, f } = line[y];
     for (let x = 0; x < W; x++) {
       const drift = 0.5 * Math.sin((x / W) * Math.PI * 2 * f + phase);
-      const g = 0.8 * k + 0.2 * drift + (rnd() - 0.5) * 0.22;
+      const g = 0.8 * k + 0.12 * drift + (rnd() - 0.5) * 0.22;
       const i = 4 * (x + y * W);
-      const c = 238 + g * 14;
+      const c = 238 + g * 9;
       color.set([c, c, c, 255], i);
-      const r = 84 + g * 17;
+      const r = 86 + g * 12;
       rough.set([r, r, r, 255], i);
     }
   }

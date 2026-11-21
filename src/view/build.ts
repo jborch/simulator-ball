@@ -16,7 +16,8 @@ export const mat = (color: number, extra: Partial<THREE.MeshStandardMaterialPara
   new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, ...extra });
 
 export const M = {
-  frame: mat(0xb9c0bf, { metalness: 0.92, roughness: 0.27 }),
+  /** Conveyor side profiles and brackets: clear-anodised like the frame extrusions. */
+  frame: mat(0xa9b1b9, { metalness: 0.8, roughness: 0.36 }),
   table: mat(0x5b6370, { roughness: 0.8 }),
   rail: mat(0xd2d6da, { metalness: 1, roughness: 0.17 }),
   axis: mat(0x627578, { metalness: 0.85, roughness: 0.32 }),

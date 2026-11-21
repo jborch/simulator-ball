@@ -7,6 +7,7 @@ import { batch } from './hardware';
 import type { Models } from './models';
 import { hash01 } from './scene';
 import { carrierWear, dataMatrixTexture, numberTexture } from './textures';
+import { varyMoulding } from './finishes';
 
 /**
  * A housing, origin at its base (as fed and as picked). Call `showLabel` to show the label EM31
@@ -14,6 +15,7 @@ import { carrierWear, dataMatrixTexture, numberTexture } from './textures';
  */
 export function housingPart(models: Models): THREE.Object3D {
   const g = models.housing.clone(true);
+  varyMoulding(g);
   showLabel(g, null);
   return g;
 }
@@ -65,6 +67,7 @@ export class AssemblyView {
     this.cartridge = at(models.cartridge.clone(true), 'cartridge');
     // The finished-pen model is the labelled housing with its cap; the body stays inside it.
     this.pen = at(models.pen.clone(true), 'housing');
+    varyMoulding(this.pen);
     showLabel(this.pen, null);
     for (const o of [this.body, this.spring, this.springBase, this.cartridge, this.pen]) {
       o.visible = false;
@@ -228,7 +231,7 @@ export class MoverView {
     const mover = carrierTemplate(models).clone(true);
     // Laminated ID plates, printed at their own aspect so the digits keep their shape.
     const sideMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 52 / 18.5), roughness: 0.42 });
-    const topMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 46 / 22), roughness: 0.42 });
+    const topMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 46 / 22, true), roughness: 0.42 });
     mover.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;

@@ -54,6 +54,15 @@ const FRAG_BODY = `#include <aomap_fragment>
 			// key (which stands for the lamps over the line), and less toward floor and ceiling,
 			// so they sit back behind the machine in layers.
 			float lift = mix( 0.78, 1.06, smoothstep( 0.0, 2.4, h ) ) * mix( 1.0, 0.8, smoothstep( 3.3, 4.5, h ) );
+			// The luminaires wash the walls: the rows across the hall (every 2 m along x) end near
+			// the long walls in soft scallops; on the end walls the outer row runs along the wall,
+			// brightest opposite each strip. Strongest high up, fading out toward the floor.
+			vec2 wallPlan = vContactWorld.xz;
+			float alongLong = pow( 0.5 + 0.5 * cos( 3.14159265 * wallPlan.x ), 2.0 );
+			float alongEnd = pow( 0.5 + 0.5 * cos( 6.28318531 * wallPlan.y / 4.2 ), 2.0 );
+			float scallop = abs( wallPlan.y ) > 6.0 ? alongLong : abs( wallPlan.x ) > 8.5 ? alongEnd : 0.0;
+			float washH = smoothstep( 0.4, 2.8, h ) * ( 1.0 - smoothstep( 3.9, 4.5, h ) );
+			lift *= 1.0 + washH * ( 0.06 + 0.34 * scallop );
 			reflectedLight.directDiffuse *= BACKDROP_DIRECT * lift;
 			reflectedLight.directSpecular *= BACKDROP_DIRECT;
 			reflectedLight.indirectDiffuse *= BACKDROP_AMBIENT * lift;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { compact, installHardware } from './hardware';
 import { applyClearFinishes } from './clear';
+import { refinish } from './finishes';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -21,6 +22,7 @@ export async function loadModels(): Promise<Models> {
           o.receiveShadow = true;
         }
       });
+      refinish(gltf.scene);
       if (name === 'machine') installHardware(gltf.scene);
       else {
         gltf.scene.userData.product = true;
