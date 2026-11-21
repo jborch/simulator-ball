@@ -1,0 +1,87 @@
+// Renders a fixed set of views of the line to PNGs, for before/after comparisons of the 3D look.
+//
+//   node tools/scripts/shots.mjs <out_dir> [--port 5199] [--wait 25] [--lighting day] [--only overview,hero-robot]
+//
+// Starts the dev server (fixed sim and scene seed, so every run shows much the same line), opens
+// each view in headless Chrome with the GPU and saves <out_dir>/<view>.png. The views are the
+// overview, the five installed station cameras (as the RTSP feeds see them, without camera realism)
+// and a few close-ups placed in station-local coordinates (see src/view/cameras.ts).
+import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+import puppeteer from 'puppeteer';
+
+const args = process.argv.slice(2);
+const opt = (name, dflt) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : dflt;
+};
+const out = path.resolve(args.find((a, i) => !a.startsWith('--') && !args[i - 1]?.startsWith('--')) ?? 'shots');
+const port = Number(opt('port', 5199));
+const waitS = Number(opt('wait', 25));
+const lighting = opt('lighting', 'day');
+const only = opt('only', '')?.split(',').filter(Boolean);
+mkdirSync(out, { recursive: true });
+
+/** Close-ups: mount and aim in station-local coordinates (a along travel, y up from belt, r outward). */
+const HEROES = [
+  { id: 'hero-robot', fov: 40, mount: { station: 'EM11', a: -0.55, y: 0.55, r: -0.75 }, aim: { station: 'EM11', a: 0.2, y: 0.12, r: 0.15 } },
+  { id: 'hero-presses', fov: 45, mount: { station: 'EM14B', a: -0.6, y: 0.7, r: 0.9 }, aim: { station: 'EM14B', a: 0.1, y: 0.05, r: 0.05 } },
+  { id: 'hero-dial', fov: 42, mount: { station: 'EM40', a: 0.5, y: 0.6, r: 1.1 }, aim: { station: 'EM40', a: -0.1, y: 0.05, r: 0.3 } },
+  { id: 'hero-outfeed', fov: 45, mount: { station: 'EM60', a: -0.5, y: 0.75, r: 1.0 }, aim: { station: 'EM60', a: 0.15, y: 0.0, r: 0.3 } },
+  { id: 'hero-movers', fov: 30, mount: { station: 'EM12', a: 0.35, y: 0.12, r: -0.35 }, aim: { station: 'EM12', a: -0.1, y: 0.04, r: 0.0 } },
+];
+const CAMS = ['overview', 'infeed', 'springbase', 'cartridge', 'housing', 'outfeed'];
+
+const server = spawn('npx', ['tsx', 'src/server/index.ts', '--dev'], {
+  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', SCENE_SEED: '7', SCENE_LIGHTING: lighting, CATCHAI_API_KEY: '', CATCHAI_AUTH: '', RTSP_CAMERAS: '' },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+const started = Date.now();
+server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+const stop = () => server.kill('SIGTERM');
+process.on('exit', stop);
+
+const base = `http://127.0.0.1:${port}`;
+for (let i = 0; ; i++) {
+  try {
+    if ((await fetch(base)).ok) break;
+  } catch {}
+  if (i > 120) throw new Error('server did not start');
+  await new Promise((r) => setTimeout(r, 500));
+}
+
+const browser = await puppeteer.launch({
+  headless: true,
+  args: ['--ignore-gpu-blocklist', '--enable-gpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--use-angle=metal'],
+});
+try {
+  // Let the line fill up (sim time runs from server start), the same amount every run.
+  const left = waitS * 1000 - (Date.now() - started);
+  if (left > 0) await new Promise((r) => setTimeout(r, left));
+  const views = [...CAMS.map((id) => ({ id })), ...HEROES].filter((v) => !only?.length || only.includes(v.id));
+  for (const v of views) {
+    const page = await browser.newPage();
+    page.on('console', (m) => m.type() === 'error' && console.error(`[page ${v.id}] ${m.text()}`));
+    page.on('pageerror', (e) => console.error(`[page ${v.id}] ${e.message}`));
+    await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 });
+    await page.goto(`${base}/?capture=1&fps=30&cam=${v.mount ? 'overview' : v.id}`, { waitUntil: 'load', timeout: 60_000 });
+    await page.waitForFunction(() => !!window.line?.view, { timeout: 60_000 });
+    if (v.mount) {
+      await page.evaluate(async (v) => {
+        const { stationPoint } = await import('/src/view/cameras.ts');
+        const { LINE } = await import('/src/sim/config.ts');
+        window.line.stage.view({ position: stationPoint(LINE, v.mount), target: stationPoint(LINE, v.aim), fov: v.fov });
+      }, v);
+    }
+    // A few seconds of frames: buffered sim frames, shadows and textures settle.
+    await new Promise((r) => setTimeout(r, 4000));
+    const file = path.join(out, `${v.id}.png`);
+    await page.screenshot({ path: file });
+    console.log(file);
+    await page.close();
+  }
+} finally {
+  await browser.close();
+  stop();
+}
