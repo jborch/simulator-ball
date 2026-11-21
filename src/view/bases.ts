@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { cells } from './cells';
-import { BELT_Y, TABLE, mat } from './build';
+import { BELT_Y, M, TABLE, mat } from './build';
 import { batch, block, finish, gland, hardware, hose, plate, profile, round, warning } from './hardware';
 import { applyContactMap } from './occlusion';
 import { brushedFinish, brushedUv } from './textures';
@@ -14,8 +14,7 @@ import { powderCoat } from './finishes';
 const deck = mat(0x868c8f, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
-/** Polished edge of the guard panes: a faint, clear tint (an opaque cyan bar read as a stray part). */
-const cutEdge = mat(0xc2d1ce, { roughness: 0.12, metalness: 0, transparent: true, opacity: 0.4 });
+const glazingSeal = mat(0x2c3434, { roughness: 0.62 });
 const dark = finish.graphite;
 /** RAL 7035 powder coat, a shade warm. */
 const enameled = powderCoat(0xc6c7bd);
@@ -172,6 +171,24 @@ function consolePanel(g: THREE.Group, x: number, z: number): void {
   gland(g, x - 0.12, top, z - 0.12, 0.006);
 }
 
+/**
+ * EPDM glazing gasket round a pane (centre cx, cy in the plane z), as framed glass has; `open`
+ * leaves out a free or meeting edge (-1/+1 for one side, 2 for both).
+ */
+function gasket(g: THREE.Group, cx: number, cy: number, z: number, w: number, h: number, alongZ = false, open = 0): void {
+  const t = 0.004;
+  for (const dy of [-1, 1]) {
+    const b = block(g, cx, cy + (dy * (h + t)) / 2, z, alongZ ? 0.004 : w + 2 * t, t, alongZ ? w + 2 * t : 0.004, glazingSeal);
+    b.castShadow = false;
+  }
+  for (const dx of [-1, 1]) {
+    if (dx === open || open === 2) continue;
+    const off = (dx * (w + t)) / 2;
+    const b = block(g, alongZ ? cx : cx + off, cy, alongZ ? z + off : z, alongZ ? 0.004 : t, h, alongZ ? t : 0.004, glazingSeal);
+    b.castShadow = false;
+  }
+}
+
 /** A glazed outer access panel. Narrow hardware and clear work zone on the belt side. */
 function guard(g: THREE.Group, x: number, z: number, w: number, h: number, endReturn: number): void {
   const bottom = top + 0.055;
@@ -190,20 +207,25 @@ function guard(g: THREE.Group, x: number, z: number, w: number, h: number, endRe
     side.rotation.y = Math.PI / 2;
     side.position.set(ex, top + (h + 0.046) / 2, z - endReturn / 2);
     g.add(side);
-    block(g, ex, side.position.y, z - 0.003, 0.005, h - 0.082, 0.003, cutEdge);
+    // Held in the two return rails; its upright edges are free.
+    gasket(g, ex, side.position.y, z - endReturn / 2, endReturn - 0.026, h - 0.094, true, 2);
   }
-  // A fixed light and an opening leaf share the frame. Expose the polished
-  // edges at the meeting line, which is visible even looking square-on.
+  // A fixed light and an opening leaf share the frame, each pane in its black glazing gasket.
   const paneHeight = h - 0.082;
   const centerY = top + (h + 0.046) / 2;
   const clearWidth = w - 0.026;
   for (const sign of [-1, 1]) {
     const cx = x + (sign * clearWidth) / 4;
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(clearWidth / 2 - 0.004, paneHeight), finish.glass);
+    const paneWidth = clearWidth / 2 - 0.016;
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(paneWidth, paneHeight - 0.012), finish.glass);
     pane.position.set(cx, centerY, z);
     g.add(pane);
-    block(g, x + sign * 0.003, centerY, z, 0.002, paneHeight, 0.006, cutEdge);
-    if (sign < 0) continue; // The movable leaf is supported by its hinges.
+    gasket(g, cx, centerY, z, paneWidth, paneHeight - 0.012, false, -sign);
+    if (sign < 0) {
+      // Slim anodised meeting rail between the fixed light and the leaf.
+      block(g, x, centerY, z, 0.01, paneHeight, 0.008, M.frame).castShadow = false;
+      continue; // The movable leaf is supported by its hinges.
+    }
     for (const dy of [-1, 1]) {
       block(g, cx, centerY + dy * (paneHeight / 2 - 0.005), z + 0.002, 0.052, 0.014, 0.009, rubber);
       for (const dx of [-0.018, 0.018]) {

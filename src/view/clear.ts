@@ -14,6 +14,11 @@ export interface ClearSpec {
   /** How fast the edge tint and opacity rise toward the silhouette. */
   power?: number;
   envMapIntensity?: number;
+  /**
+   * Most reflected light (luminance) the surface may show. A flat pane mirrors a ceiling strip
+   * as a bright streak; capped, it keeps a faint sheen.
+   */
+  specularCap?: number;
 }
 
 export function clearMaterial(spec: ClearSpec): THREE.MeshStandardMaterial {
@@ -28,11 +33,13 @@ export function clearMaterial(spec: ClearSpec): THREE.MeshStandardMaterial {
   });
   const edge = new THREE.Color(spec.edge);
   const shape = new THREE.Vector3(spec.opacity[0], spec.opacity[1], spec.power ?? 2.2);
+  const cap = { value: spec.specularCap ?? 100 };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.clearEdge = { value: edge };
     sh.uniforms.clearShape = { value: shape };
+    sh.uniforms.clearCap = cap;
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 clearEdge;\nuniform vec3 clearShape;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 clearEdge;\nuniform vec3 clearShape;\nuniform float clearCap;')
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
@@ -42,7 +49,11 @@ export function clearMaterial(spec: ClearSpec): THREE.MeshStandardMaterial {
       )
       .replace(
         '#include <opaque_fragment>',
-        `float clearSpec = dot(reflectedLight.directSpecular + reflectedLight.indirectSpecular, vec3(0.299, 0.587, 0.114));
+        `vec3 clearSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;
+        float clearSpec = dot(clearSpecular, vec3(0.299, 0.587, 0.114));
+        float clearKeep = clearSpec > clearCap ? clearCap / clearSpec : 1.0;
+        outgoingLight -= clearSpecular * (1.0 - clearKeep);
+        clearSpec *= clearKeep;
         gl_FragColor = vec4(outgoingLight, clamp(diffuseColor.a + clearSpec, 0.0, 1.0));`,
       );
   };

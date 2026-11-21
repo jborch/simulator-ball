@@ -82,6 +82,9 @@ export const anodised = mat(0xa9b1b9, { metalness: 0.8, roughness: 0.36, name: '
 
 /** glTF finish adjustments by material name: [colour (linear), roughness, metalness]. */
 const TUNED: Record<string, { color?: [number, number, number]; roughness?: number; metalness?: number }> = {
+  // Ground rams, rods and pins: a soft, even steel sheen, not a chrome mirror (which read as
+  // glass tubes against the bright room).
+  'Ground steel': { color: [0.47, 0.49, 0.5], roughness: 0.33, metalness: 1 },
   // Bead blasted parts (covers, carriages): matte satin, so the anodised profiles stand apart.
   'Bead blasted aluminium': { color: [0.54, 0.56, 0.56], roughness: 0.44, metalness: 0.88 },
   // RAL 9002 grey white rather than paper white.

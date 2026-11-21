@@ -7,7 +7,9 @@
 //
 // The renderer uses the basic (unfiltered depth) shadow map, and this replaces its lookup with a
 // percentage-closer soft shadow: a blocker search over the largest penumbra gives the mean
-// occluder depth, the penumbra follows from it, and a disc of depth compares filters it. A
+// occluder depth, the penumbra follows from it, and a disc of depth compares filters it. Each
+// filter tap compares the four nearest texels and blends them bilinearly, so the per-pixel
+// rotation of the disc doesn't stipple penumbrae and the edges of thin parts (rims, ribs). A
 // receiver-plane depth bias (from the screen derivatives of the shadow coordinate) keeps the wide
 // filter from shadowing a slanted surface with itself.
 import * as THREE from 'three';
@@ -26,7 +28,7 @@ const FADE_NEAR = 0.02;
 const FADE_FAR = 0.7;
 const FAR_STRENGTH = 0.32;
 const BLOCKER_SAMPLES = 12;
-const FILTER_SAMPLES = 20;
+const FILTER_SAMPLES = 12;
 
 /**
  * `shadow.radius` for the key light: the penumbra in shadow-map UV per unit of shadow depth, for
@@ -42,6 +44,20 @@ const DEPTH_RANGE = SHADOW_FAR - SHADOW_NEAR;
 const SOFT = /* glsl */ `
 	float softShadowNoise( vec2 p ) {
 		return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) );
+	}
+
+	// Depth compare at uv, blended over the four nearest texels (each against the receiver plane).
+	float softShadowTap( sampler2D shadowMap, vec2 size, vec2 uv, float z, vec2 slope ) {
+		vec2 st = uv * size - 0.5;
+		vec2 f = fract( st );
+		vec2 t = 1.0 / size;
+		vec2 c = ( floor( st ) + 0.5 ) * t;
+		vec2 d = c - uv;
+		float a = step( z + dot( slope, d ), texture2D( shadowMap, c ).r );
+		float b = step( z + dot( slope, d + vec2( t.x, 0.0 ) ), texture2D( shadowMap, c + vec2( t.x, 0.0 ) ).r );
+		float e = step( z + dot( slope, d + vec2( 0.0, t.y ) ), texture2D( shadowMap, c + vec2( 0.0, t.y ) ).r );
+		float g = step( z + dot( slope, d + t ), texture2D( shadowMap, c + t ).r );
+		return mix( mix( a, b, f.x ), mix( e, g, f.x ), f.y );
 	}
 
 	vec2 softShadowDisc( int i, int n, float phi ) {
@@ -78,8 +94,11 @@ const SOFT = /* glsl */ `
 			vec2 scale = vec2( shadowRadius, shadowRadius / ${f(FRUSTUM_ASPECT)} );
 			vec2 search = max( scale * maxDepth * 0.5, 2.0 * texel );
 
-			float blockers = 0.0;
-			float blockerDepth = 0.0;
+			// The centre tap first: a thin occluder straight above can fall between the rotated
+			// disc samples, which left single lit pixels in a shadow.
+			float blockerDepth = texture2D( shadowMap, shadowCoord.xy ).r;
+			float blockers = step( blockerDepth, zR - 1e-7 );
+			blockerDepth *= blockers;
 			for ( int i = 0; i < ${BLOCKER_SAMPLES}; i ++ ) {
 				vec2 o = softShadowDisc( i, ${BLOCKER_SAMPLES}, phi ) * search;
 				float d = texture2D( shadowMap, shadowCoord.xy + o ).r;
@@ -92,11 +111,11 @@ const SOFT = /* glsl */ `
 			if ( blockers > 0.0 ) {
 
 				float distance = min( zR - blockerDepth / blockers, maxDepth );
-				vec2 radius = max( scale * distance * 0.5, 1.25 * texel );
+				vec2 radius = max( scale * distance * 0.5, 0.75 * texel );
 				float lit = 0.0;
 				for ( int i = 0; i < ${FILTER_SAMPLES}; i ++ ) {
 					vec2 o = softShadowDisc( i, ${FILTER_SAMPLES}, phi + 1.3 ) * radius;
-					lit += step( zR + dot( slope, o ), texture2D( shadowMap, shadowCoord.xy + o ).r );
+					lit += softShadowTap( shadowMap, shadowMapSize, shadowCoord.xy + o, zR + dot( slope, o ), slope );
 				}
 				shadow = lit / ${FILTER_SAMPLES}.0;
 				// A far occluder hides only some of the lamps.

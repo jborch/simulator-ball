@@ -81,7 +81,7 @@ function moulded(color: number): THREE.MeshStandardMaterial {
   for (let y = 0; y < 128; y++)
     for (let x = 0; x < 128; x++) {
       const flow = Math.sin((x + y * 0.6) * 0.09 + Math.sin(y * 0.05) * 2) * 14;
-      const k = 150 + flow + (rnd() - 0.5) * 30;
+      const k = 150 + flow + (rnd() - 0.5) * 12;
       img.data.set([k, k, k, 255], 4 * (x + y * 128));
     }
   p.putImageData(img, 0, 0);
@@ -236,9 +236,11 @@ export const finish = {
   graphite: mat(0x383e40, { roughness: 0.4, metalness: 0.62 }),
   seal: mat(0x202828, { roughness: 0.69 }),
   pipe: mat(0x2d6372, { roughness: 0.32 }),
-  zinc: mat(0xbcc3c3, { metalness: 1, roughness: 0.22 }),
+  // Small plated and ground parts: not mirror-polished, so their tiny curved faces don't sparkle.
+  zinc: mat(0xbcc3c3, { metalness: 1, roughness: 0.3 }),
   brass: mat(0xa18a56, { metalness: 0.75, roughness: 0.34 }),
-  glass: clearMaterial({ color: 0xe1efed, edge: 0x8eb4b1, opacity: [0.045, 0.27], roughness: 0.18, envMapIntensity: 0.7 }),
+  /** Guard glazing: a faint green-grey tint, a Fresnel sheen rising toward grazing, no mirror streaks. */
+  glass: clearMaterial({ color: 0x9fb8b3, edge: 0x58807a, opacity: [0.13, 0.6], roughness: 0.08, power: 2.0, envMapIntensity: 1.3, specularCap: 0.16 }),
 };
 
 export function block(g: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, d: number, m: THREE.Material): THREE.Mesh {

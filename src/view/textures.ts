@@ -13,7 +13,7 @@ function canvasTexture(canvas: HTMLCanvasElement, flipY = false): THREE.CanvasTe
 /**
  * Laminated carrier ID plate: two-digit number and a small code strip, at width/height `aspect`.
  * `flat`: the plate on the carrier's top, which the station cameras see almost edge-on (squashed
- * several times over): a lighter, wider-set print whose strokes don't run together there.
+ * several times over): just the number, heavy and plate-high, in a broad border.
  */
 export function numberTexture(n: number, aspect = 2, flat = false): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -25,22 +25,27 @@ export function numberTexture(n: number, aspect = 2, flat = false): THREE.Canvas
   const h = c.height;
   g.fillStyle = '#f6f6f2';
   g.fillRect(0, 0, c.width, h);
+  g.fillStyle = '#121416';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  if (flat) {
+    // The top plate is seen almost edge-on by the station cameras: only a heavy number, as tall
+    // as the plate allows, with a broad border (thin keylines and bars squash into stripes).
+    g.strokeStyle = '#2a2f33';
+    g.lineWidth = h * 0.07;
+    g.strokeRect(h * 0.035, h * 0.035, c.width - h * 0.07, h - h * 0.07);
+    g.font = `bold ${Math.round(h * 0.86)}px Arial, Helvetica, sans-serif`;
+    g.fillText(String(n).padStart(2, '0'), c.width / 2, h / 2 + h * 0.05);
+    const tex = canvasTexture(c);
+    tex.anisotropy = 16;
+    return tex;
+  }
   // Thin printed keyline just inside the laminate edge.
   g.strokeStyle = '#2a2f33';
   g.lineWidth = 5 * s;
   g.strokeRect(9 * s, 9 * s, c.width - 18 * s, h - 18 * s);
-  g.fillStyle = '#121416';
-  g.font = `${flat ? '' : 'bold '}${Math.round(h * (flat ? 0.7 : 0.78))}px Arial, Helvetica, sans-serif`;
-  if (flat) g.letterSpacing = `${Math.round(h * 0.06)}px`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
+  g.font = `bold ${Math.round(h * 0.78)}px Arial, Helvetica, sans-serif`;
   g.fillText(String(n).padStart(2, '0'), c.width * 0.42, h / 2 + h * 0.045);
-  if (flat) {
-    // Arial has no semibold: thicken the regular strokes a little.
-    g.strokeStyle = '#121416';
-    g.lineWidth = h * 0.022;
-    g.strokeText(String(n).padStart(2, '0'), c.width * 0.42, h / 2 + h * 0.045);
-  }
   g.fillStyle = '#2b3438';
   for (let i = 0; i < 11; i++) {
     const w = (((n >> i % 6) % 2) * 3 + 3) * s;
@@ -182,34 +187,39 @@ export function carrierWear(): { map: THREE.CanvasTexture; rough: THREE.CanvasTe
     if (color) tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   };
-  const marks = (ctx: CanvasRenderingContext2D, rnd: () => number, base: string, smudge: (a: number) => string, line: (a: number) => string) => {
+  // Grime gathers in soft patches; scuffs are short and run along the direction of travel (u),
+  // and only change the gloss: dark random strokes in the colour read as veins in marble.
+  const marks = (ctx: CanvasRenderingContext2D, rnd: () => number, base: string, smudge: (a: number) => string, line: ((a: number) => string) | null) => {
     ctx.fillStyle = base;
     ctx.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 18; i++) {
       const x = rnd() * 256,
         y = rnd() * 256,
-        r = 10 + rnd() * 40;
+        r = 14 + rnd() * 44;
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, smudge(0.15 + rnd() * 0.2));
+      g.addColorStop(0, smudge(0.08 + rnd() * 0.12));
       g.addColorStop(1, smudge(0));
       ctx.fillStyle = g;
       ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
     }
-    for (let i = 0; i < 40; i++) {
-      ctx.strokeStyle = line(0.25 + rnd() * 0.4);
-      ctx.lineWidth = 0.7 + rnd();
+    if (!line) return;
+    ctx.filter = 'blur(0.6px)';
+    for (let i = 0; i < 30; i++) {
+      ctx.strokeStyle = line(0.12 + rnd() * 0.18);
+      ctx.lineWidth = 0.8 + rnd() * 1.2;
       const x = rnd() * 256,
         y = rnd() * 256,
-        a = rnd() * Math.PI;
+        a = (rnd() - 0.5) * 0.25;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + Math.cos(a) * (6 + rnd() * 26), y + Math.sin(a) * (6 + rnd() * 26));
+      ctx.lineTo(x + Math.cos(a) * (8 + rnd() * 20), y + Math.sin(a) * (8 + rnd() * 20));
       ctx.stroke();
     }
+    ctx.filter = 'none';
   };
   wear = {
-    map: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(120,118,110,${a})`, (a) => `rgba(150,150,146,${a})`), true),
-    rough: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(200,200,200,${a})`, (a) => `rgba(110,110,110,${a})`), false),
+    map: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(128,124,114,${a})`, null), true),
+    rough: make((ctx, rnd) => marks(ctx, rnd, '#ffffff', (a) => `rgba(205,205,205,${a})`, (a) => `rgba(150,150,150,${a})`), false),
   };
   return wear;
 }
