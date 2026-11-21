@@ -117,7 +117,6 @@ function loop() {
     if (fx) {
       fx.setSeed(sample.b.scene.seed);
       fx.exposure = scene.exposure;
-      fx.running = sample.b.machine === 'Execute';
     }
     line.update(sample, frames, dt);
     if (now - lastHud > 0.1) {

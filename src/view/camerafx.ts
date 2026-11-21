@@ -3,8 +3,7 @@
 // chance of working on a real one. Cheap enough to run on every frame:
 //
 // - mount: each camera is installed slightly differently on every run (position, aim, roll, focal
-//   length), from the scene seed, and vibrates a little while the line runs, with now and then a
-//   knock that sets it swinging
+//   length), from the scene seed; firmly mounted, so it doesn't move while it runs
 // - optics: barrel distortion, chromatic aberration at the edges, a little softness, vignetting
 // - exposure: motion blur (each frame blends into the next), lamp flicker, a gain that rises in
 //   poor light, and the sensor noise that comes with it (brighter areas noisier in absolute terms,
@@ -185,13 +184,9 @@ export class CameraFx {
   private mount: Mount;
   private seed = -1;
   private frame = 0;
-  private readonly camNo: number;
   private readonly saved = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), fov: 0 };
   private readonly size = new THREE.Vector2();
   exposure: Exposure = { gain: 1, flicker: 0.015, blur: 0.3 };
-  /** Machine running: the mount vibrates. */
-  running = false;
-
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -205,7 +200,6 @@ export class CameraFx {
     this.composer.addPass(new OutputPass());
     this.composer.addPass(this.sensor);
     this.mount = mountFor(0, camId);
-    this.camNo = camNumber(camId);
   }
 
   setSeed(seed: number): void {
@@ -220,7 +214,7 @@ export class CameraFx {
   }
 
   /** Renders one frame through the camera, at sim time `t` (s). */
-  /** Called during each render while the camera has the mount's pose (offset, knocks, sway). */
+  /** Called during each render while the camera has the mount's pose (its offset, aim and focal length). */
   onPosed: ((camera: THREE.PerspectiveCamera) => void) | null = null;
 
   render(camera: THREE.PerspectiveCamera, t: number): void {
@@ -235,12 +229,11 @@ export class CameraFx {
     s.fov = camera.fov;
 
     const m = this.mount;
-    const shake = this.shake(t);
     // The mount offset is in the camera's own frame (right, up, back).
     camera.position.add(m.offset.clone().applyQuaternion(camera.quaternion));
-    camera.rotateY(m.yaw + shake.yaw);
-    camera.rotateX(m.pitch + shake.pitch);
-    camera.rotateZ(m.roll + shake.roll);
+    camera.rotateY(m.yaw);
+    camera.rotateX(m.pitch);
+    camera.rotateZ(m.roll);
     camera.fov = s.fov * m.fovScale;
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
@@ -259,29 +252,5 @@ export class CameraFx {
     camera.quaternion.copy(s.quaternion);
     camera.fov = s.fov;
     camera.updateProjectionMatrix();
-  }
-
-  /**
-   * Vibration from the running line (a few hundredths of a degree), a slow sway, and now and then
-   * a knock (someone bumps the mast) that rings out over a few seconds.
-   */
-  private shake(t: number): { yaw: number; pitch: number; roll: number } {
-    const deg = Math.PI / 180;
-    const vib = this.running ? 0.03 * deg : 0.004 * deg;
-    let yaw = vib * (Math.sin(t * 2 * Math.PI * 11.3) + 0.6 * Math.sin(t * 2 * Math.PI * 17.9 + 1.3));
-    let pitch = vib * (Math.sin(t * 2 * Math.PI * 13.1 + 0.7) + 0.5 * Math.sin(t * 2 * Math.PI * 7.7));
-    yaw += 0.02 * deg * Math.sin(t * 2 * Math.PI * 0.23 + this.seed + this.camNo);
-    // Knocks: in some 90 s slots, at a random moment; each camera on its own mast.
-    const SLOT = 90;
-    for (const k of [Math.floor(t / SLOT), Math.floor(t / SLOT) - 1]) {
-      if (k < 0 || hash01(this.seed, this.camNo, k, 501) > 0.25) continue;
-      const at = (k + hash01(this.seed, this.camNo, k, 502)) * SLOT;
-      const dt = t - at;
-      if (dt < 0 || dt > 6) continue;
-      const amp = (0.25 + 0.35 * hash01(this.seed, this.camNo, k, 503)) * deg * Math.exp(-dt * 1.2);
-      yaw += amp * Math.sin(dt * 2 * Math.PI * 3.1);
-      pitch += amp * 0.7 * Math.sin(dt * 2 * Math.PI * 2.4 + 0.5);
-    }
-    return { yaw, pitch, roll: 0.3 * pitch };
   }
 }

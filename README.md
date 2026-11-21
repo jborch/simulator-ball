@@ -165,8 +165,8 @@ go wrong that only a camera sees.
 **Camera realism** (`src/view/camerafx.ts`, on unless `CAMERA_REALISM=off`) is applied to every RTSP feed:
 
 - **Mount:** each camera sits slightly differently on every run (a centimetre or two, a degree or
-  so of aim and roll, a few percent of focal length), vibrates a little while the line runs, and
-  now and then gets knocked and rings out over a few seconds.
+  so of aim and roll, a few percent of focal length). Cameras are firmly mounted: they don't
+  vibrate or move while the line runs.
 - **Optics:** barrel distortion, chromatic aberration toward the edges, slight softness and vignetting.
 - **Exposure:** motion blur, lamp flicker, a slight white-balance cast per camera, and sensor noise
   that grows with the gain in poor light.
