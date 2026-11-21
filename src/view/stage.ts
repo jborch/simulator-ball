@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import './contact';
 import { Hall } from './hall';
+import { type RoomLight, roomEnvironment } from './environment';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { CameraPose } from './cameras';
+
+const DAY_ROOM: RoomLight = { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 };
 
 /** Renderer, camera, orbit controls and lights. The floor is the line's plate (LineView). */
 export class Stage {
@@ -28,7 +31,7 @@ export class Stage {
   onResize?: () => void;
   /** Broad fill and key light (see SceneView for the lighting presets). */
   readonly hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1);
-  readonly keyOffset = new THREE.Vector3(2.5, 6, 3);
+  readonly keyOffset = new THREE.Vector3(1.3, 7, 1.9);
   readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
   /**
    * Replaces the plain render (a camera feed's post-processing, camerafx.ts). Gets the scene and
@@ -48,15 +51,11 @@ export class Stage {
 
     this.scene.background = new THREE.Color(0x9da9a9);
     this.hall = new Hall(this.scene);
-    // Three prefilters the local HDR panorama once for the different
-    // roughness levels of the machined, brushed and powder-coated surfaces.
-    new HDRLoader().load(`${import.meta.env.BASE_URL}textures/industrial_workshop_foundry_1k.hdr`, (texture) => {
-      texture.mapping = THREE.EquirectangularReflectionMapping;
-      this.scene.environment = texture;
-    });
-    this.scene.environmentRotation.y = 1.24;
-    this.scene.environmentIntensity = 0.8;
-    this.scene.fog = new THREE.Fog(0xc4cec9, 5.5, 22);
+    // Reflections and ambient light come from a probe of the room (environment.ts); the
+    // lighting preset replaces it (SceneView).
+    this.setRoom(DAY_ROOM);
+    this.scene.environmentIntensity = 1;
+    this.scene.fog = new THREE.Fog(0xa3aba8, 4.5, 26);
 
     this.camera.position.set(0.7, 2.6, 3.2);
     this.controls = new OrbitControls(this.camera, this.labels.domElement);
@@ -109,6 +108,17 @@ export class Stage {
     if (inset > 0.5) this.camera.setViewOffset(w + inset, h, inset, 0, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
+  }
+
+  private roomKey = '';
+  /** Re-renders the reflection/ambient probe for the room's light (once per preset). */
+  setRoom(light: RoomLight): void {
+    const key = JSON.stringify(light);
+    if (key === this.roomKey) return;
+    this.roomKey = key;
+    const old = this.scene.environment;
+    this.scene.environment = roomEnvironment(this.renderer, light);
+    old?.dispose();
   }
 
   /** Cuts to a camera pose, like switching to another camera on a monitoring screen. */

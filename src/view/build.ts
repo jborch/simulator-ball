@@ -16,19 +16,19 @@ export const mat = (color: number, extra: Partial<THREE.MeshStandardMaterialPara
   new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, ...extra });
 
 export const M = {
-  frame: mat(0xb8c0bd, { metalness: 0.82, roughness: 0.31 }),
+  frame: mat(0xb9c0bf, { metalness: 0.92, roughness: 0.27 }),
   table: mat(0x5b6370, { roughness: 0.8 }),
-  rail: mat(0xd0d4da, { metalness: 0.8, roughness: 0.25 }),
-  axis: mat(0x607477, { metalness: 0.72, roughness: 0.34 }),
-  axisDark: mat(0x343e40, { metalness: 0.52, roughness: 0.38 }),
+  rail: mat(0xd2d6da, { metalness: 1, roughness: 0.17 }),
+  axis: mat(0x627578, { metalness: 0.85, roughness: 0.32 }),
+  axisDark: mat(0x323b3d, { metalness: 0.8, roughness: 0.34 }),
   camera: mat(0x22252a),
   lens: mat(0x111111, { metalness: 0.9, roughness: 0.1 }),
   pin: mat(0xa0a9a6, { metalness: 0.82, roughness: 0.32 }),
   bin: mat(0x607879, { roughness: 0.7 }),
-  bowl: mat(0x9aa3ae, { metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }),
+  bowl: mat(0xa7adb3, { metalness: 1, roughness: 0.2, side: THREE.DoubleSide }),
   nest: mat(0xf2f2f2, { roughness: 0.7 }),
   /** Vibratory drive housings and other dark machine parts. */
-  drive: mat(0x3a3f47, { metalness: 0.3, roughness: 0.5 }),
+  drive: mat(0x3a3f45, { metalness: 0, roughness: 0.46 }),
   laser: new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.85 }),
 };
 

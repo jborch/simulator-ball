@@ -7,7 +7,8 @@ import { applyContactMap } from './occlusion';
 import { brushedFinish } from './textures';
 import { contactPatch } from './hall';
 
-const deck = mat(0x919d9a, { roughness: 0.46, roughnessMap: brushedFinish(), metalness: 0.76 });
+// Brushed stainless deck plates: their look is the room they reflect.
+const deck = mat(0xa3a8a9, { roughness: 0.4, roughnessMap: brushedFinish(), metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
 const dark = finish.graphite;

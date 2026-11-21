@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { applyContactMap } from './occlusion';
 import { mat } from './build';
+import { clearMaterial } from './clear';
 import { batch, block, plate, round } from './hardware';
 
 function canvasMap(size: number, paint: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
@@ -15,46 +16,80 @@ function canvasMap(size: number, paint: (ctx: CanvasRenderingContext2D) => void)
   return tex;
 }
 
-const wallMap = canvasMap(256, (c) => {
-  const wash = c.createLinearGradient(0, 0, 0, 256);
-  wash.addColorStop(0, '#f7f7f0');
-  wash.addColorStop(0.58, '#dedfd7');
-  wash.addColorStop(0.97, '#c0c6c0');
-  wash.addColorStop(1, '#b6bdb8');
+// Cleanroom wall panels: off-white sandwich panels with a vertical joint at each edge and in the
+// middle of a bay, a horizontal joint, and a faint wash that darkens toward the floor.
+const wallMap = canvasMap(512, (c) => {
+  const wash = c.createLinearGradient(0, 0, 0, 512);
+  wash.addColorStop(0, '#f1f0ea');
+  wash.addColorStop(0.6, '#e4e3dc');
+  wash.addColorStop(1, '#cfd0ca');
   c.fillStyle = wash;
-  c.fillRect(0, 0, 256, 256);
+  c.fillRect(0, 0, 512, 512);
+  c.fillStyle = 'rgba(70,76,76,.42)';
+  for (const x of [0, 255, 509]) c.fillRect(x, 0, 3, 512);
+  c.fillRect(0, 168, 512, 2);
+  c.fillStyle = 'rgba(255,255,255,.55)';
+  for (const x of [3, 258]) c.fillRect(x, 0, 1, 512);
 });
-const wall = mat(0xd3d9d5, { map: wallMap, roughness: 0.58, metalness: 0.16 });
-const trim = mat(0x828e8d, { roughness: 0.43, metalness: 0.5 });
-const dark = mat(0x445253, { roughness: 0.49, metalness: 0.35 });
-const door = mat(0x859fa0, { roughness: 0.37, metalness: 0.38 });
+const wall = mat(0x9c9f9b, { map: wallMap, roughness: 0.46, metalness: 0 });
+const trim = mat(0xaab1b1, { roughness: 0.32, metalness: 0.9 });
+const dark = mat(0x3d4446, { roughness: 0.5, metalness: 0 });
+const door = mat(0x7f97a2, { roughness: 0.4, metalness: 0 });
 const beacon = mat(0xfff5dd, { emissive: 0xfff6e2, emissiveIntensity: 2.5 });
-const galleryGlass = mat(0xb4cbcb, { transparent: true, opacity: 0.22, roughness: 0.18, metalness: 0.4, depthWrite: false });
-const sill = mat(0x849897, { roughness: 0.52, metalness: 0.22 });
+const galleryGlass = clearMaterial({ color: 0xd8e4e6, edge: 0x9fb2b6, opacity: [0.06, 0.3], roughness: 0.04, power: 3, envMapIntensity: 1.2 });
+const sill = mat(0x6f7c80, { roughness: 0.45, metalness: 0 });
+const galleryWall = mat(0x6e7674, { roughness: 0.6, metalness: 0 });
+const cabinet = mat(0xb3b8b6, { roughness: 0.42, metalness: 0 });
+const stainless = mat(0xb5bbbd, { roughness: 0.26, metalness: 1 });
 const amber = mat(0xb49856, { metalness: 0.66, roughness: 0.4 });
-const safetyRed = mat(0xa44537, { roughness: 0.36, metalness: 0.28 });
+const safetyRed = mat(0xa83a2e, { roughness: 0.38, metalness: 0 });
 
 function floor(): THREE.Mesh {
-  // Speckled resin, saw cuts and slightly burnished slab edges. One repeat = 2.8 m.
+  // Grey epoxy resin: fine speckle, a soft mottle, saw cuts with slightly burnished edges.
+  // One repeat = 2.8 m. The roughness map carries the mottle and scuffs, so the gloss varies.
   const tex = canvasMap(512, (c) => {
     const img = c.createImageData(512, 512);
     let seed = 17;
-    for (let i = 0; i < img.data.length; i += 4) {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      const grain = (seed / 4294967296 - 0.5) * 9;
-      img.data.set([145 + grain, 151 + grain, 150 + grain, 255], i);
-    }
+    for (let y = 0; y < 512; y++)
+      for (let x = 0; x < 512; x++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        const grain = (seed / 4294967296 - 0.5) * 7;
+        const mottle = 4 * Math.sin(x * 0.019 + Math.sin(y * 0.011) * 2.1) * Math.sin(y * 0.016 + Math.sin(x * 0.007) * 1.7);
+        const v = 104 + grain + mottle;
+        img.data.set([v, v + 3, v + 3, 255], 4 * (x + y * 512));
+      }
     c.putImageData(img, 0, 0);
-    c.fillStyle = 'rgba(64,73,70,.48)';
-    c.fillRect(0, 0, 1.4, 512);
-    c.fillRect(0, 0, 512, 1.4);
-    c.fillStyle = 'rgba(223,225,218,.47)';
-    c.fillRect(1.4, 0, 1, 512);
-    c.fillRect(0, 1.4, 512, 1);
+    c.fillStyle = 'rgba(58,64,62,.55)';
+    c.fillRect(0, 0, 1.6, 512);
+    c.fillRect(0, 0, 512, 1.6);
+    c.fillStyle = 'rgba(214,218,212,.4)';
+    c.fillRect(1.6, 0, 1, 512);
+    c.fillRect(0, 1.6, 512, 1);
   });
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(12, 12);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.54, metalness: 0.15 }));
+  const gloss = canvasMap(256, (c) => {
+    c.fillStyle = 'rgb(120,120,120)';
+    c.fillRect(0, 0, 256, 256);
+    let seed = 91;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < 70; i++) {
+      const g = 95 + rnd() * 70;
+      c.strokeStyle = `rgba(${g},${g},${g},${0.25 + rnd() * 0.3})`;
+      c.lineWidth = 1 + rnd() * 5;
+      c.beginPath();
+      const x = rnd() * 256,
+        y = rnd() * 256,
+        a = rnd() * Math.PI;
+      c.moveTo(x, y);
+      c.quadraticCurveTo(x + Math.cos(a) * 40, y + Math.sin(a) * 40 + 10, x + Math.cos(a) * 80, y + Math.sin(a) * 80);
+      c.stroke();
+    }
+  });
+  gloss.colorSpace = THREE.NoColorSpace;
+  gloss.wrapS = gloss.wrapT = THREE.RepeatWrapping;
+  gloss.repeat.set(9, 9);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(33.6, 33.6), mat(0xffffff, { map: tex, roughness: 0.5, roughnessMap: gloss, metalness: 0 }));
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;
   applyContactMap(mesh, mesh.material, 'floor');
@@ -78,8 +113,85 @@ export function contactPatch(g: THREE.Object3D, x: number, y: number, z: number,
   g.add(m);
 }
 
+const galleryFloor = mat(0x6f7573, { roughness: 0.45, metalness: 0 });
+
+/** Wall clock: white dial, black hands and ticks, aluminium bezel. Faces +z. */
+function clock(g: THREE.Group, x: number, y: number, z: number): void {
+  const face = canvasMap(256, (c) => {
+    c.fillStyle = '#f4f4f0';
+    c.fillRect(0, 0, 256, 256);
+    c.strokeStyle = '#1b1f20';
+    c.translate(128, 128);
+    for (let i = 0; i < 60; i++) {
+      c.lineWidth = i % 5 ? 2 : 6;
+      c.beginPath();
+      c.moveTo(0, -118);
+      c.lineTo(0, i % 5 ? -108 : -96);
+      c.stroke();
+      c.rotate(Math.PI / 30);
+    }
+    c.lineCap = 'round';
+    for (const [ang, len, w] of [
+      [-0.9, 62, 9],
+      [2.2, 92, 6],
+    ] as const) {
+      c.lineWidth = w;
+      c.beginPath();
+      c.moveTo(0, 0);
+      c.lineTo(Math.sin(ang) * len, -Math.cos(ang) * len);
+      c.stroke();
+    }
+  });
+  const dial = new THREE.Mesh(new THREE.CircleGeometry(0.15, 48), mat(0xffffff, { map: face, roughness: 0.3 }));
+  dial.position.set(x, y, z + 0.012);
+  g.add(dial);
+  const rim = round(g, x, y, z + 0.004, 0.163, 0.024, trim, 48);
+  rim.rotation.x = Math.PI / 2;
+}
+
+/** Lit emergency exit sign (running figure, door and arrow) over a door. Faces +z. */
+let exitMat: THREE.MeshStandardMaterial;
+function exitSign(g: THREE.Group, x: number, y: number, z: number, show: boolean): void {
+  // Only over the end doors of the long walls, outside the station cameras' views.
+  if (!show) return;
+  exitMat ??= mat(0xffffff, {
+    map: canvasMap(256, (c) => {
+      c.fillStyle = '#138a4c';
+      c.fillRect(0, 0, 256, 256);
+      c.fillStyle = '#f4fff8';
+      c.fillRect(150, 40, 70, 176);
+      c.fillStyle = '#138a4c';
+      c.fillRect(160, 50, 50, 166);
+      c.fillStyle = '#f4fff8';
+      c.beginPath();
+      c.arc(108, 62, 16, 0, Math.PI * 2);
+      c.fill();
+      c.lineWidth = 16;
+      c.lineCap = 'round';
+      c.strokeStyle = '#f4fff8';
+      for (const [a, b, d, e] of [
+        [104, 84, 92, 140],
+        [92, 140, 122, 178],
+        [92, 140, 66, 186],
+        [104, 92, 132, 112],
+        [104, 92, 70, 104],
+      ])
+        c.beginPath(), c.moveTo(a, b), c.lineTo(d, e), c.stroke();
+    }),
+    emissive: 0x2bd47a,
+    emissiveIntensity: 0.35,
+    roughness: 0.3,
+  });
+  block(g, x, y, z, 0.42, 0.21, 0.03, trim);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.19), exitMat);
+  face.scale.x = 2;
+  face.position.set(x, y, z + 0.016);
+  g.add(face);
+}
+
 function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group {
   const g = new THREE.Group();
+  const longWall = bayName.startsWith('AIRLOCK');
   const n = Math.round(length / 2);
   const pitch = length / n;
   for (let i = 0; i < n; i++) {
@@ -93,22 +205,22 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       block(g, x - pitch / 2 + 0.02, 1.76, 0, 0.054, 1.56, 0.13, trim);
       // Secondary room seen through the glass, with pilasters, conduits,
       // instrument cupboards and lights at genuine depth behind the window.
-      block(g, x, 2.1, -2.0, pitch + 0.01, 4.2, 0.12, wall);
-      block(g, x - 0.72, 1.9, -1.85, 0.08, 3.8, 0.1, trim);
+      block(g, x, 2.1, -2.0, pitch + 0.01, 4.2, 0.12, galleryWall);
+      block(g, x - 0.72, 1.9, -1.85, 0.08, 3.8, 0.1, cabinet);
       for (const h of [2.36, 2.45]) block(g, x, h, -1.65, pitch, 0.042, 0.055, trim);
       if (i % 3 === 2) {
         for (const dx of [-0.48, 0.27]) {
-          round(g, x + dx, 0.96, -1.36, 0.256, 1.56, trim, 32);
-          const head = new THREE.Mesh(new THREE.SphereGeometry(0.255, 24, 12), trim);
+          round(g, x + dx, 0.96, -1.36, 0.256, 1.56, stainless, 32);
+          const head = new THREE.Mesh(new THREE.SphereGeometry(0.255, 24, 12), stainless);
           head.position.set(x + dx, 1.74, -1.36);
           head.scale.y = 0.4;
           g.add(head);
           for (const y of [0.44, 1.52]) round(g, x + dx, y, -1.36, 0.258, 0.023, dark, 32);
-          round(g, x + dx, 1.95, -1.36, 0.039, 0.39, trim);
+          round(g, x + dx, 1.95, -1.36, 0.039, 0.39, stainless);
           round(g, x + dx, 2.12, -1.36, 0.063, 0.018, dark);
         }
       } else {
-        block(g, x + 0.3, 0.91, -1.43, 0.82, 1.82, 0.48, door);
+        block(g, x + 0.3, 0.91, -1.43, 0.82, 1.82, 0.48, cabinet);
         block(g, x + 0.29, 0.94, -1.181, 0.009, 1.72, 0.01, dark);
         block(g, x + 0.35, 1.09, -1.17, 0.018, 0.16, 0.025, dark);
         for (let j = 0; j < 6; j++) block(g, x + 0.09, 1.53 + j * 0.031, -1.183, 0.25, 0.013, 0.015, trim);
@@ -119,16 +231,10 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       block(g, x, 2.25, 0, pitch - 0.012, 4.5, 0.12, wall);
       block(g, x, 0.48, 0.063, pitch - 0.012, 0.96, 0.014, sill);
       if (i % 3 !== 0) {
-        plate(
-          g,
-          x,
-          1.83,
-          0.066,
-          1.29,
-          0.36,
-          bayName.startsWith('AIRLOCK 0') ? 'PROCESS  /  07' : 'UTILITY  /  03',
-          'PEN ASSEMBLY   •   CONTROLLED AREA',
-        );
+        // Text signs only on the end walls: the station cameras look at the long walls past
+        // their own posts, where a sign would show in pieces. The long walls get a clock.
+        if (!longWall) plate(g, x, 1.83, 0.066, 1.29, 0.36, 'UTILITY  /  03', 'PEN ASSEMBLY   •   CONTROLLED AREA');
+        else if (i % 4 === 0) clock(g, x + 0.5, 2.62, 0.075);
         block(g, x, 2.9, 0.075, 1.17, 0.52, 0.031, trim);
         for (let j = 0; j < 12; j++) block(g, x, 2.68 + j * 0.039, 0.1, 1.1, 0.012, 0.03, dark);
       }
@@ -142,7 +248,8 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
           block(g, dx, 0.97, 0.173, 0.35, 0.024, 0.028, trim);
           block(g, dx, 0.21, 0.153, 0.616, 0.32, 0.006, trim);
         }
-        plate(g, x, 2.46, 0.067, 0.74, 0.19, bayName, 'CONTROLLED ACCESS');
+        if (!longWall) plate(g, x, 2.46, 0.067, 0.74, 0.19, bayName, 'CONTROLLED ACCESS');
+        else exitSign(g, x, 2.42, 0.07, i === 0);
         block(g, x + 0.78, 1.28, 0.112, 0.122, 0.18, 0.085, dark);
         block(g, x + 0.78, 1.32, 0.16, 0.075, 0.038, 0.018, door);
         round(g, x - 0.81, 0.65, 0.173, 0.076, 0.43, safetyRed);
@@ -158,14 +265,14 @@ function wallRun(length: number, gallery: boolean, bayName: string): THREE.Group
       plate(g, x - 0.71, 1.79, 0.198, 0.115, 0.045, 'B' + (i + 1), 'COLUMN');
     }
   }
-  block(g, 0, 2.2, -2.15, length + 4, 4.5, 0.12, wall);
-  block(g, 0, 0.035, -1.12, length + 4, 0.06, 2.25, trim);
-  block(g, 0, 3.18, -1.12, length + 4, 0.09, 2.25, wall);
+  block(g, 0, 2.2, -2.15, length + 4, 4.5, 0.12, galleryWall);
+  block(g, 0, 0.035, -1.12, length + 4, 0.06, 2.25, galleryFloor);
+  block(g, 0, 3.18, -1.12, length + 4, 0.09, 2.25, galleryWall);
   batch(g);
   for (const o of g.children) o.castShadow = false;
   return g;
 }
-const matGlass = mat(0x526e73, { metalness: 0.45, roughness: 0.16 });
+const matGlass = mat(0x3f5357, { metalness: 0.2, roughness: 0.08 });
 
 export class Hall {
   private readonly cuts: { g: THREE.Group; normal: THREE.Vector3; limit: number }[] = [];
@@ -205,6 +312,18 @@ export class Hall {
       scene.add(g);
       this.cuts.push({ g, normal: new THREE.Vector3(x, 0, z).normalize(), limit: Math.hypot(x, z) - 0.15 });
     }
+    // Zone sign hung from the ceiling over the far aisle, high enough that the station
+    // cameras (looking level across the belt) don't see it.
+    const zone = new THREE.Group();
+    block(zone, 0, 2.76, -1.7, 1.66, 0.46, 0.03, trim);
+    for (const side of [1, -1]) {
+      const sign = plate(zone, 0, 2.76, -1.7 + side * 0.0158, 1.62, 0.42, 'L07   PEN ASSEMBLY', 'CLEAN ZONE   •   ISO 8   •   GOWNING REQUIRED');
+      if (side < 0) sign.rotation.y = Math.PI;
+    }
+    for (const dx of [-0.7, 0.7]) round(zone, dx, 3.76, -1.7, 0.0015, 1.54, dark, 6);
+    batch(zone);
+    scene.add(zone);
+    this.cuts.push({ g: zone, normal: new THREE.Vector3(0, 1, 0), limit: 3.84 });
     const roof = new THREE.Group();
     block(roof, 0, 4.53, 0, 18, 0.09, 13.2, wall);
     for (let x = -8; x <= 8; x += 2) {

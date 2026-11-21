@@ -24,12 +24,12 @@ def finish(name, rgb, metal, rough):
     return mat
 
 
-alu = finish("Bead blasted aluminium", (0.51, 0.55, 0.55), 0.82, 0.32)
+alu = finish("Bead blasted aluminium", (0.55, 0.58, 0.58), 0.92, 0.3)
 steel = finish("Ground steel", (0.56, 0.59, 0.60), 0.95, 0.21)
 dark = finish("Graphite anodising", (0.042, 0.055, 0.058), 0.68, 0.34)
-seal = finish("Black elastomer", (0.012, 0.015, 0.016), 0.06, 0.56)
-paint = finish("Mineral enamel", (0.57, 0.60, 0.57), 0.32, 0.32)
-blue = finish("Air coupling", (0.032, 0.19, 0.25), 0.18, 0.34)
+seal = finish("Black elastomer", (0.012, 0.015, 0.016), 0.0, 0.56)
+paint = finish("Mineral enamel", (0.57, 0.60, 0.57), 0.0, 0.4)
+blue = finish("Air coupling", (0.032, 0.19, 0.25), 0.0, 0.34)
 poly = finish("Conductive polypropylene", (0.096, 0.15, 0.17), 0.07, 0.4)
 items = []
 
@@ -315,7 +315,7 @@ def casting(points, half, material, bevel=0.002):
     mesh(verts, faces, material, bevel)
 
 
-white = finish("Press enamel", (0.74, 0.75, 0.72), 0.05, 0.36)
+white = finish("Press enamel", (0.74, 0.75, 0.72), 0.0, 0.36)
 casting(
     [
         (-0.058, 0.012),

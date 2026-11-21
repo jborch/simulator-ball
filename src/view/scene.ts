@@ -9,6 +9,7 @@ import { pose } from '../sim/track';
 import type { Lighting } from '../sim/types';
 import { BELT_Y, side } from './build';
 import type { Exposure } from './camerafx';
+import type { RoomLight } from './environment';
 import { cells } from './cells';
 import { hardware } from './hardware';
 import type { MoverView } from './movers';
@@ -39,16 +40,56 @@ interface LightPreset {
   sun: number;
   sunColor: number;
   env: number;
-  /** Ceiling lamps (only lit when the hall is dark). */
+  /** The room's light as the reflection/ambient probe sees it. */
+  room: RoomLight;
+  /** Ceiling lamps over the line (only lit when the hall is dark). */
   lamps: number;
   exposure: Exposure;
 }
 
+// Most of the ambient light comes from the room probe (bright strips overhead, darker floor), so
+// undersides and the spaces under tables fall off; the hemisphere is only a weak fill.
 const PRESETS: Record<Lighting, LightPreset> = {
-  day: { hemi: 0.72, sky: 0xe2eaf1, sun: 1.35, sunColor: 0xfff3dc, env: 0.85, lamps: 0, exposure: { gain: 1, flicker: 0.012, blur: 0.25 } },
-  evening: { hemi: 0.55, sky: 0xffe0c0, sun: 0.9, sunColor: 0xffc58f, env: 0.35, lamps: 1.5, exposure: { gain: 1.3, flicker: 0.025, blur: 0.35 } },
-  night: { hemi: 0.18, sky: 0xb8c8ff, sun: 0.25, sunColor: 0xc8d8ff, env: 0.12, lamps: 3, exposure: { gain: 2.0, flicker: 0.04, blur: 0.5 } },
-  dim: { hemi: 0.4, sky: 0xdfe8ff, sun: 0.5, sunColor: 0xfff2dd, env: 0.25, lamps: 0, exposure: { gain: 1.5, flicker: 0.05, blur: 0.4 } },
+  day: {
+    hemi: 0.1,
+    sky: 0xe2eaf1,
+    sun: 2.1,
+    sunColor: 0xfff3e2,
+    env: 1.0,
+    room: { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 },
+    lamps: 0,
+    exposure: { gain: 1, flicker: 0.012, blur: 0.25 },
+  },
+  evening: {
+    hemi: 0.2,
+    sky: 0xffe0c0,
+    sun: 1.0,
+    sunColor: 0xffc58f,
+    env: 0.75,
+    room: { strips: 5, stripColor: 0xffd9b0, room: 0.62, windows: 0.3, windowColor: 0xd9a77a },
+    lamps: 1.5,
+    exposure: { gain: 1.3, flicker: 0.025, blur: 0.35 },
+  },
+  night: {
+    hemi: 0.08,
+    sky: 0xb8c8ff,
+    sun: 0.25,
+    sunColor: 0xc8d8ff,
+    env: 0.7,
+    room: { strips: 1.4, stripColor: 0xd8e4ff, room: 0.16, windows: 0.05, windowColor: 0x2a3550 },
+    lamps: 3,
+    exposure: { gain: 2.0, flicker: 0.04, blur: 0.5 },
+  },
+  dim: {
+    hemi: 0.16,
+    sky: 0xdfe8ff,
+    sun: 0.6,
+    sunColor: 0xfff2dd,
+    env: 0.8,
+    room: { strips: 3, stripColor: 0xfff0dd, room: 0.4, windows: 0.25, windowColor: 0x9aa7ad },
+    lamps: 0,
+    exposure: { gain: 1.5, flicker: 0.05, blur: 0.4 },
+  },
 };
 
 /** A simple figure in work clothes; walks or stands. Origin at the feet, facing +z. */
@@ -152,14 +193,15 @@ export class SceneView {
     this.preset = { ...p, exposure: { ...p.exposure, gain: p.exposure.gain * v(1, 0.1) } };
     const { hemi, sun, stage } = { hemi: this.stage.hemi, sun: this.stage.sun, stage: this.stage };
     (stage.scene.fog as THREE.Fog).color.setHex(
-      lighting === 'night' ? 0x35454a : lighting === 'evening' ? 0x898a82 : lighting === 'dim' ? 0x757d7b : 0xc4cec9,
+      lighting === 'night' ? 0x2c383c : lighting === 'evening' ? 0x7f8079 : lighting === 'dim' ? 0x6d7573 : 0xa3aba8,
     );
     hemi.intensity = p.hemi * v(2, 0.12);
     hemi.color.setHex(p.sky);
     sun.intensity = p.sun * v(3, 0.15);
     sun.color.setHex(p.sunColor);
     const a = hashSigned(seed, 7001, 4) * 0.5;
-    stage.keyOffset.set(2.5 * Math.cos(a) - 3 * Math.sin(a), 6, 2.5 * Math.sin(a) + 3 * Math.cos(a));
+    stage.keyOffset.set(1.3 * Math.cos(a) - 1.9 * Math.sin(a), 7, 1.3 * Math.sin(a) + 1.9 * Math.cos(a));
+    stage.setRoom(p.room);
     stage.scene.environmentIntensity = p.env * v(5, 0.15);
     this.lamps.forEach((l, i) => {
       // Now and then one lamp is out.
