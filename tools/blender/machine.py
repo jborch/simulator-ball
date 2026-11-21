@@ -223,37 +223,69 @@ for y in (0.027, 0.113):
     roundbar(0.037, y, 0, 0.0055, 0.006, blue, 16, "x")
 roundbar(0, -0.001, 0, 0.017, 0.006, seal)
 screws([-0.024, 0.024], [-0.019, 0.019], 0.137)
+for z in (-0.025, 0.025):
+    roundbar(0, 0.001, z, 0.009, 0.009, dark, 20)
+    roundbar(0, -0.004, z, 0.007, 0.002, steel, 20)
+for y in (0.025, 0.105):
+    block(0.010, y, 0.024, 0.007, 0.021, 0.004, dark)
+    block(0.010, y+0.004, 0.0262, 0.002, 0.004, 0.0006, blue)
 save("Cylinder")
 
-# Parallel gripper: anodised body with guide cover, piston cap, air ports and a
-# sensor slot; jaws travel along Z. Origin: tool flange centre at the top.
-block(0, 0.033, 0, 0.038, 0.024, 0.03, alu, 0.0022)
-block(0, 0.0195, 0, 0.034, 0.005, 0.032, dark, 0.0008)
-block(0, 0.033, 0.0152, 0.028, 0.012, 0.0009, dark, 0.0003)
-roundbar(0, 0.047, 0, 0.012, 0.006, dark, 24)
-roundbar(0, 0.0515, 0, 0.0085, 0.003, alu, 24)
-for x in (-0.012, 0.012):
-    roundbar(x, 0.0337, -0.0156, 0.0028, 0.0018, steel, 12, "z")
-    roundbar(x, 0.0337, -0.0168, 0.0031, 0.0016, blue, 16, "z")
-for x in (-0.013, 0.013):
-    for z in (-0.009, 0.009):
-        roundbar(x, 0.0452, z, 0.0017, 0.0008, steel, 10)
+# Moving crosshead, guide bushes, and parallel gripper. Tool datum is the
+# top of the payload; the spindle seats on the upper face of the crosshead.
+for z in (-0.021, 0.021):
+    roundbar(0, 0.5, z, 0.0048, 1, steel, 16)
+roundbar(0, 0.5, 0, 0.009, 1, steel)
+save("GuidedRam")
+
+block(0, 0.091, 0, 0.034, 0.013, 0.059, alu, 0.003)
+for z in (-0.021, 0.021):
+    roundbar(0, 0.097, z, 0.007, 0.003, dark, 16)
+roundbar(0, 0.079, 0, 0.014, 0.012, dark, 24)
+roundbar(0, 0.072, 0, 0.011, 0.004, steel, 24)
+save("ToolFlange")
+
+# Pneumatic wedge gripper with an open guideway and sliding jaw carriers.
+# Long axis X, so the separation of the fingers reads from the belt.
+block(0, 0.054, 0, 0.044, 0.032, 0.027, dark, 0.004)
+for x in (-0.022, 0.022):
+    roundbar(x, 0.055, 0, 0.0128, 0.004, alu, 20, "x")
+for z in (-0.011, 0.011):
+    block(0, 0.038, z, 0.043, 0.006, 0.005, steel)
+for x in (-0.01, 0.01):
+    roundbar(x, 0.058, -0.015, 0.003, 0.006, blue, 12, "z")
+quad(0, 0.055, 0.0136, 0.024, 0.012, "+z", nameplate)
 save("JawBody")
 
-# Gripper finger: mounting step bolted to the jaw, slim blade with a V-notch on
-# the gripping face (-Z). Origin: jaw face centre; the blade hangs down -Y.
-mesh(
-    [(x, y, z) for x in (-0.0045, 0.0045) for y, z in [(0.019, 0.0), (0.019, 0.006), (0.004, 0.006), (0.004, 0.003), (-0.024, 0.003), (-0.024, 0.0)]],
-    [(0, 1, 2, 3, 4, 5), (6, 7, 8, 9, 10, 11)] + [(i, (i + 1) % 6, 6 + (i + 1) % 6, 6 + i) for i in range(6)],
-    steel,
-    0.0004,
-)
-# One finish per finger (each finger is its own draw): the grip insert and screw heads are
-# machined in the same steel.
-block(0, -0.014, -0.0004, 0.004, 0.016, 0.0012, steel, 0.0002)
-for y in (0.009, 0.015):
-    roundbar(0, y, 0.0063, 0.0016, 0.0007, steel, 10, "z")
-save("Finger")
+
+def jaw(name, radius, reach):
+    # A stepped jaw with a circular relief milled into its replaceable pad.
+    # The contact arc lies on a cylinder centred one radius inboard.
+    block(0.004, 0.036, 0, 0.014, 0.009, 0.015, steel)
+    block(0.004, (0.033-reach)/2, 0, 0.005, 0.033+reach, 0.011, alu)
+    section = [(radius*(math.cos(a)-1), radius*math.sin(a))
+               for a in [math.radians(v) for v in range(-48,49,12)]]
+    section += [(0.005, section[-1][1]), (0.005, section[0][1])]
+    prism(section, -reach, 0.002, seal, 0.0003)
+    roundbar(0.007, 0.024, 0, 0.002, 0.0012, dark, 8, "x")
+    save(name)
+
+
+jaw("BarrelJaw", 0.0085, 0.010)
+jaw("CartridgeJaw", 0.0048, 0.016)
+
+# Through-bore spring pilot and press punch. Both have a retaining sleeve
+# above the slender section that actually enters the transparent pen tube.
+for name, reach, radius in [("SpringPilot", 0.064, 0.0034), ("PressPunch", 0.060, 0.0047)]:
+    roundbar(0, 0.068, 0, 0.010, 0.006, dark, 24)
+    roundbar(0, reach/2 + 0.004, 0, radius, reach+0.008, steel, 24)
+    if name == "SpringPilot":
+        roundbar(0, -0.005, 0, 0.0028, 0.010, dark, 20)
+        roundbar(0, 0.002, 0, 0.0048, 0.004, dark, 24)
+    else:
+        # Vacuum land at the face captures the spring-base insert on pickup.
+        roundbar(0, 0.0006, 0, 0.0048, 0.0012, seal)
+    save(name)
 
 # Machine vision camera looking down -Y: finned housing, M12 plug and cable,
 # lens barrel with knurled focus and iris rings, and a ring light whose
@@ -354,6 +386,16 @@ for s_ in (-1, 1):
         block(x + s_ * 0.0002, y, -0.031, 0.0006, 0.001, 0.054, joint)
 block(0, 0.006, 0, 0.106, 0.012, 0.154, dark, 0.003)
 screws([-0.044, 0.044], [-0.064, 0.064], 0.013)
+# Removable rear service door with a recessed gasket, quarter-turn catches
+# and a louvred cooling vent facing the operator aisle.
+block(0, 0.249, -0.059, 0.056, 0.374, 0.003, joint, 0.001)
+block(0, 0.249, -0.061, 0.052, 0.369, 0.003, white, 0.001)
+for y in (0.083, 0.412):
+    for x in (-0.019, 0.019):
+        roundbar(x, y, -0.063, 0.003, 0.002, steel, 12, "z")
+for i in range(6):
+    block(0, 0.35+i*0.007, -0.0628, 0.033, 0.0024, 0.0015, dark)
+quad(0, 0.307, -0.0627, 0.039, 0.024, "-z", nameplate)
 save("PressStandard")
 
 # Guide rail holder. A foot clamped to the side profile's top slot carries the
@@ -387,15 +429,13 @@ roundbar(-0.027, -0.04, -0.006, 0.0042, 0.006, seal, 16, "x")
 block(-0.0115, -0.034, -0.006, 0.003, 0.004, 0.004, finish("Sensor LED", (0.9, 0.42, 0.04), 0, 0.3))
 save("Stopper")
 
-# Hardened stop head with a polyurethane buffer on the upstream (-X) face and a
-# chamfered crown. Origin: head centre at its crown height.
-mesh(
-    [(x, y, z) for z in (-0.012, 0.012) for x, y in [(-0.0055, -0.03), (0.006, -0.03), (0.006, -0.001), (0.003, 0), (-0.0035, 0), (-0.0055, -0.002)]],
-    [tuple(range(6)), tuple(range(6, 12))] + [(i, (i + 1) % 6, 6 + (i + 1) % 6, 6 + i) for i in range(6)],
-    steel,
-    0.0004,
-)
-block(-0.0068, -0.009, 0, 0.0026, 0.012, 0.02, seal, 0.0006)
+# Retractable roller plunger. The crown is the roller tangent, so both
+# gate states retain their original belt and carrier clearance.
+roundbar(0, -0.022, 0, 0.006, 0.028, steel)
+for z in (-0.010, 0.010):
+    block(0, -0.012, z, 0.012, 0.018, 0.003, dark, 0.0015)
+roundbar(0, -0.007, 0, 0.007, 0.018, steel, 24, "z")
+roundbar(0, -0.007, 0, 0.003, 0.025, dark, 12, "z")
 save("StopHead")
 
 

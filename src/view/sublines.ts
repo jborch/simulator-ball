@@ -657,7 +657,7 @@ export class CartridgeCellView {
     const far = t.r + (t.rows * t.pitch) / 2 - col.fill;
     const reach = { aMin: -0.07, aMax: far + 0.07, rMin: -0.12, rMax: (t.cols * t.pitch) / 2 + 0.07 };
     // Long fingers that hold the cartridge by its barrel, so the part is seen held, not hanging.
-    this.robot = new RobotView(reach, reach.rMax + 0.06, h.tub, cfg, models, 1, false, false, 0.032);
+    this.robot = new RobotView(reach, reach.rMax + 0.06, h.tub, cfg, models, ['cartridge'], false);
     this.robot.group.position.copy(local(0, 0, col.fill));
     this.robot.group.rotation.y = Math.PI / 2;
     this.group.add(this.robot.group);

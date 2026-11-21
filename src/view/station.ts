@@ -45,12 +45,9 @@ export class StationView {
         StationView.lowestTip(cfg, def),
         cfg,
         models,
-        robots.length,
+        robots.map((r) => r.parts?.[0] ?? 'housing'),
         robots.some((r) => r.laser),
         def.group === 'EM14',
-        // Cartridge grippers hold the slim cartridge by its barrel (long fingers), so the part is
-        // seen held even when only the tool's lower end is in the station camera's frame.
-        robots.some((r) => r.source === 'collet') ? 0.032 : undefined,
       );
       this.robot.tag(def.id);
       this.group.add(this.robot.group);

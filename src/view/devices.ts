@@ -59,7 +59,7 @@ class ArmView {
   readonly arm = new THREE.Group();
   private readonly carriage = new THREE.Group();
   private readonly column = new THREE.Group();
-  private readonly rod: THREE.Mesh;
+  private readonly rod: THREE.Object3D;
   private readonly carrier: CableCarrier;
   private readonly glandY: number;
   private readonly held: HeldView;
@@ -71,8 +71,7 @@ class ArmView {
     lowestTip: number,
     private readonly cfg: LineConfig,
     models: Models,
-    /** How far the jaw fingers reach below the tip (m): long fingers grip a slim part's barrel. */
-    fingerReach = 0.004,
+    private readonly payload: PartType,
   ) {
     this.arm.userData.mobile = true;
     const top = RAIL_Y + 0.02;
@@ -95,7 +94,7 @@ class ArmView {
     this.carrier = new CableCarrier(top + 0.079, rMin, beamR);
     this.arm.add(this.carrier.links);
     const slide = new THREE.Group();
-    this.glandY = cfg.layout.z.safe + 0.069;
+    this.glandY = cfg.layout.z.safe + 0.117;
     const stroke = cfg.layout.z.safe - lowestTip + 0.024;
     const cylinder = hardware('Cylinder', 0, this.glandY, 0);
     cylinder.scale.set(0.83, stroke / 0.135, 0.83);
@@ -107,7 +106,7 @@ class ArmView {
     hose(
       slide,
       [
-        [0.027, this.glandY + 0.027, 0],
+        [0.032, this.glandY + stroke * 0.2, 0],
         [0.046, this.glandY + 0.04, 0],
         [0.046, top + 0.08, -0.023],
         [0, top + 0.12, -0.038],
@@ -119,7 +118,7 @@ class ArmView {
     hose(
       slide,
       [
-        [0.029, this.glandY + stroke * 0.83, 0],
+        [0.032, this.glandY + stroke * 0.837, 0],
         [0.038, this.glandY + stroke * 0.84, 0.015],
         [0.039, top + 0.102, 0.023],
         [-0.064, top + 0.117, 0.01],
@@ -128,20 +127,23 @@ class ArmView {
     );
     batch(slide);
     this.carriage.add(slide);
-    this.rod = cyl(0.008, 1, M.rail, 24);
+    this.rod = hardware('GuidedRam');
     this.carriage.add(this.rod);
-    const tool = hardware('JawBody');
-    this.column.add(tool);
-    for (let i = 0; i < 2; i++) {
-      // Jaw fingers hang `fingerReach` below the tip (the catalogue finger reaches 4 mm, its
-      // top stays at the jaw); the second one is turned to face the first.
-      const stretch = (0.043 + fingerReach - 0.004) / 0.043;
-      const f = hardware('Finger', 0, 0.039 - 0.019 * stretch, 0);
-      f.scale.y = stretch;
-      if (i) f.rotation.y = Math.PI;
-      this.fingers.push(f);
-      this.column.add(f);
+    const head = new THREE.Group();
+    head.add(hardware('ToolFlange'));
+    if (payload === 'spring' || payload === 'springBase') {
+      head.add(hardware(payload === 'spring' ? 'SpringPilot' : 'PressPunch'));
+    } else {
+      head.add(hardware('JawBody'));
+      for (const side of [1, -1]) {
+        const finger = hardware(payload === 'cartridge' ? 'CartridgeJaw' : 'BarrelJaw');
+        if (side < 0) finger.rotation.y = Math.PI;
+        this.fingers.push(finger);
+        this.column.add(finger);
+      }
     }
+    batch(head);
+    this.column.add(head);
     this.held = new HeldView(cfg, models);
     this.column.add(this.held.root);
     this.carriage.add(this.column);
@@ -157,15 +159,18 @@ class ArmView {
     this.arm.position.x = r.a;
     this.carriage.position.z = -r.r;
     this.column.position.y = r.z;
-    const tip = r.z + 0.048;
+    const tip = r.z + 0.096;
     this.rod.scale.y = Math.max(0.001, this.glandY - tip);
-    this.rod.position.y = (this.glandY + tip) / 2;
+    this.rod.position.y = tip;
     this.carrier.travel(-r.r);
     this.held.show(r.holding, r.label);
     // Jaws close on the held part's top; open a few mm wider when empty.
-    const half = r.holding ? gripRadius(this.cfg, r.holding) + 0.0025 : 0.014;
-    this.fingers[0].position.z = half;
-    this.fingers[1].position.z = -half;
+    if (this.fingers.length) {
+      const radius = this.cfg.parts[this.payload].radius;
+      const half = r.holding ? Math.max(radius, gripRadius(this.cfg, r.holding)) : radius + 0.005;
+      this.fingers[0].position.x = half;
+      this.fingers[1].position.x = -half;
+    }
   }
 }
 
@@ -190,10 +195,9 @@ export class RobotView {
     lowestTip: number,
     cfg: LineConfig,
     models: Models,
-    arms: number,
+    payloads: PartType[],
     withLaser: boolean,
     press = false,
-    fingerReach?: number,
   ) {
     const { aMin, aMax, rMin } = reach;
     const top = RAIL_Y + 0.02;
@@ -246,8 +250,8 @@ export class RobotView {
     frame.add(motor);
     batch(frame);
     this.group.add(frame);
-    this.arms = Array.from({ length: arms }, () => {
-      const arm = new ArmView(rMin, beamR, lowestTip, cfg, models, fingerReach);
+    this.arms = payloads.map((payload) => {
+      const arm = new ArmView(rMin, beamR, lowestTip, cfg, models, payload);
       this.group.add(arm.arm);
       return arm;
     });
