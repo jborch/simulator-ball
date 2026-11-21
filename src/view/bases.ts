@@ -9,7 +9,7 @@ import { contactPatch } from './hall';
 
 // Brushed stainless deck plates: their look is the room they reflect. A shade darker than the
 // carriers and cabinets, so those stand out on it.
-const deck = mat(0x8e9496, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
+const deck = mat(0x868c8f, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
 const dark = finish.graphite;

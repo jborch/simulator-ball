@@ -3,6 +3,7 @@
 // and checking each part, and the distribution conveyor along the straight to the four EM14
 // presses, with a diverter and a pick cup at each.
 import * as THREE from 'three';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { LineConfig } from '../sim/config';
 import { heldLength } from '../sim/layout';
 import type { Frame } from '../sim/protocol';
@@ -267,11 +268,12 @@ export class HousingDialView {
       bevelThickness: 0.0007,
       bevelSize: 0.0007,
       bevelSegments: 1,
-      curveSegments: 48,
+      curveSegments: 160,
     });
     discGeometry.rotateX(-Math.PI / 2);
     const rotary = new THREE.Group();
-    const platter = new THREE.Mesh(discGeometry, M.frame);
+    // Round rim and bores: smooth normals round the curves, crisp at the faces' edges.
+    const platter = new THREE.Mesh(toCreasedNormals(discGeometry, Math.PI / 6), M.frame);
     platter.position.y = -0.013;
     rotary.add(platter);
     round(rotary, 0, -0.015, 0, d.radius + 0.02, 0.009, finish.graphite, 64);
