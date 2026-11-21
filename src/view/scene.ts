@@ -43,6 +43,8 @@ interface LightPreset {
   /** Key direction: off the view direction, and above the floor (rad; see Stage.key). */
   keyYaw: number;
   keyElevation: number;
+  /** Darkness of the key's shadow where a part touches (it fades with the occluder's height). */
+  shadow: number;
   env: number;
   /** The room's light as the reflection/ambient probe sees it. */
   room: RoomLight;
@@ -60,7 +62,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sun: 2.9,
     sunColor: 0xfff3e2,
     keyYaw: 0.7,
-    keyElevation: 0.9,
+    keyElevation: 1.2,
+    shadow: 0.85,
     env: 1.0,
     room: { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 },
     lamps: 0,
@@ -72,7 +75,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sun: 1.5,
     sunColor: 0xffd6ad,
     keyYaw: 0.9,
-    keyElevation: 0.7,
+    keyElevation: 1.0,
+    shadow: 0.8,
     env: 0.75,
     room: { strips: 6.5, stripColor: 0xffe4c8, room: 0.7, windows: 0.3, windowColor: 0xc9a88a },
     lamps: 1.5,
@@ -84,7 +88,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sun: 0.55,
     sunColor: 0xd4e0ff,
     keyYaw: 0.6,
-    keyElevation: 1.05,
+    keyElevation: 1.25,
+    shadow: 0.75,
     env: 0.9,
     room: { strips: 3.8, stripColor: 0xdde7ff, room: 0.38, windows: 0.06, windowColor: 0x2a3550 },
     lamps: 4.5,
@@ -96,7 +101,8 @@ const PRESETS: Record<Lighting, LightPreset> = {
     sun: 0.8,
     sunColor: 0xfff2dd,
     keyYaw: 0.7,
-    keyElevation: 0.95,
+    keyElevation: 1.2,
+    shadow: 0.8,
     env: 0.8,
     room: { strips: 3, stripColor: 0xfff0dd, room: 0.4, windows: 0.25, windowColor: 0x9aa7ad },
     lamps: 0,
@@ -211,6 +217,7 @@ export class SceneView {
     hemi.color.setHex(p.sky);
     sun.intensity = p.sun * v(3, 0.15);
     sun.color.setHex(p.sunColor);
+    sun.shadow.intensity = p.shadow;
     // Each installation's key falls in a slightly different direction.
     stage.key.yaw = p.keyYaw + hashSigned(seed, 7001, 4) * 0.12;
     stage.key.elevation = p.keyElevation + hashSigned(seed, 7001, 6) * 0.05;

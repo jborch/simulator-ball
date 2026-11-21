@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './contact';
+import { FRUSTUM_ASPECT, SHADOW_FAR, SHADOW_NEAR, penumbraScale } from './softshadow';
 import { Hall } from './hall';
 import { type RoomLight, roomEnvironment } from './environment';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -38,7 +39,7 @@ export class Stage {
    * are lit, shadows fall back and to the side where they show the shapes, and none fall across
    * what a station camera looks at.
    */
-  readonly key = { yaw: 0.7, elevation: 0.9 };
+  readonly key = { yaw: 0.7, elevation: 1.2 };
   private readonly keyOffset = new THREE.Vector3();
   readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
   /**
@@ -51,7 +52,8 @@ export class Stage {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Plain depth compares, filtered by the soft lookup in softshadow.ts.
+    this.renderer.shadowMap.type = THREE.BasicShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     container.appendChild(this.renderer.domElement);
     this.labels.domElement.className = 'labels';
@@ -83,14 +85,13 @@ export class Stage {
     const sc = sun.shadow.camera;
     sc.left = -4;
     sc.right = 4;
-    sc.top = 3;
-    sc.bottom = -3;
-    sc.near = 1;
-    sc.far = 15;
+    sc.top = 4 * FRUSTUM_ASPECT;
+    sc.bottom = -sc.top;
+    sc.near = SHADOW_NEAR;
+    sc.far = SHADOW_FAR;
     sun.shadow.bias = -0.0001;
     sun.shadow.normalBias = 0.00032;
-    // A narrow filter: the penumbra stays soft without its dither showing on large faces.
-    sun.shadow.radius = 2.5;
+    sun.shadow.radius = penumbraScale(sc.right - sc.left);
     this.scene.add(sun, sun.target);
 
     this.resize = () => {
@@ -205,11 +206,12 @@ export class Stage {
     if (Math.abs(sc.right - span) > 0.001) {
       sc.left = -span;
       sc.right = span;
-      sc.top = 0.82 * span;
+      sc.top = FRUSTUM_ASPECT * span;
       sc.bottom = -sc.top;
       sc.updateProjectionMatrix();
       // A few shadow texels along the normal: no acne on faces the key grazes.
       this.sun.shadow.normalBias = (2.5 * 2 * span) / this.sun.shadow.mapSize.x;
+      this.sun.shadow.radius = penumbraScale(2 * span);
     }
     const k = this.keyOffset.copy(this.camera.position).sub(this.controls.target).setY(0);
     if (k.lengthSq() < 1e-8) k.set(0, 0, 1);

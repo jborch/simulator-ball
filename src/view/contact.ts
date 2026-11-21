@@ -65,12 +65,19 @@ const FRAG_BODY = `#include <aomap_fragment>
 		#endif
 	}`;
 
-// Keep the key light's shadow term (the one shadowed directional light) for the code above.
+// Keep the key light's shadow term (the one shadowed directional light) for the code above. On a
+// face turned away from the key the depth test only compares the surface with itself (noise, and
+// the key doesn't light it anyway): there the term fades out, so it can't speckle the room's light.
 if (!THREE.ShaderChunk.lights_fragment_begin.includes('keyShadow')) {
   const chunk = THREE.ShaderChunk.lights_fragment_begin;
   const shadowed = /directLight\.color \*= (\( directLight\.visible && receiveShadow \) \? getShadow\( directionalShadowMap\[ i \][^;]*;)/;
   if (!shadowed.test(chunk)) throw new Error('lights_fragment_begin: directional shadow not found');
-  THREE.ShaderChunk.lights_fragment_begin = 'float keyShadow = 1.0;\n' + chunk.replace(shadowed, 'keyShadow = $1\n\t\tdirectLight.color *= keyShadow;');
+  THREE.ShaderChunk.lights_fragment_begin =
+    'float keyShadow = 1.0;\n' +
+    chunk.replace(
+      shadowed,
+      'keyShadow = $1\n\t\tkeyShadow = mix( 1.0, keyShadow, smoothstep( 0.0, 0.25, dot( geometryNormal, directLight.direction ) ) );\n\t\tdirectLight.color *= keyShadow;',
+    );
 }
 
 /**
