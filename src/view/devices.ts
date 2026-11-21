@@ -74,7 +74,11 @@ class ArmView {
     // The actuator is side mounted to the radial slide. Its piston can
     // retract fully into the barrel without crossing the radial beam.
     const axis = new THREE.Group();
-    block(axis, -0.041, top + 0.005, -beamR, 0.109, 0.034, 0.072, M.axisDark);
+    // Carriage on the beam: anodised body with end seals, a machined top plate and its screws.
+    block(axis, -0.041, top + 0.001, -beamR, 0.103, 0.026, 0.072, M.axisDark);
+    for (const dx of [-0.054, 0.054]) block(axis, -0.041 + dx, top + 0.001, -beamR, 0.006, 0.022, 0.068, finish.seal);
+    block(axis, -0.041, top + 0.018, -beamR, 0.109, 0.008, 0.074, M.frame);
+    for (const dx of [-0.042, 0.042]) for (const dz of [-0.028, 0.028]) round(axis, -0.041 + dx, top + 0.0225, -beamR + dz, 0.0035, 0.0012, finish.zinc, 12);
     profile(axis, [-0.048, top + 0.044, -beamR - 0.04], [-0.048, top + 0.044, -rMin], 0.045);
     block(axis, -0.022, top + 0.042, -(beamR + rMin) / 2, 0.009, 0.016, beamR - rMin + 0.04, M.rail);
     const servo = hardware('Servo', -0.048, top + 0.044, -beamR - 0.044);
@@ -92,6 +96,8 @@ class ArmView {
     cylinder.scale.set(0.83, stroke / 0.135, 0.83);
     slide.add(cylinder);
     block(slide, -0.017, top + 0.032, 0, 0.037, 0.052, 0.062, M.axisDark);
+    block(slide, 0.0025, top + 0.032, 0, 0.002, 0.044, 0.054, M.frame);
+    for (const dy of [-0.015, 0.015]) for (const dz of [-0.021, 0.021]) round(slide, 0.004, top + 0.032 + dy, dz, 0.0028, 0.002, finish.zinc, 10).rotation.z = Math.PI / 2;
     for (const z of [-0.025, 0.025]) block(slide, -0.028, top + 0.033, z, 0.018, 0.028, 0.019, M.rail);
     hose(
       slide,
@@ -189,11 +195,15 @@ export class RobotView {
           [0.017, TABLE + 0.015, -beamR - 0.077],
           [0.047, 0.03, -beamR - 0.099],
           [0.051, 0.43, -beamR - 0.098],
-          [0.039, top - 0.017, -beamR - 0.046],
+          [0.045, top - 0.08, -beamR - 0.075],
+          [0.039, top - 0.032, -beamR - 0.045],
         ],
         0.004,
         finish.pipe,
       );
+      // The air line ends in a flow-control block on the beam's back face.
+      block(frame, 0.039, top - 0.03, -beamR - 0.031, 0.028, 0.03, 0.012, M.axisDark);
+      round(frame, 0.039, top - 0.012, -beamR - 0.031, 0.004, 0.008, finish.zinc, 12);
     } else {
       for (const a of [aMin - 0.008, aMax + 0.008]) {
         profile(frame, [a, TABLE, -beamR], [a, top - 0.05, -beamR]);

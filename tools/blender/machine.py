@@ -316,6 +316,7 @@ def casting(points, half, material, bevel=0.002):
 
 
 white = finish("Press enamel", (0.74, 0.75, 0.72), 0.0, 0.36)
+joint = finish("Panel joint", (0.3, 0.31, 0.3), 0.0, 0.6)
 casting(
     [
         (-0.058, 0.012),
@@ -348,7 +349,7 @@ for s_ in (-1, 1):
         for z in (-0.047, -0.015):
             roundbar(x + s_ * 0.0012, y, z, 0.0018, 0.0008, steel, 10, "x")
     for y in (0.262, 0.35):
-        block(x + s_ * 0.0002, y, -0.031, 0.0006, 0.0014, 0.054, seal)
+        block(x + s_ * 0.0002, y, -0.031, 0.0006, 0.001, 0.054, joint)
 block(0, 0.006, 0, 0.106, 0.012, 0.154, dark, 0.003)
 screws([-0.044, 0.044], [-0.064, 0.064], 0.013)
 save("PressStandard")
