@@ -52,6 +52,8 @@ export interface RobotDef {
    * distribution conveyor ('cup'). Pickers (reject, unload) have none.
    */
   source?: string;
+  /** Optional working transfer height with a picked part, measured at the tool tip. */
+  loadedTransferZ?: number;
   parts?: PartType[];
   /** Step written to the mover tag once this robot has placed its parts ('body' loads a new pen). */
   step?: Step;
@@ -359,7 +361,7 @@ export const LINE = {
     {
       // After the housing, as in the original: the cartridge goes in through the top. It comes from a collet.
       id: 'EM41', name: 'Insert cartridge', unit: 'UN02', kind: 'assemble', s: BOTTOM + 1.45, mech: 0, fixed: 0, requires: ['housing'],
-      robots: [{ id: 'EM41', home: 0, source: 'collet', parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 0.8 }],
+      robots: [{ id: 'EM41', home: 0, source: 'collet', loadedTransferZ: 0.28, parts: ['cartridge'], step: 'cartridge', insert: 0.065, mech: 0.8 }],
     },
     {
       // Final test (the original's 50 ± 5 in 35–65) plus the code on the label. Now and then it

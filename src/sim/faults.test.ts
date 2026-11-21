@@ -220,7 +220,9 @@ describe('sub-line faults', () => {
     s.advance(240);
     const cell = s.state.plant.cartridges;
     const used = cell.tub!.used;
-    const holding = cell.robot.holding ? 1 : 0;
+    // The robot claims its next pocket on the way to it; it only holds a cartridge once gripped.
+    const gripped = () => (cell.robot.holding && !['toPocket', 'down', 'grip'].includes(cell.robot.step) ? 1 : 0);
+    const holding = gripped();
     s.drainEvents();
     expect(s.command({ type: 'fault', target: 'EM00-PICK' })).toBe(true);
     const es = collect(s, 30, undefined, 0.01);
@@ -230,7 +232,7 @@ describe('sub-line faults', () => {
     // Every pocket taken is accounted for: one dropped, the rest recorded at EM00.
     const recorded = es.filter((e) => e.kind === 'processed' && e.process.endsWith('EM00')).length;
     // (Plus the one it held already, minus one it may hold now.)
-    expect(cell.tub!.used - used).toBe(recorded + 1 - holding + (cell.robot.holding ? 1 : 0));
+    expect(cell.tub!.used - used).toBe(recorded + 1 - holding + gripped());
   }, 60_000);
 
   test('the destacker runs empty after its trays and is refilled; EM60 waits meanwhile', () => {

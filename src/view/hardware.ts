@@ -238,13 +238,19 @@ function along(g: THREE.Object3D, p: THREE.Vector3, dir: THREE.Vector3, r: numbe
   g.add(c);
 }
 
+class HoseCurve extends THREE.CatmullRomCurve3 {
+  override getPointAt(t: number, target?: THREE.Vector3) { return this.getPoint(t, target); }
+  override getTangentAt(t: number, target?: THREE.Vector3) { return this.getTangent(t, target); }
+}
+
 /**
  * Air line or cable through the given points. Air lines (`finish.pipe`) end in push-in fittings
  * with a release collar, cables in a gland nut; longer runs are tied at their inner points.
  */
 export function hose(g: THREE.Object3D, coords: number[][], r = 0.003, m: THREE.Material = finish.seal, ends = true): void {
-  const path = new THREE.CatmullRomCurve3(coords.map((p) => new THREE.Vector3().fromArray(p)));
-  const tube = new THREE.Mesh(new THREE.TubeGeometry(path, coords.length * 5, r, 6, false), m);
+  const path = new HoseCurve(coords.map((p) => new THREE.Vector3().fromArray(p)));
+  // Keep the same sampling density in a tight elbow as along a long straight drop.
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(path, coords.length * 10, r, 8, false), m);
   g.add(tube);
   if (!ends) return;
   const air = m === finish.pipe;

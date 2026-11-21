@@ -127,7 +127,7 @@ export class StationView {
       plate(fittings, 0, 0.291, z + 0.01, 0.057, 0.018, def.id, 'INSERTION');
       // On the column's back face (toward the operator aisle), just proud of the enamel.
       const back = z - 0.0631;
-      plate(fittings, 0, 0.305, back, 0.059, 0.019, def.id, 'PNEUMATIC PRESS', '#286e74', Math.PI);
+      plate(fittings, -0.034, 0.323, z - 0.028, 0.052, 0.020, def.id, 'PNEUMATIC PRESS', '#286e74', -Math.PI / 2);
       warning(fittings, 0, 0.267, back, 0.054, Math.PI);
       const bank = hardware('ValveBank', 0, 0.105, z - 0.056);
       bank.scale.setScalar(0.72);

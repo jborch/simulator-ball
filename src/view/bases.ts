@@ -413,6 +413,13 @@ export function buildBases(cfg: LineConfig): THREE.Group {
     profile(g, [x, 0.095, 0.22], [x, 0.79, 0.22], 0.045);
     profile(g, [x, 0.79, -0.27], [x, 0.79, 0.27], 0.05);
     for (const z of [-0.22, 0.22]) levelFoot(g, x, z);
+    // Tie the return stand to the bench frames and saddle the curved bed.
+    for (const z of [-0.22, 0.22]) {
+      profile(g, [dir * (cfg.track.straight / 2 - 0.09), 0.76, z], [x, 0.76, z], 0.045);
+      block(g, x, 0.829, z, 0.096, 0.034, 0.075, dark);
+      profile(g, [x, 0.26, z], [dir * (cfg.track.straight / 2 - 0.06), 0.74, z], 0.032);
+    }
+    profile(g, [x, 0.819, 0], [dir * (cfg.track.straight / 2 + cfg.track.radius + 0.06), 0.819, 0], 0.051);
     const motor = hardware('Gearmotor', x, 0.76, 0);
     motor.rotation.y = (dir * Math.PI) / 2;
     g.add(motor);

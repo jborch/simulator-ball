@@ -409,6 +409,97 @@ export class InspectionView {
   }
 }
 
+/** A full-size housing is 120 mm long. The 440 mm bowl keeps loose stock
+ * inside the climbing shelf; its final tangent discharges into the upright guide. */
+function housingBowl(entryR: number, deckY: number, material: THREE.Material, models: Models): { frame: THREE.Group; stock: THREE.Group } {
+  const frame = new THREE.Group();
+  const stock = new THREE.Group();
+  const exitRadius = 0.198;
+  const floor = deckY - 0.083;
+  frame.position.set(-exitRadius, floor, -entryR - 0.13);
+  const drive = hardware('Vibrator', 0, TABLE - floor, 0);
+  drive.scale.set(2, (floor - TABLE) / 0.1385, 2);
+  frame.add(drive);
+  const wall = [[0, 0.002], [0.055, 0.002], [0.158, 0], [0.19, 0.006], [0.215, 0.062], [0.221, 0.091], [0.225, 0.093]];
+  // Leave the wall open over the discharge tongue.
+  const section = wall.map(([r, y]) => new THREE.Vector2(r, y));
+  frame.add(new THREE.Mesh(new THREE.LatheGeometry(section.slice(0, 5), 96), material));
+  frame.add(new THREE.Mesh(new THREE.LatheGeometry(section.slice(4), 96, Math.PI / 2 + 0.04, 2 * Math.PI - 0.63), material));
+  const path: THREE.Vector3[] = [];
+  const edge: THREE.Vector3[] = [];
+  const vertices: number[] = [], indices: number[] = [];
+  for (let i = 0; i <= 120; i++) {
+    const t = i / 120;
+    const angle = (t - 1) * 2 * Math.PI * 1.18;
+    const radius = 0.15 + t * (exitRadius - 0.15);
+    const y = 0.009 + t * 0.074;
+    const point = (r: number) => new THREE.Vector3(r * Math.cos(angle), y, r * Math.sin(angle));
+    path.push(point(radius));
+    edge.push(point(radius - 0.013));
+    vertices.push(...edge[i].toArray(), ...point(radius + 0.013).toArray());
+    if (i) {
+      const next = i * 2;
+      indices.push(next - 2, next, next - 1, next - 1, next, next + 1);
+    }
+  }
+  const shelf = new THREE.BufferGeometry();
+  shelf.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  shelf.setIndex(indices);
+  shelf.computeVertexNormals();
+  frame.add(new THREE.Mesh(shelf, material));
+  frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(edge), 140, 0.002, 8), M.rail));
+  block(frame, exitRadius, 0.0805, 0.065, 0.026, 0.005, 0.13, M.rail);
+  // Retaining rails continue around the last turn and along the tongue.
+  for (const side of [-1, 1]) {
+    const points = path.slice(-22).map(p => {
+      const scale = 1 + side * 0.011 / Math.hypot(p.x, p.z);
+      return new THREE.Vector3(p.x * scale, p.y + 0.052, p.z * scale);
+    });
+    points.push(new THREE.Vector3(exitRadius + side * 0.011, 0.135, 0.13));
+    frame.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 40, 0.0025, 8), M.rail));
+    for (const i of [2, 14, 22]) {
+      const p = points[i];
+      block(frame, p.x + side * 0.002, p.y - 0.025, p.z, 0.004, 0.054, 0.006, M.frame);
+    }
+  }
+  const upright = [104, 112, 120].map(i => new THREE.Matrix4().makeTranslation(path[i].x, path[i].y, path[i].z));
+  for (const z of [0.050, 0.096]) upright.push(new THREE.Matrix4().makeTranslation(exitRadius, 0.083, z));
+  const oriented = new StockInstances(housingPart(models), upright);
+  batch(frame);
+  frame.add(oriented.group);
+  // Settle full-length blanks in the well. Each upper blank rests across two
+  // in the layer below. Reserve the swept shelf envelope all the way around.
+  let seed = 3412;
+  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const pile: THREE.Matrix4[] = [];
+  type Blank = { a: THREE.Vector2; b: THREE.Vector2 };
+  let below: Blank[] = [];
+  for (let layer = 0; layer < 4; layer++) {
+    const placed: Blank[] = [];
+    for (let attempt = 0; attempt < 900; attempt++) {
+      const a = new THREE.Vector2((random() - 0.5) * 0.26, (random() - 0.5) * 0.26);
+      const angle = random() * Math.PI * 2;
+      const b = a.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(0.12));
+      if (Math.max(a.length(), b.length()) > 0.130) continue;
+      const gap = (other: Blank) => segmentDistance(a, b, other.a, other.b);
+      if (placed.some(other => gap(other) < 0.021)) continue;
+      if (layer && below.filter(other => gap(other) < 0.011).length < 2) continue;
+      placed.push({ a, b });
+      const matrix = new THREE.Matrix4().makeRotationY(Math.PI / 2 - angle);
+      matrix.multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+      matrix.setPosition(a.x, 0.0105 + layer * 0.0175, a.y);
+      pile.push(matrix);
+    }
+    below = placed;
+  }
+  // Mirror the left-hand discharge so the bowl sits inboard of the feeder.
+  frame.position.x *= -1;
+  frame.scale.x = -1;
+  stock.position.copy(frame.position);
+  stock.add(new StockInstances(housingPart(models), pile).group);
+  return { frame, stock };
+}
+
 /** Vibratory bowl feeder: drive base, stepped bowl with a spiral track, and a linear track to the pick point. */
 export class FeederView {
   readonly group = new THREE.Group();
@@ -456,6 +547,10 @@ export class FeederView {
     if (partLen > 0.04) {
       const gy = trackY + partLen * 0.72;
       for (const sx of [-1, 1]) {
+        if (def.part === 'housing') {
+          block(rail, sx * (partR + 0.002), gy, -(r0 + r1) / 2, 0.003, 0.016, r1 - r0, finish.graphite);
+          block(rail, sx * (partR + 0.003), trackY + 0.052, -(r0 + r1) / 2, 0.004, 0.011, r1 - r0, M.frame);
+        }
         const bar = round(rail, sx * (partR + 0.0035), gy, -(r0 + r1) / 2, 0.0022, r1 - r0 - 0.01, M.rail, 12);
         bar.rotation.x = Math.PI / 2;
         for (let r = r0 + 0.03; r < r1 - 0.01; r += 0.09) {
@@ -511,6 +606,40 @@ export class FeederView {
     this.group.add(rail);
 
     // Bowl: drive drum on the table, stainless bowl whose rim meets the track entry.
+    if (def.inline) this.inline = this.buildInline(def.inline, trackY, partLen);
+
+    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings' };
+    this.name = names[def.part] ?? def.id;
+    const l = label(this.name, 'label feeder');
+    l.position.copy(local(0, trackY + 0.084, r1 + 0.10));
+    this.tag = l.element;
+    this.group.add(l);
+
+    const make = (): THREE.Object3D => {
+      if (def.part === 'body') return models.pen_body.clone(true);
+      if (def.part === 'spring') return models.spring.clone(true);
+      if (def.part === 'springBase') return models.spring_base.clone(true);
+      return housingPart(models);
+    };
+    const n = Math.ceil(def.track / def.pitch) + 1;
+    for (let i = 0; i < n; i++) {
+      const o = make();
+      o.position.y = trackY;
+      o.visible = false;
+      o.userData.product = true;
+      this.pool.push(o);
+      this.group.add(o);
+    }
+    if (def.part === 'housing') {
+      const bowl = housingBowl(r1, trackY, this.bowlMat, models);
+      this.bulk = bowl.stock;
+      this.group.add(bowl.frame, this.bulk);
+      // Swing the complete feeder about its discharge at the dial load nest.
+      const angle = (-88 * Math.PI) / 180;
+      this.group.rotation.y = angle;
+      this.group.position.set(this.feederR * Math.sin(angle), 0, this.feederR * (Math.cos(angle) - 1));
+      return;
+    }
     const bowlR = 0.11;
     const bowlC = r1 + bowlR - 0.01;
     const rimY = trackY + 0.004;
@@ -589,28 +718,12 @@ export class FeederView {
     block(this.group, 0, trackY + 0.0006, -r1, 0.026, 0.0012, 0.047, M.rail);
     for (const x of [-0.014, 0.014]) block(this.group, x, trackY + 0.005, -r1 - 0.012, 0.0015, 0.009, 0.03, M.rail);
 
-    if (def.inline) this.inline = this.buildInline(def.inline, trackY, partLen);
-
-    const names: Record<string, string> = { body: 'Pen bodies', spring: 'Springs', springBase: 'Spring bases', housing: 'Housings' };
-    this.name = names[def.part] ?? def.id;
-    const l = label(this.name, 'label feeder');
-    l.position.copy(local(0, rimY + 0.08, bowlC));
-    this.tag = l.element;
-    this.group.add(l);
-
-    const make = (): THREE.Object3D => {
-      if (def.part === 'body') return models.pen_body.clone(true);
-      if (def.part === 'spring') return models.spring.clone(true);
-      if (def.part === 'springBase') return models.spring_base.clone(true);
-      return housingPart(models);
-    };
     // Bulk parts lie on the bowl floor in layers, roughly along the wall: placed one by one where
     // they touch neither the bowl nor each other (deterministic, so every viewer sees the same).
     const bulkTransforms: THREE.Matrix4[] = [];
-    // The part's own length (a housing is longer than its held length), and its radius with
-    // anything that sticks out (the housing's clip).
+    // Include the full mesh envelope when laying loose parts in the well.
     const L = Math.max(heldLength(cfg, parts), new THREE.Box3().setFromObject(make()).getSize(new THREE.Vector3()).y);
-    const pr = def.part === 'body' ? 0.0068 : def.part === 'housing' ? part.radius + 0.003 : part.radius;
+    const pr = def.part === 'body' ? 0.0068 : part.radius;
     const placed: { y: number; a: THREE.Vector2; b: THREE.Vector2 }[] = [];
     let seed = 977 + id.length * 31;
     const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
@@ -636,14 +749,6 @@ export class FeederView {
       bulkTransforms.push(m);
     }
     this.bulk.add(new StockInstances(make(), bulkTransforms).group);
-    const n = Math.ceil(def.track / def.pitch) + 1;
-    for (let i = 0; i < n; i++) {
-      const o = make();
-      o.position.y = trackY;
-      o.visible = false;
-      this.pool.push(o);
-      this.group.add(o);
-    }
   }
 
   /**
@@ -675,13 +780,29 @@ export class FeederView {
     nozzle.position.copy(local(-0.03, trackY + 0.006, jetR));
     this.group.add(nozzle, span(-0.045, -0.04, TABLE, trackY + 0.006, jetR - 0.004, jetR + 0.004, M.frame));
     const chute = new THREE.Group();
-    const collector = hardware('Tote', 0.074, TABLE, -jetR - 0.075);
+    const collector = hardware('Tote', 0.188, TABLE, -jetR - 0.089);
     collector.scale.set(0.29, 0.38, 0.32);
     chute.add(collector);
-    const ramp = block(chute, 0.049, trackY - 0.057, -jetR - 0.037, 0.157, 0.002, 0.028, M.rail);
-    ramp.rotation.order = 'YXZ';
-    ramp.rotation.set(0, 0.90, -0.90);
-    block(chute, 0.049, (TABLE + trackY - 0.023) / 2, -jetR + 0.024, 0.009, trackY - 0.023 - TABLE, 0.009, M.frame);
+    // A dogleg gutter takes rejects around the gantry upright and drops them into the tote.
+    const route = [
+      new THREE.Vector3(0.018, trackY - 0.004, -jetR),
+      new THREE.Vector3(0.043, trackY - 0.040, -jetR - 0.064),
+      new THREE.Vector3(0.098, trackY - 0.090, -jetR - 0.089),
+      new THREE.Vector3(0.184, TABLE + 0.070, -jetR - 0.089),
+    ];
+    for (let i = 1; i < route.length; i++) {
+      const delta = route[i].clone().sub(route[i - 1]);
+      const section = new THREE.Group();
+      section.position.copy(route[i - 1]).addScaledVector(delta, 0.5);
+      section.rotation.order = 'YXZ';
+      section.rotation.y = Math.atan2(-delta.z, delta.x);
+      section.rotation.z = Math.atan2(delta.y, Math.hypot(delta.x, delta.z));
+      block(section, 0, 0, 0, delta.length() + 0.006, 0.002, 0.025, M.rail);
+      for (const side of [-1, 1]) block(section, 0, 0.005, side * 0.012, delta.length(), 0.010, 0.002, M.frame);
+      chute.add(section);
+    }
+    block(chute, 0.098, (route[2].y + TABLE) / 2, route[2].z, 0.009, route[2].y - TABLE, 0.009, M.frame);
+    batch(chute);
     this.group.add(chute);
     const l = label(`${inline.id} rejects: 0`, 'label bin');
     l.position.copy(local(0.05, trackY + 0.03, jetR));
