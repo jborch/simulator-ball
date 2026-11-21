@@ -252,6 +252,10 @@ export class HousingDialView {
     const column = hardware('Indexer', d.a, TABLE, -d.r);
     column.scale.set(1.2, (y - 0.014 - TABLE) / 0.136, 1.2);
     foundation.add(column);
+    const inputDrive = hardware('Gearmotor', d.a - 0.122, TABLE + 0.064, -d.r);
+    inputDrive.scale.setScalar(0.48);
+    inputDrive.rotation.y = Math.PI / 2;
+    foundation.add(inputDrive);
     contactPatch(foundation, d.a, TABLE + 0.0009, -d.r, 0.33, 0.32);
     plate(foundation, d.a, TABLE + 0.071, -d.r + 0.086, 0.098, 0.03, 'RD 08', 'CAM INDEX UNIT');
     const cover = new THREE.Shape();
@@ -259,7 +263,14 @@ export class HousingDialView {
     for (let i = 0; i < d.nests; i++) {
       const [a, r] = this.at(i, 0);
       const cut = new THREE.Path();
-      cut.absarc(a - d.a, r - d.r, 0.013, 0, Math.PI * 2, true);
+      // The removable bushing hides this bore. The smooth outer rim uses
+      // the high-resolution arc, while the concealed cut needs only 24 sides.
+      cut.moveTo(a - d.a + 0.013, r - d.r);
+      for (let j = 1; j <= 24; j++) {
+        const angle = -j * Math.PI / 12;
+        cut.lineTo(a - d.a + 0.013 * Math.cos(angle), r - d.r + 0.013 * Math.sin(angle));
+      }
+      cut.closePath();
       cover.holes.push(cut);
     }
     const discGeometry = new THREE.ExtrudeGeometry(cover, {
@@ -295,7 +306,7 @@ export class HousingDialView {
         [0.0166, 0.0068],
         [0.0176, 0.0058],
         [0.0176, -0.001],
-      ].map(([x, y]) => new THREE.Vector2(x, y)),
+      ].reverse().map(([x, y]) => new THREE.Vector2(x, y)),
       40,
     );
     for (let i = 0; i < d.nests; i++) {
@@ -309,6 +320,15 @@ export class HousingDialView {
       round(rotary, x, -0.011, z, 0.012, 0.005, finish.seal);
       const out = Math.atan2(z, x);
       for (const da of [-1.25, 1.25]) round(rotary, x + 0.0137 * Math.cos(out + da), 0.0071, z + 0.0137 * Math.sin(out + da), 0.0017, 0.0008, finish.zinc, 10);
+      // Split POM shoulder: an outboard fence while the robot lifts
+      // vertically, with the inboard half open for loading and inspection.
+      const shoulder = new THREE.Mesh(new THREE.LatheGeometry([
+        new THREE.Vector2(.013,.0068), new THREE.Vector2(.013,.016),
+        new THREE.Vector2(.0108,.016), new THREE.Vector2(.0093,.014),
+        new THREE.Vector2(.0093,.0068),
+      ], 20, Math.PI/2 - out - 1.22, 2.44), finish.graphite);
+      shoulder.position.set(x,0,z);
+      rotary.add(shoulder);
       // Two rim bolts in each gap between nests.
       for (const off of [-0.18, 0.18]) {
         const ang = out + Math.PI / d.nests + off;
@@ -452,7 +472,7 @@ export class HousingDialView {
     const fd = f.feeders.find((x) => x.id === d.feeder);
     this.feeder.update(fd?.items ?? [], fd?.jam ?? 0, t, f.counters.bins);
     const { slots, labels, turn, active } = f.dial;
-    this.disc.rotation.y = -(turn * 2 * Math.PI) / d.nests;
+    this.disc.rotation.y = (turn * 2 * Math.PI) / d.nests;
     this.housings.forEach((h, pos) => {
       h.visible = (slots[pos] ?? 0) !== 0;
       if (!h.visible) return;

@@ -425,21 +425,43 @@ def tray(cols=4, rows=8, pitch=0.021):
         if v.co.z < 0.015:
             v.co.x *= 0.96
             v.co.y *= 0.975
-    deck = bevel(box(w - 0.002, d - 0.002, 0.0016, (0, 0, 0.0292), t, "tray_deck"), 0.0006)
-    lip = bevel(box(w + 0.007, d + 0.007, 0.0014, (0, 0, 0.0293), t, "tray_lip"), 0.0006)
-    cut(lip, box(w - 0.001, d - 0.001, 0.004, (0, 0, 0.0293), t, "tray_lip_cut"))
+    # Draw the deck and wells as one continuous sheet. Each cell goes from
+    # a rectangular boundary through a round lead-in to a tapered cup. The
+    # perimeter cells reach the flange, leaving no coplanar rings or lids.
+    verts, faces = [], []
+    segments = 24
+    for i in range(cols):
+        for j in range(rows):
+            x, y = (i-(cols-1)/2)*pitch, (j-(rows-1)/2)*pitch
+            start = len(verts)
+            for ring, (radius, z) in enumerate([(0, .031), (.0099, .031), (.0091, .0295), (.0088, .009), (.008, .006)]):
+                for k in range(segments):
+                    ang = k * math.tau / segments
+                    u, v = math.cos(ang), math.sin(ang)
+                    if ring == 0:
+                        extent = max(abs(u), abs(v))
+                        u, v = u/extent, v/extent
+                        ex = .0135 if (i == 0 and u < 0 or i == cols-1 and u > 0) else 0
+                        ey = .0135 if (j == 0 and v < 0 or j == rows-1 and v > 0) else 0
+                        verts.append((x+u*(pitch/2+ex), y+v*(pitch/2+ey), z))
+                    else:
+                        verts.append((x+radius*u, y+radius*v, z))
+                if ring:
+                    prev = start+(ring-1)*segments
+                    for k in range(segments):
+                        n = (k+1)%segments
+                        faces.append((prev+k, prev+n, prev+segments+n, prev+segments+k))
+            faces.append(tuple(range(len(verts)-segments, len(verts))))
+    sheet = bpy.data.meshes.new("drawn pockets")
+    sheet.from_pydata(verts, [], faces)
+    deck = bpy.data.objects.new("tray_deck", sheet)
+    bpy.context.collection.objects.link(deck)
+    sheet.materials.append(t)
+    for polygon in sheet.polygons:
+        polygon.use_smooth = len(polygon.vertices) == 4 and min(verts[k][2] for k in polygon.vertices) < .030
     bead = bevel(box(w + 0.0012, d + 0.0012, 0.0022, (0, 0, 0.0245), t, "tray_bead"), 0.0008)
     cut(bead, box(w - 0.0015, d - 0.0015, 0.004, (0, 0, 0.0245), t, "tray_bead_cut"))
     pockets = []
-    for i in range(cols):
-        for j in range(rows):
-            x = (i - (cols - 1) / 2) * pitch
-            y = (j - (rows - 1) / 2) * pitch
-            hole = cyl(0.0099, 0.004, 0.027, t, "tray_hole", verts=14)
-            hole.location.x, hole.location.y = x, y
-            cut(deck, hole)
-            pockets.append(tube(0.0099, 0.0093, 0.024, 0.006, t, f"tray_pocket_{i}_{j}", floor=0.0008, verts=14))
-            pockets[-1].location.x, pockets[-1].location.y = x, y
     for sx in (-1, 1):
         for sy in (-1, 1):
             lug = bevel(box(0.008, 0.008, 0.004, (sx * (w / 2 - 0.007), sy * (d / 2 - 0.007), 0.032), t, "tray_lug"), 0.0012)
@@ -449,7 +471,7 @@ def tray(cols=4, rows=8, pitch=0.021):
         obj.select_set(True)
     bpy.context.view_layer.objects.active = pockets[0]
     bpy.ops.object.join()
-    return group("Tray", [skirt, deck, lip, bead, pockets[0]])
+    return group("Tray", [skirt, deck, bead, pockets[0]])
 
 
 def export(root, filename):

@@ -89,6 +89,12 @@ class ArmView {
     servo.rotation.y = Math.PI / 2;
     axis.add(servo);
     for (const z of [-rMin, -beamR - 0.04]) block(axis, -0.048, top + 0.044, z, 0.049, 0.052, 0.008, M.axisDark);
+    const anchorZ = -(rMin + beamR) / 2;
+    block(axis, -0.064, top + 0.071, anchorZ, 0.025, 0.014, 0.032, finish.graphite);
+    // Servo lead is captured along the radial beam up to the fixed chain end.
+    hose(axis, [[-0.048, top + 0.081, -beamR - 0.117], [-0.068, top + 0.087, -beamR - 0.13],
+      [-0.078, top + 0.064, -beamR - 0.08], [-0.074, top + 0.06, anchorZ - 0.028],
+      [-0.064, top + 0.071, anchorZ]], 0.0028);
     batch(axis);
     this.arm.add(axis);
     this.carrier = new CableCarrier(top + 0.079, rMin, beamR);
@@ -125,6 +131,9 @@ class ArmView {
       ],
       0.0028,
     );
+    block(slide, -0.064, top + 0.121, 0, 0.025, 0.014, 0.033, finish.graphite);
+    block(slide, -0.042, top + 0.118, 0, 0.043, 0.008, 0.018, M.frame);
+    block(slide, -0.023, top + 0.09, 0, 0.008, 0.06, 0.018, M.frame);
     batch(slide);
     this.carriage.add(slide);
     this.rod = hardware('GuidedRam');
@@ -134,12 +143,23 @@ class ArmView {
     if (payload === 'spring' || payload === 'springBase') {
       head.add(hardware(payload === 'spring' ? 'SpringPilot' : 'PressPunch'));
     } else {
-      head.add(hardware('JawBody'));
+      const jaws = new THREE.Group();
+      jaws.rotation.y = Math.PI / 7;
+      this.column.add(jaws);
+      const drive = new THREE.Group();
+      drive.add(hardware('JawBody'));
+      // Short pilot lines from the jaw ports to the drilled tool flange.
+      for (const side of [-1, 1]) {
+        hose(drive, [[side * 0.01, 0.058, -0.018], [side * 0.012, 0.058, -0.025],
+          [side * 0.013, 0.075, -0.024], [side * 0.01, 0.086, -0.018]], 0.0017, finish.pipe);
+      }
+      batch(drive);
+      jaws.add(drive);
       for (const side of [1, -1]) {
-        const finger = hardware(payload === 'cartridge' ? 'CartridgeJaw' : 'BarrelJaw');
+        const finger = hardware(payload === 'cartridge' ? 'CartridgeJaw' : payload === 'body' ? 'TubeJaw' : 'BarrelJaw');
         if (side < 0) finger.rotation.y = Math.PI;
         this.fingers.push(finger);
-        this.column.add(finger);
+        jaws.add(finger);
       }
     }
     batch(head);
@@ -167,7 +187,8 @@ class ArmView {
     // Jaws close on the held part's top; open a few mm wider when empty.
     if (this.fingers.length) {
       const radius = this.cfg.parts[this.payload].radius;
-      const half = r.holding ? Math.max(radius, gripRadius(this.cfg, r.holding)) : radius + 0.005;
+      let half = radius + 0.005;
+      if (r.holding) half = r.holding.includes('housing') ? this.cfg.parts.housing.radius : gripRadius(this.cfg, r.holding);
       this.fingers[0].position.x = half;
       this.fingers[1].position.x = -half;
     }
@@ -211,18 +232,19 @@ export class RobotView {
       const standard = hardware('PressStandard', (aMin + aMax) / 2, TABLE, -beamR - 0.026);
       standard.scale.y = (top - 0.052 - TABLE) / 0.486;
       frame.add(standard);
-      hose(
-        frame,
-        [
-          [0.017, TABLE + 0.015, -beamR - 0.077],
-          [0.047, 0.03, -beamR - 0.099],
-          [0.051, 0.43, -beamR - 0.098],
-          [0.045, top - 0.08, -beamR - 0.075],
-          [0.039, top - 0.032, -beamR - 0.045],
-        ],
-        0.004,
-        finish.pipe,
-      );
+      // Hard-point clips hold the vertical run to the rear service door.
+      const tubeZ = -beamR - 0.096;
+      const tubeX = 0.021;
+      gland(frame, tubeX, TABLE, tubeZ, 0.003);
+      hose(frame, [
+        [tubeX, TABLE + 0.003, tubeZ], [tubeX, 0.09, tubeZ],
+        [tubeX, top - 0.09, tubeZ], [0.039, top - 0.054, tubeZ + 0.008],
+        [0.039, top - 0.03, -beamR - 0.038],
+      ], 0.003, finish.pipe);
+      for (const y of [0.09, 0.32]) {
+        block(frame, tubeX, y, tubeZ + 0.001, 0.014, 0.007, 0.012, finish.graphite);
+        round(frame, tubeX - 0.004, y, tubeZ - 0.006, 0.0018, 0.002, finish.zinc, 8).rotation.x = Math.PI / 2;
+      }
       // The air line ends in a flow-control block on the beam's back face.
       block(frame, 0.039, top - 0.03, -beamR - 0.031, 0.028, 0.03, 0.012, M.axisDark);
       round(frame, 0.039, top - 0.012, -beamR - 0.031, 0.004, 0.008, finish.zinc, 12);
@@ -232,14 +254,16 @@ export class RobotView {
         frame.add(hardware('ColumnShoe', a, TABLE, -beamR));
         contactPatch(frame, a, TABLE + 0.0009, -beamR, 0.12, 0.12);
       }
+      for (const y of [0.014, 0.32]) block(frame, aMax + 0.026, y, -beamR - 0.023, 0.016, 0.009, 0.017, finish.graphite);
       round(frame, aMax + 0.074, TABLE + 0.002, -beamR - 0.07, 0.009, 0.004, finish.seal);
       hose(
         frame,
         [
-          [aMax + 0.032, top - 0.012, -beamR],
+          [aMax + 0.117, top + 0.015, -beamR],
+          [aMax + 0.132, top + 0.012, -beamR - 0.018],
           [aMax + 0.053, top - 0.078, -beamR - 0.024],
-          [aMax + 0.03, 0.32, -beamR - 0.03],
-          [aMax + 0.024, 0.014, -beamR - 0.032],
+          [aMax + 0.026, 0.32, -beamR - 0.026],
+          [aMax + 0.026, 0.014, -beamR - 0.026],
           [aMax + 0.074, TABLE + 0.004, -beamR - 0.07],
         ],
         0.005,
@@ -350,6 +374,8 @@ export class FeederView {
   readonly group = new THREE.Group();
   private readonly pool: THREE.Object3D[] = [];
   private readonly feederR: number;
+  private readonly gates: { pin: THREE.Mesh; at: number }[] = [];
+  private readonly partRadius: number;
   private readonly bowlMat = M.bowl.clone();
   /** Loose parts in the bowl; they circulate while the feeder runs. */
   private readonly bulk = new THREE.Group();
@@ -377,6 +403,7 @@ export class FeederView {
     // two upper guide bars on brackets, on a linear vibratory drive; a stop at the pick end.
     const part = cfg.parts[def.part];
     const partR = def.part === 'body' ? 0.0078 : part.radius;
+    this.partRadius = partR;
     const partLen = part.length;
     const cw = 2 * partR + 0.003;
     const wallH = Math.min(0.028, Math.max(0.006, partLen * 0.28));
@@ -397,8 +424,23 @@ export class FeederView {
         }
       }
     }
-    // Pick-end stop with a through-beam part sensor.
-    block(rail, 0, trackY + 0.012, -(r0 - 0.004), cw + 0.012, 0.024, 0.008, M.frame);
+    // Two independently valved plungers meter one pitch at the bowl exit.
+    const gateX = cw / 2 + 0.018;
+    const gateY = trackY + Math.min(partLen * 0.6, 0.018);
+    const gateMid = r1 - 0.018 - def.pitch / 2;
+    block(rail, gateX, trackY - 0.007, -gateMid, 0.04, 0.008, def.pitch + 0.035, M.frame);
+    block(rail, gateX, (gateY + trackY) / 2, -gateMid, 0.022, gateY - trackY + 0.014, def.pitch + 0.022, M.axisDark);
+    for (const r of [r1 - 0.018, r1 - 0.018 - def.pitch]) {
+      round(rail, gateX - 0.012, gateY, -r, 0.005, 0.006, finish.zinc, 12).rotation.z = Math.PI / 2;
+      const pin = round(this.group, 0, gateY, -r, 0.0024, 0.017, M.rail, 12);
+      pin.rotation.z = Math.PI / 2;
+      this.gates.push({ pin, at: r - this.feederR });
+      hose(rail, [[gateX+0.012, gateY, -r], [gateX+0.023, gateY-0.004, -r],
+        [gateX+0.023, trackY-0.018, -r], [gateX+0.009, trackY-0.022, -r]], 0.0018, finish.pipe);
+      block(rail, gateX, trackY-0.018, -r, 0.02, 0.013, 0.013, finish.graphite);
+    }
+    // Replaceable end shoe at the product tangent, beneath the gripper.
+    block(rail, 0, trackY + wallH/2, -this.feederR + partR + 0.003, cw, wallH, 0.006, finish.graphite);
     for (const sx of [-1, 1]) block(rail, sx * (cw / 2 + 0.009), trackY + 0.008, -(r0 + 0.012), 0.008, 0.012, 0.01, M.camera);
     // Linear drive: a carrier bar flush under the track, on two inclined leaf springs over a
     // compact drive (magnet) body in the middle, its base plate and a profile stand.
@@ -607,6 +649,11 @@ export class FeederView {
   }
 
   update(items: number[], jam: number, t: number, bins: Record<string, number> = {}): void {
+    for (const { pin, at } of this.gates) {
+      const clearance = items.reduce((gap, item) => Math.min(gap, Math.abs(item - at)), Infinity);
+      const open = THREE.MathUtils.clamp((this.partRadius + 0.006 - clearance) / 0.003, 0, 1);
+      pin.position.x = 0.0085 + (this.partRadius + 0.003) * open;
+    }
     this.pool.forEach((o, i) => {
       o.visible = i < items.length;
       if (o.visible) o.position.z = -(this.feederR + items[i]);
@@ -667,6 +714,7 @@ export class TrayView {
   private readonly destacker: HTMLElement;
   private readonly empties: THREE.Object3D[] = [];
   private readonly trayY: number;
+  private readonly trayStop: THREE.Mesh;
   private static readonly STACK = 6;
 
   constructor(
@@ -703,6 +751,22 @@ export class TrayView {
         block(trackFrame, a, TABLE + 0.003, -r, 0.04, 0.006, 0.03, finish.graphite);
         contactPatch(trackFrame, a, TABLE + 0.0009, -r, 0.08, 0.07);
       }
+    // Side datum shoes and opposed adjustable guides at the packing position.
+    const trayEdge = (t.rows*t.pitch + 0.027)/2;
+    for (const sign of [-1, 1]) {
+      for (const da of [-0.036, 0.036]) {
+        const x = t.a + da;
+        block(trackFrame, x, y - 0.004, -t.r + sign*(trayEdge+0.014), 0.023, 0.008, 0.039, M.frame);
+        block(trackFrame, x, y + 0.012, -t.r + sign*(trayEdge+0.021), 0.018, 0.034, 0.009, finish.graphite);
+        round(trackFrame, x, y+0.014, -t.r + sign*(trayEdge+0.016), 0.003, 0.034, M.rail, 12).rotation.x = Math.PI/2;
+        round(trackFrame, x, y+0.014, -t.r + sign*(trayEdge+0.034), 0.006, 0.006, finish.graphite, 12).rotation.x = Math.PI/2;
+      }
+      block(trackFrame, t.a, y+0.014, -t.r + sign*(trayEdge+0.003), 0.098, 0.012, 0.006, finish.seal);
+    }
+    // Pneumatic datum pin rises between the strands against the leading skirt.
+    const stopX = t.a + (t.cols * t.pitch + 0.02) / 2 + 0.003;
+    round(trackFrame, stopX, y - 0.009, -t.r, 0.011, 0.023, finish.graphite);
+    this.trayStop = round(this.group, stopX, y, -t.r, 0.0035, 0.032, M.rail);
     // Through-beam tray detector and M8 lead on the inspection stop.
     block(trackFrame, tl.check.a, y + 0.024, -t.r - half - 0.014, 0.023, 0.041, 0.017, M.camera);
     round(trackFrame, tl.check.a, y + 0.03, -t.r - half - 0.004, 0.004, 0.004, M.lens).rotation.x = Math.PI / 2;
@@ -746,6 +810,14 @@ export class TrayView {
         round(destacker, tl.destack + da, y + 0.044, -(t.r + dr + Math.sign(dr) * 0.014), 0.0024, 0.004, finish.pipe, 12);
       }
       for (const da of [-w - 0.012, w + 0.012]) profile(destacker, [tl.destack + da, TABLE, -(t.r + dr)], [tl.destack + da, y + 0.016, -(t.r + dr)], 0.02);
+    }
+    // Separator blades support the lowest flange while the released tray
+    // passes beneath. Their outer ends enter the destacker cross rails.
+    for (const sign of [-1, 1]) {
+      for (const da of [-w*0.5, w*0.5]) {
+        block(destacker, tl.destack+da, y+0.057, -t.r+sign*(half-0.002), 0.017, 0.006, 0.036, M.rail);
+        block(destacker, tl.destack+da, y+0.045, -t.r+sign*(half+0.014), 0.018, 0.027, 0.01, finish.graphite);
+      }
     }
     batch(destacker);
     this.group.add(destacker);
@@ -856,6 +928,8 @@ export class TrayView {
     const k = tray.changing > 0 ? 1 - tray.changing / this.cfg.trayChange : 1;
     this.place(this.current, tl.destack + (pack - tl.destack) * k);
     this.current.fill(tray.count);
+    const passing = tray.line.some(([a]) => a > pack && a < pack + 0.115);
+    this.trayStop.position.y = this.trayY + (passing || tray.changing > 0 ? -0.018 : 0);
     this.line.forEach((load, i) => {
       const tr = tray.line[i];
       load.group.visible = !!tr;

@@ -126,23 +126,23 @@ export class StationView {
       const z = -beamR - 0.026;
       plate(fittings, 0, 0.291, z + 0.01, 0.057, 0.018, def.id, 'INSERTION');
       // On the column's back face (toward the operator aisle), just proud of the enamel.
-      const back = z - 0.0596;
+      const back = z - 0.0631;
       plate(fittings, 0, 0.305, back, 0.059, 0.019, def.id, 'PNEUMATIC PRESS', '#286e74', Math.PI);
       warning(fittings, 0, 0.267, back, 0.054, Math.PI);
       const bank = hardware('ValveBank', 0, 0.105, z - 0.056);
       bank.scale.setScalar(0.72);
       bank.rotation.y = Math.PI;
       fittings.add(bank);
-      for (let i = 0; i < 4; i++) {
-        const x = (i - 1.5) * 0.015;
+      for (let i = 0; i < 5; i++) {
+        const x = (i - 2) * 0.022 * 0.72;
         hose(
           fittings,
           [
             [x, 0.127, z - 0.075],
             [x, 0.132, z - 0.086],
             [x + 0.005, 0.082, z - 0.095],
-            [x + 0.04, 0.051, z - 0.076],
-            [x + 0.048, TABLE + 0.016, z - 0.054],
+            [x, 0.035, z - 0.092],
+            [x, TABLE + 0.009, z - 0.093],
           ],
           0.0021,
           i % 2 ? finish.seal : finish.pipe,
@@ -150,7 +150,7 @@ export class StationView {
         );
       }
       // The lines drop through a slotted grommet plate in the press foot.
-      block(fittings, 0.048, TABLE + 0.016, z - 0.054, 0.07, 0.003, 0.016, finish.seal);
+      block(fittings, 0, TABLE + 0.004, z - 0.093, 0.088, 0.009, 0.019, finish.graphite);
     }
     batch(fittings);
     this.group.add(fittings);

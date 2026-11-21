@@ -12,6 +12,7 @@ import { contactPatch } from './hall';
 const deck = mat(0x868c8f, { roughness: 1, map: brushedFinish().map, roughnessMap: brushedFinish().rough, metalness: 1 });
 const topFinish = deck.clone();
 const rubber = finish.seal;
+const cutEdge = mat(0x7caaa7, { roughness: 0.24 });
 const dark = finish.graphite;
 const enameled = finish.powder;
 const trim = finish.zinc;
@@ -171,13 +172,37 @@ function guard(g: THREE.Group, x: number, z: number, w: number, h: number): void
     block(g, x + dx, top + 0.007, z, 0.055, 0.014, 0.055, dark);
   }
   for (const y of [bottom, top + h - 0.012]) profile(g, [x - w / 2, y, z], [x + w / 2, y, z], 0.024);
-  const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.024, h - 0.078), finish.glass);
-  pane.position.set(x, top + (h + 0.045) / 2, z);
-  g.add(pane);
+  // A fixed light and an opening leaf share the frame. Expose the polished
+  // edges at the meeting line, which is visible even looking square-on.
+  const paneHeight = h - 0.082;
+  const centerY = top + (h + 0.046) / 2;
+  const clearWidth = w - 0.026;
+  for (const sign of [-1, 1]) {
+    const cx = x + sign * clearWidth / 4;
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(clearWidth / 2 - 0.004, paneHeight), finish.glass);
+    pane.position.set(cx, centerY, z);
+    g.add(pane);
+    block(g, x + sign * 0.003, centerY, z, 0.002, paneHeight, 0.006, cutEdge);
+    if (sign < 0) continue; // The movable leaf is supported by its hinges.
+    for (const dy of [-1, 1]) {
+      block(g, cx, centerY + dy * (paneHeight / 2 - 0.005), z + 0.002, 0.052, 0.014, 0.009, rubber);
+      for (const dx of [-0.018, 0.018]) {
+        round(g, cx + dx, centerY + dy * (paneHeight / 2 - 0.005), z + 0.007, 0.003, 0.002, trim, 12).rotation.x = Math.PI / 2;
+      }
+    }
+  }
+  // Coded interlock at the free end of the door, wired into the top rail.
+  block(g, x - 0.04, top + h - 0.021, z + 0.014, 0.056, 0.021, 0.018, dark);
+  block(g, x - 0.04, top + h - 0.043, z + 0.008, 0.043, 0.013, 0.015, rubber);
+  hose(g, [[x - 0.068, top + h - 0.02, z + 0.014], [x - 0.08, top + h - 0.02, z + 0.019],
+    [x - 0.095, top + h - 0.012, z + 0.012]], 0.0024);
   warning(g, x - w * 0.33, top + 0.122, z + 0.003, 0.079);
-  for (const y of [0.13, h - 0.08]) block(g, x - w / 2 + 0.012, top + y, z + 0.015, 0.035, 0.039, 0.016, dark);
-  for (const y of [0.21, 0.28]) block(g, x + w / 2 - 0.044, top + y, z + 0.017, 0.012, 0.012, 0.033, dark);
-  block(g, x + w / 2 - 0.044, top + 0.245, z + 0.033, 0.013, 0.083, 0.015, rubber);
+  for (const y of [0.13, h - 0.08]) {
+    block(g, x - w / 2 + 0.012, top + y, z + 0.015, 0.042, 0.032, 0.009, dark);
+    round(g, x-w/2+0.011, top+y, z+0.021, 0.005, 0.042, trim, 12);
+  }
+  for (const y of [0.21, 0.28]) block(g, x - 0.043, top + y, z + 0.017, 0.012, 0.012, 0.033, dark);
+  block(g, x - 0.043, top + 0.245, z + 0.033, 0.013, 0.083, 0.015, rubber);
 }
 
 function bench(
@@ -322,7 +347,7 @@ function bench(
       );
     }
   }
-  if (guardWidth) guard(g, 0, side + 0.01, guardWidth, 0.48);
+  if (guardWidth) guard(g, 0, side + 0.01, guardWidth, 0.91);
   if (hmi) consolePanel(g, -w * 0.35, side + 0.025);
   batch(g);
   root.add(g);

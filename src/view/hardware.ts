@@ -20,6 +20,7 @@ const components = [
   'StopHead',
   'ToolFlange',
   'GuidedRam',
+  'TubeJaw',
   'BarrelJaw',
   'CartridgeJaw',
   'PressPunch',
@@ -43,6 +44,7 @@ export function installHardware(root: THREE.Object3D): void {
   // Printed plates modelled as UV-mapped quads get their artwork here.
   const replace: Record<string, THREE.Material> = {
     'Motor nameplate': ratingPlate(),
+    'Gripper plate': jawPlate(),
     'Gauge face': gaugeFace(),
     'Filter bowl': clearMaterial({ color: 0xdfe7ea, edge: 0x7f9197, opacity: [0.25, 0.85], roughness: 0.1 }),
     'Reject polypropylene': moulded(0x9b3f37),
@@ -119,6 +121,25 @@ function gaugeFace(): THREE.MeshStandardMaterial {
   return mat(0xffffff, { map: tex, alphaTest: 0.5, roughness: 0.25, name: 'Gauge face' });
 }
 
+/** Etched model and working pressure on the gripper's cover. */
+function jawPlate(): THREE.Material {
+  const c = document.createElement('canvas');
+  c.width = 192;
+  c.height = 96;
+  const p = c.getContext('2d')!;
+  p.fillStyle = '#c3c9c7';
+  p.fillRect(0, 0, c.width, c.height);
+  p.fillStyle = '#263b40';
+  p.font = 'bold 30px Arial';
+  p.fillText('PG  20-2', 12, 40);
+  p.font = '22px Arial';
+  p.fillText('2 – 6 bar', 12, 76);
+  const map = new THREE.CanvasTexture(c);
+  map.flipY = false;
+  map.colorSpace = THREE.SRGBColorSpace;
+  return mat(0xffffff, { map, roughness: 0.45, metalness: 0.32 });
+}
+
 /** Silver rating plate of the servo motors: maker band, type line, small print and a code. */
 function ratingPlate(): THREE.MeshStandardMaterial {
   const c = document.createElement('canvas');
@@ -141,6 +162,7 @@ function ratingPlate(): THREE.MeshStandardMaterial {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
+  tex.flipY = false;
   return mat(0xffffff, { map: tex, metalness: 0.35, roughness: 0.4, name: 'Motor nameplate' });
 }
 
@@ -171,7 +193,7 @@ export const finish = {
   pipe: mat(0x2d6372, { roughness: 0.32 }),
   zinc: mat(0xbcc3c3, { metalness: 1, roughness: 0.22 }),
   brass: mat(0xa18a56, { metalness: 0.75, roughness: 0.34 }),
-  glass: mat(0xafd3cd, { transparent: true, opacity: 0.072, depthWrite: false, roughness: 0.15, side: THREE.DoubleSide }),
+  glass: clearMaterial({ color: 0xe1efed, edge: 0x8eb4b1, opacity: [0.045, 0.27], roughness: 0.18, envMapIntensity: 0.7 }),
 };
 
 export function block(g: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, d: number, m: THREE.Material): THREE.Mesh {

@@ -243,6 +243,10 @@ for z in (-0.021, 0.021):
     roundbar(0, 0.097, z, 0.007, 0.003, dark, 16)
 roundbar(0, 0.079, 0, 0.014, 0.012, dark, 24)
 roundbar(0, 0.072, 0, 0.011, 0.004, steel, 24)
+# Keyed quill and wiper project from the crosshead and retract into the
+# gland on the drive cylinder; only the inner piston is exposed at full stroke.
+roundbar(0, 0.134, 0, 0.012, 0.075, alu, 24)
+roundbar(0, 0.172, 0, 0.0125, 0.004, dark, 24)
 save("ToolFlange")
 
 # Pneumatic wedge gripper with an open guideway and sliding jaw carriers.
@@ -254,7 +258,7 @@ for z in (-0.011, 0.011):
     block(0, 0.038, z, 0.043, 0.006, 0.005, steel)
 for x in (-0.01, 0.01):
     roundbar(x, 0.058, -0.015, 0.003, 0.006, blue, 12, "z")
-quad(0, 0.055, 0.0136, 0.024, 0.012, "+z", nameplate)
+quad(0, 0.055, 0.0136, 0.024, 0.012, "+z", finish("Gripper plate", (0.6, 0.63, 0.63), 0.4, 0.42))
 save("JawBody")
 
 
@@ -262,7 +266,16 @@ def jaw(name, radius, reach):
     # A stepped jaw with a circular relief milled into its replaceable pad.
     # The contact arc lies on a cylinder centred one radius inboard.
     block(0.004, 0.036, 0, 0.014, 0.009, 0.015, steel)
-    block(0.004, (0.033-reach)/2, 0, 0.005, 0.033+reach, 0.011, alu)
+    # Wire-cut dogleg profile, wide at its mounting screws, narrowing to
+    # leave clearance around the neck of the part.
+    outline = [(0, .033), (.011, .033), (.011, .022), (.006, .012),
+               (.006, -reach), (.0016, -reach), (.0016, .014), (.004, .023), (0, .023)]
+    n = len(outline)
+    mesh([(x, y, z) for z in (-.006, .006) for x, y in outline],
+         [tuple(range(n)), tuple(range(n, 2*n))] +
+         [(k, (k+1)%n, n+(k+1)%n, n+k) for k in range(n)], alu, .0006)
+    for z in (-.0064, .0064):
+        roundbar(.006, .028, z, .0024, .0014, dark, 12, "z")
     section = [(radius*(math.cos(a)-1), radius*math.sin(a))
                for a in [math.radians(v) for v in range(-48,49,12)]]
     section += [(0.005, section[-1][1]), (0.005, section[0][1])]
@@ -271,6 +284,7 @@ def jaw(name, radius, reach):
     save(name)
 
 
+jaw("TubeJaw", 0.0065, 0.010)
 jaw("BarrelJaw", 0.0085, 0.010)
 jaw("CartridgeJaw", 0.0048, 0.016)
 
@@ -395,7 +409,6 @@ for y in (0.083, 0.412):
         roundbar(x, y, -0.063, 0.003, 0.002, steel, 12, "z")
 for i in range(6):
     block(0, 0.35+i*0.007, -0.0628, 0.033, 0.0024, 0.0015, dark)
-quad(0, 0.307, -0.0627, 0.039, 0.024, "-z", nameplate)
 save("PressStandard")
 
 # Guide rail holder. A foot clamped to the side profile's top slot carries the
@@ -427,6 +440,14 @@ for y in (-0.03, -0.06):
 roundbar(-0.019, -0.04, -0.006, 0.004, 0.012, steel, 16, "x")
 roundbar(-0.027, -0.04, -0.006, 0.0042, 0.006, seal, 16, "x")
 block(-0.0115, -0.034, -0.006, 0.003, 0.004, 0.004, finish("Sensor LED", (0.9, 0.42, 0.04), 0, 0.3))
+# Flush bridge over the centre channel. Two cheeks leave the roller slot
+# open when the piston drops; the passing puck clears the retaining screws.
+for x in (-0.016, 0.016):
+    block(x, -0.0044, 0, 0.016, 0.006, 0.038, alu, 0.001)
+    for z in (-0.013, 0.013):
+        roundbar(x, -0.0014, z, 0.0025, 0.0008, dark, 10)
+for z in (-0.016, 0.016):
+    block(0, -0.0044, z, 0.017, 0.006, 0.006, alu)
 save("Stopper")
 
 # Retractable roller plunger. The crown is the roller tangent, so both
