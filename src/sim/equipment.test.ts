@@ -45,10 +45,19 @@ test('a cartridge is pushed home slowly from above the body during the press tim
   const def = LINE.stations[idx('EM41')].robots![0];
   const seated = seatedTip(LINE, def.parts!);
   const heights: number[] = [];
+  let crossedFromCollet = false;
   for (let t = 0; t < 120 && heights.length < 50; t += 0.01) {
     s.advance(0.01);
+    if (robot.holding && robot.vr < 0) {
+      // The bottom of the held barrel clears even a full adjacent collet.
+      const cartridgeLength = LINE.parts.cartridge.length;
+      expect(robot.z - cartridgeLength).toBeGreaterThan(LINE.cartridges.collets.base + cartridgeLength);
+      expect(robot.z).toBeCloseTo(def.loadedTransferZ!);
+      crossedFromCollet = true;
+    }
     if (robot.phase === 'press') heights.push(robot.z);
   }
+  expect(crossedFromCollet).toBe(true);
   expect(heights.length).toBeGreaterThan(20);
   expect(heights[0]).toBeGreaterThan(seated + def.insert! * 0.9);
   for (let i = 1; i < heights.length; i++) expect(heights[i]).toBeLessThanOrEqual(heights[i - 1]);

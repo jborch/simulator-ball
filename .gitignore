@@ -6,3 +6,12 @@ inspiration/
 .cache/
 vendor/
 recordings/
+__pycache__/
+
+# Realism rounds: only the baseline and final shots, the rubric and the scores stay in the repo.
+docs/realism/*
+!docs/realism/before/
+!docs/realism/after-r8/
+!docs/realism/RUBRIC.md
+!docs/realism/scores-before.md
+!docs/realism/scores-final.md

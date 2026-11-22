@@ -78,7 +78,7 @@ function moverHeight(p: PlantState, cfg: LineConfig, rdef: RobotDef, robot: Robo
 function height(p: PlantState, cfg: LineConfig, rdef: RobotDef, robot: Robot, to: Extract<RobotStep, { k: 'z' }>['to']): number {
   switch (to) {
     case 'safe':
-      return cfg.layout.z.safe;
+      return robot.holding ? (rdef.loadedTransferZ ?? cfg.layout.z.safe) : cfg.layout.z.safe;
     case 'approach':
       return moverHeight(p, cfg, rdef, robot) + (rdef.insert ?? 0);
     case 'mover':

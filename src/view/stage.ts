@@ -1,12 +1,19 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import './contact';
+import { FRUSTUM_ASPECT, SHADOW_FAR, SHADOW_NEAR, penumbraScale } from './softshadow';
+import { Hall } from './hall';
+import { type RoomLight, roomEnvironment } from './environment';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { CameraPose } from './cameras';
+
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const DAY_ROOM: RoomLight = { strips: 12, stripColor: 0xfff4e4, room: 1, windows: 1.3, windowColor: 0xd5dee2 };
 
 /** Renderer, camera, orbit controls and lights. The floor is the line's plate (LineView). */
 export class Stage {
   readonly scene = new THREE.Scene();
+  readonly hall: Hall;
   readonly camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
   readonly renderer: THREE.WebGLRenderer;
   readonly labels = new CSS2DRenderer();
@@ -26,6 +33,14 @@ export class Stage {
   onResize?: () => void;
   /** Broad fill and key light (see SceneView for the lighting presets). */
   readonly hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3328, 1.1);
+  /**
+   * The key light comes from above the viewer's side, turned `yaw` (rad) off the view direction
+   * and `elevation` (rad) above the floor, as a photographer sets a key: faces toward the camera
+   * are lit, shadows fall back and to the side where they show the shapes, and none fall across
+   * what a station camera looks at.
+   */
+  readonly key = { yaw: 0.7, elevation: 1.2 };
+  private readonly keyOffset = new THREE.Vector3();
   readonly sun = new THREE.DirectionalLight(0xffffff, 1.6);
   /**
    * Replaces the plain render (a camera feed's post-processing, camerafx.ts). Gets the scene and
@@ -37,18 +52,20 @@ export class Stage {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Plain depth compares, filtered by the soft lookup in softshadow.ts.
+    this.renderer.shadowMap.type = THREE.BasicShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     container.appendChild(this.renderer.domElement);
     this.labels.domElement.className = 'labels';
     container.appendChild(this.labels.domElement);
 
-    this.scene.background = new THREE.Color(0x1b1e23);
-    // Soft studio reflections so metal parts (fixtures, rails, bowls) don't render black.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.6;
-    this.scene.fog = new THREE.Fog(0x1b1e23, 12, 30);
+    this.scene.background = new THREE.Color(0x9da9a9);
+    this.hall = new Hall(this.scene);
+    // Reflections and ambient light come from a probe of the room (environment.ts); the
+    // lighting preset replaces it (SceneView).
+    this.setRoom(DAY_ROOM);
+    this.scene.environmentIntensity = 1;
+    this.scene.fog = new THREE.Fog(0x8f9795, 6, 34);
 
     this.camera.position.set(0.7, 2.6, 3.2);
     this.controls = new OrbitControls(this.camera, this.labels.domElement);
@@ -64,17 +81,18 @@ export class Stage {
     const sun = this.sun;
     sun.position.set(2.5, 6, 3);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera;
     sc.left = -4;
     sc.right = 4;
-    sc.top = 3;
-    sc.bottom = -3;
-    sc.near = 1;
-    sc.far = 15;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.radius = 4;
-    this.scene.add(sun);
+    sc.top = 4 * FRUSTUM_ASPECT;
+    sc.bottom = -sc.top;
+    sc.near = SHADOW_NEAR;
+    sc.far = SHADOW_FAR;
+    sun.shadow.bias = -0.0001;
+    sun.shadow.normalBias = 0.00032;
+    sun.shadow.radius = penumbraScale(sc.right - sc.left);
+    this.scene.add(sun, sun.target);
 
     this.resize = () => {
       const w = container.clientWidth;
@@ -100,6 +118,17 @@ export class Stage {
     if (inset > 0.5) this.camera.setViewOffset(w + inset, h, inset, 0, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
+  }
+
+  private roomKey = '';
+  /** Re-renders the reflection/ambient probe for the room's light (once per preset). */
+  setRoom(light: RoomLight): void {
+    const key = JSON.stringify(light);
+    if (key === this.roomKey) return;
+    this.roomKey = key;
+    const old = this.scene.environment;
+    this.scene.environment = roomEnvironment(this.renderer, light);
+    old?.dispose();
   }
 
   /** Cuts to a camera pose, like switching to another camera on a monitoring screen. */
@@ -170,6 +199,27 @@ export class Stage {
       this.project();
     }
     this.controls.update();
+    // Installed cameras see less than two metres of machinery. Concentrate
+    // their shadow texels and cull the other cells from the light pass.
+    const span = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target) * 1.32, 1.1, 4.1);
+    const sc = this.sun.shadow.camera;
+    if (Math.abs(sc.right - span) > 0.001) {
+      sc.left = -span;
+      sc.right = span;
+      sc.top = FRUSTUM_ASPECT * span;
+      sc.bottom = -sc.top;
+      sc.updateProjectionMatrix();
+      // A few shadow texels along the normal: no acne on faces the key grazes.
+      this.sun.shadow.normalBias = (2.5 * 2 * span) / this.sun.shadow.mapSize.x;
+      this.sun.shadow.radius = penumbraScale(2 * span);
+    }
+    const k = this.keyOffset.copy(this.camera.position).sub(this.controls.target).setY(0);
+    if (k.lengthSq() < 1e-8) k.set(0, 0, 1);
+    k.normalize().applyAxisAngle(Y_AXIS, this.key.yaw).multiplyScalar(7 * Math.cos(this.key.elevation));
+    k.y = 7 * Math.sin(this.key.elevation);
+    this.sun.target.position.copy(this.controls.target);
+    this.sun.position.copy(this.sun.target.position).add(k);
+    this.hall.cutaway(this.camera.position);
     if (this.renderOverride) this.renderOverride(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
     if (this.showLabels) this.labels.render(this.scene, this.camera);

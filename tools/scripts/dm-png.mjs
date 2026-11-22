@@ -4,13 +4,19 @@ import bwipjs from 'bwip-js/node';
 import { writeFileSync } from 'node:fs';
 
 const [text, out] = process.argv.slice(2);
-const png = await bwipjs.toBuffer({
+const print = {
   bcid: 'gs1datamatrix',
   text,
   scale: 16,
   padding: 1,
-  barcolor: '3a3a3c',
-  backgroundcolor: 'ebebe6',
-});
+  barcolor: '13191b',
+  backgroundcolor: 'f2f2eb',
+};
+let png;
+try {
+  png = await bwipjs.toBuffer({ ...print, format: 'rectangle', rotate: 'R' });
+} catch {
+  png = await bwipjs.toBuffer(print);
+}
 writeFileSync(out, png);
 console.log('wrote', out);
