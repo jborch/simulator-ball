@@ -34,6 +34,10 @@ body {
   position: absolute;
   inset: 0;
 }
+/* Floating labels switched off (camera bar "Labels" button, key L); the layer still takes clicks. */
+.labels.off > * {
+  display: none;
+}
 
 .panel {
   position: fixed;

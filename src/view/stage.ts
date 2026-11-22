@@ -27,6 +27,8 @@ export class Stage {
   private resize: () => void;
   /** Draw the DOM labels (off for a capture feed, which only records the canvas). */
   showLabels = true;
+  /** The user switched the labels off (camera bar button, key L). */
+  private labelsOff = false;
   /** Called when the user starts orbiting/zooming: the view is no longer a fixed camera. */
   onUserMove?: () => void;
   /** Called after the canvas changes size. */
@@ -222,6 +224,12 @@ export class Stage {
     this.hall.cutaway(this.camera.position);
     if (this.renderOverride) this.renderOverride(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
-    if (this.showLabels) this.labels.render(this.scene, this.camera);
+    if (this.showLabels && !this.labelsOff) this.labels.render(this.scene, this.camera);
+  }
+
+  /** Show or hide the floating DOM labels (station states, feeders, bin counts). */
+  setLabelsVisible(on: boolean): void {
+    this.labelsOff = !on;
+    this.labels.domElement.classList.toggle('off', !on);
   }
 }

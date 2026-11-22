@@ -138,6 +138,10 @@ brings them back. While they're hidden, the view shows only the camera name and 
 monitoring feed. CATCH.AI alerts stay visible. The chosen camera and the auto-hide setting are
 remembered in the browser.
 
+**Labels** (button or **L**) shows the floating station, feeder and bin labels in the 3D view.
+They're off by default; the setting is remembered in the browser, and `?labels=1` (or `0`) sets it
+for one visit. The RTSP camera feeds never draw them.
+
 For a wall display, open `/?cam=cartridge&ui=hidden`. `cam` is a camera id (`overview`,
 `infeed`, `springbase`, `cartridge`, `housing`, `outfeed`). `ui=hidden` starts with the controls hidden and
 auto-hide on.

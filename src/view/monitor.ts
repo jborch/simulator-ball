@@ -1,7 +1,8 @@
 // Monitoring-screen controls: pick one of the installed cameras (buttons or keys 1–6), and
 // auto-hide the controls after a few seconds without input, like a video player, so the view
 // reads as a clean camera feed. `?cam=<id>` picks the camera and `&ui=hidden` starts with auto-hide on
-// (handy for a wall display).
+// (handy for a wall display). The floating labels are off unless switched on (button or key L),
+// `&labels=1` shows them.
 import type * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { viewThrough } from './cameramounts';
@@ -11,6 +12,7 @@ import type { Stage } from './stage';
 const IDLE_MS = 3000;
 const AUTO_HIDE_KEY = 'ui.autoHide';
 const CAMERA_KEY = 'ui.camera';
+const LABELS_KEY = 'ui.labels';
 
 interface Choice {
   id: string;
@@ -23,6 +25,7 @@ export class Monitor {
   /** Selected camera id, or null after the user moved the view by hand. */
   private active: string | null = OVERVIEW.id;
   private autoHide = false;
+  private labels = false;
   private hidden = false;
   private idleTimer: number | undefined;
   /** Pointer is over a panel, or a form field has focus: don't hide under the user's hands. */
@@ -44,6 +47,7 @@ export class Monitor {
       if (id) this.select(id);
     });
     document.querySelector('#autohide')!.addEventListener('click', () => this.setAutoHide(!this.autoHide));
+    document.querySelector('#labels-toggle')!.addEventListener('click', () => this.setLabels(!this.labels));
 
     stage.onUserMove = () => {
       this.active = null;
@@ -61,6 +65,7 @@ export class Monitor {
       const n = Number(e.key);
       if (Number.isInteger(n) && n >= 1 && n <= this.choices.length) this.select(this.choices[n - 1].id);
       else if (e.key === 'h' || e.key === 'H') this.setAutoHide(!this.autoHide);
+      else if (e.key === 'l' || e.key === 'L') this.setLabels(!this.labels);
     });
     for (const ev of ['pointermove', 'pointerdown', 'wheel', 'touchstart'] as const) addEventListener(ev, () => this.activity(), { passive: true });
     document.addEventListener('pointerover', (e) => {
@@ -78,6 +83,8 @@ export class Monitor {
     this.select(this.choices.some((c) => c.id === wanted) ? wanted! : OVERVIEW.id, false);
     this.setAutoHide(params.get('ui') === 'hidden' || localStorage.getItem(AUTO_HIDE_KEY) === 'true', params.get('ui') !== 'hidden');
     if (params.get('ui') === 'hidden') this.hide(true);
+    const labelsParam = params.get('labels');
+    this.setLabels(labelsParam !== null ? labelsParam === '1' : localStorage.getItem(LABELS_KEY) === 'true', labelsParam === null);
     setInterval(() => this.updateClock(), 1000);
   }
 
@@ -111,6 +118,15 @@ export class Monitor {
     btn.setAttribute('aria-pressed', String(on));
     btn.title = on ? 'Auto-hide is on: the controls hide after 3 s without input and come back when you move the mouse (H)' : 'Hide the controls after 3 s without input (H)';
     this.activity();
+  }
+
+  private setLabels(on: boolean, remember = true): void {
+    this.labels = on;
+    if (remember) localStorage.setItem(LABELS_KEY, String(on));
+    this.stage.setLabelsVisible(on);
+    const btn = document.querySelector<HTMLElement>('#labels-toggle')!;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.title = on ? 'Hide the floating station and bin labels (L)' : 'Show floating station and bin labels (L)';
   }
 
   /** Any input shows the controls and restarts the idle timer. */
