@@ -154,6 +154,7 @@ end-to-end delay is about 0.3 s.
 
 ```sh
 RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
+npm run start:cams                 # build, then stream the five station cameras (2–6, not the overview)
 ```
 
 ```

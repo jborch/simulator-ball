@@ -10,6 +10,7 @@
     "dev": "tsx watch --clear-screen=false src/server/index.ts --dev",
     "build": "tsc --noEmit && vite build && vite build --ssr src/server/index.ts",
     "start": "node dist/server/index.js",
+    "start:cams": "npm run build && RTSP_CAMERAS=infeed,springbase,cartridge,housing,outfeed node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "postinstall": "node tools/scripts/fetch-mediamtx.mjs",
