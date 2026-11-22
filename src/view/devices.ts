@@ -388,13 +388,25 @@ export class InspectionView {
     if (sideReader) {
       const h = cfg.mover.seat + cfg.parts.body.length * 0.41;
       const r = -0.15;
-      // 2 cm downstream of the station centre, clear of the springbase camera's post.
-      const da = 0.02;
-      this.group.add(span(da - 0.012, da + 0.012, TABLE, h - 0.02, r - 0.012, r + 0.012, M.frame));
+      // Downstream of the station centre, clear of the springbase camera's mount, turned to look
+      // back at the pen.
+      const da = 0.04;
+      // The reader stands on a 24 mm profile in a column shoe, its cable down the post to a gland.
+      const stand = new THREE.Group();
+      profile(stand, [da, TABLE, -r], [da, h - 0.02, -r], 0.024);
+      stand.add(hardware('ColumnShoe', da, TABLE, -r));
+      const c = da + 0.017;
+      hose(stand, [[c, h - 0.015, -r - 0.004], [c, h - 0.045, -r - 0.012], [c, TABLE + 0.05, -r - 0.014], [c, TABLE + 0.012, -r - 0.022], [c, TABLE + 0.002, -r - 0.034]], 0.0032);
+      gland(stand, c, TABLE, -r - 0.034, 0.0032);
+      batch(stand);
+      this.group.add(stand);
       const reader = this.camera(0.05);
       reader.rotation.x = Math.PI / 2; // look outward (+r) at the pen's side
-      reader.position.copy(local(da, h, r));
-      this.group.add(reader);
+      const aim = new THREE.Group();
+      aim.position.copy(local(da, h, r));
+      aim.rotation.y = Math.atan2(da, -r);
+      aim.add(reader);
+      this.group.add(aim);
     }
   }
 

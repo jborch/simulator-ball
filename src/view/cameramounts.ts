@@ -10,6 +10,7 @@
 // follow the viewing camera's layers.) At the nominal pose the model also lies behind the lens and
 // below the picture (cameramounts.test.ts). Other cameras and the overview still see it.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { LineConfig } from '../sim/config';
 import { BELT_Y, TABLE } from './build';
 import { CAMERAS, type CameraDef, cameraPose } from './cameras';
@@ -124,7 +125,14 @@ function buildMount(cfg: LineConfig, cam: CameraDef, model: THREE.Object3D): THR
     false,
     'centripetal',
   );
-  const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, CABLE_R, 8, false), cableMat);
+  // Two clips hold the cable to the post's back slot (one draw with the cable).
+  const clips = [0.3, 0.65].map((f) => {
+    const clip = new THREE.BoxGeometry(0.009, 0.006, 0.0075);
+    const at = atPost(postBottom + f * (clampBottom - 0.03 - postBottom)).addScaledVector(back, -0.0015);
+    clip.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw).setPosition(at));
+    return clip;
+  });
+  const cable = new THREE.Mesh(mergeGeometries([new THREE.TubeGeometry(curve, 48, CABLE_R, 8, false), ...clips.map((c) => c.toNonIndexed())].map((g) => (g.index ? g.toNonIndexed() : g))), cableMat);
   cable.name = 'cable';
   g.add(cable);
 
