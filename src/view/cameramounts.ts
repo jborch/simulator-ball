@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { LineConfig } from '../sim/config';
 import { BELT_Y, TABLE } from './build';
+import { contactPatch } from './hall';
 import { CAMERAS, type CameraDef, cameraPose } from './cameras';
 import { compact } from './hardware';
 import type { Models } from './models';
@@ -106,6 +107,13 @@ function buildMount(cfg: LineConfig, cam: CameraDef, model: THREE.Object3D): THR
   post.rotation.y = yaw;
   post.scale.y = postTop - postBottom;
   g.add(clamp, foot, post);
+  // Contact darkening on the table round the foot plate (the plate reaches forward of the post).
+  const pad = new THREE.Group();
+  pad.position.set(pivot.x, tableY, pivot.z);
+  pad.rotation.y = yaw;
+  contactPatch(pad, 0, 0.0008, -0.008, 0.066, 0.07);
+  pad.children[0].name = 'contact';
+  g.add(pad);
 
   // Cable: from the connector behind the camera, under the clamp to the back of the post, down
   // the post and into the foot plate (its end bends in under the post, inside the plate).
@@ -125,9 +133,9 @@ function buildMount(cfg: LineConfig, cam: CameraDef, model: THREE.Object3D): THR
     false,
     'centripetal',
   );
-  // Two clips hold the cable to the post's back slot (one draw with the cable).
-  const clips = [0.3, 0.65].map((f) => {
-    const clip = new THREE.BoxGeometry(0.009, 0.006, 0.0075);
+  // Three clips hold the cable to the post's back slot (one draw with the cable).
+  const clips = [0.15, 0.5, 0.85].map((f) => {
+    const clip = new THREE.BoxGeometry(0.012, 0.007, 0.009);
     const at = atPost(postBottom + f * (clampBottom - 0.03 - postBottom)).addScaledVector(back, -0.0015);
     clip.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw).setPosition(at));
     return clip;

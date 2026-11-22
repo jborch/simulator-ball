@@ -37,7 +37,7 @@ OUT = os.path.abspath(argv[0] if argv else "public")
 BODY = lambda: mat("CamBody", (0.42, 0.45, 0.5), metallic=0.8, rough=0.38)
 BLACK = lambda: mat("CamBlack", (0.025, 0.025, 0.03), metallic=0.5, rough=0.35)
 RUBBER = lambda: mat("CamRubber", (0.04, 0.04, 0.045), rough=0.85)
-GLASS = lambda: mat("CamGlass", (0.02, 0.04, 0.08), metallic=0.9, rough=0.04)
+GLASS = lambda: mat("CamGlass", (0.05, 0.035, 0.11), metallic=0.9, rough=0.03)
 CHROME = lambda: mat("CamChrome", (0.8, 0.8, 0.82), metallic=1.0, rough=0.18)
 ALU = lambda: mat("ProfileAlu", (0.78, 0.79, 0.81), metallic=1.0, rough=0.42)
 STEEL = lambda: mat("FootSteel", (0.2, 0.22, 0.25), metallic=0.6, rough=0.5)
@@ -162,9 +162,9 @@ def head():
     plate_top = -BODY_S / 2
     plate_y0, plate_y1 = BODY_BACK + 0.016, -0.012
     parts += [
-        bevel(box(0.03, plate_y1 - plate_y0, 0.004, (0, (plate_y0 + plate_y1) / 2, plate_top - 0.002), STEEL(), "bracket_plate"), 0.0008, 2),
+        bevel(box(0.03, plate_y1 - plate_y0, 0.006, (0, (plate_y0 + plate_y1) / 2, plate_top - 0.003), STEEL(), "bracket_plate"), 0.0008, 2),
         bevel(box(0.012, 0.008, plate_top + 0.0005 + LENS_R, (0, py, (plate_top - LENS_R + 0.0005) / 2), STEEL(), "bracket_saddle"), 0.0006, 2),
-        at(cyl(0.0035, plate_top - 0.004 - pz, pz, BLACK(), "ball_stem", 20), px, py),
+        at(cyl(0.0035, plate_top - 0.006 - pz, pz, BLACK(), "ball_stem", 20), px, py),
     ]
     bpy.ops.mesh.primitive_uv_sphere_add(radius=BALL_R, segments=24, ring_count=12, location=PIVOT)
     ball = bpy.context.object
@@ -183,9 +183,15 @@ def clamp():
     screw = xcyl(0.0025, POST / 2 + 0.004, POST / 2 + 0.012, CHROME(), "clamp_screw", z=-BALL_R * 0.6 - 0.02)
     knob = xcyl(0.0055, POST / 2 + 0.012, POST / 2 + 0.016, RUBBER(), "clamp_knob", z=-BALL_R * 0.6 - 0.02, verts=10)
     lock = xcyl(0.0018, 0.0085, 0.014, CHROME(), "socket_screw", z=-BALL_R * 0.6 - 0.004, verts=12)
+    face = (POST + 0.008) / 2
+    screws = [
+        ycyl(0.0021, s * face, s * (face + 0.0012), CHROME(), f"clamp_cap_{s}_{x}", x=x, z=-BALL_R * 0.6 - 0.008 - 0.017, verts=16)
+        for s in (-1, 1)
+        for x in (-0.0075, 0.0075)
+    ]
     # Where the post's top ends, inside the clamp block.
     post_top = empty("cam_post_top", (0, 0, -CLAMP_DEPTH + 0.01))
-    return group("cam_clamp", [*merge("clamp", [socket, block, screw, knob, lock]), post_top])
+    return group("cam_clamp", [*merge("clamp", [socket, block, screw, knob, lock, *screws]), post_top])
 
 
 def post():

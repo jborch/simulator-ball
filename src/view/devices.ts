@@ -390,7 +390,7 @@ export class InspectionView {
       const r = -0.15;
       // Downstream of the station centre, clear of the springbase camera's mount, turned to look
       // back at the pen.
-      const da = 0.04;
+      const da = 0.05;
       // The reader stands on a 24 mm profile in a column shoe, its cable down the post to a gland.
       const stand = new THREE.Group();
       profile(stand, [da, TABLE, -r], [da, h - 0.02, -r], 0.024);
