@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { LINE } from '../sim/config';
 import { pose } from '../sim/track';
 import { BELT_Y, BELT_W, TABLE, v3 } from './build';
-import { CameraMountsView, mountLayer, viewThrough } from './cameramounts';
+import { CameraMountsView, compactMount, mountLayer, viewThrough } from './cameramounts';
 import { CAMERAS, cameraPose } from './cameras';
 import { InspectionView } from './devices';
 import { installHardware } from './hardware';
@@ -22,7 +22,10 @@ async function load(name: string): Promise<THREE.Object3D> {
 beforeAll(async () => {
   // The machine catalogue supplies the extrusions and fittings the inspection stations are built from.
   installHardware(await load('machine'));
-  mounts = new CameraMountsView(LINE, { camera_mount: await load('camera_mount') } as unknown as Models);
+  // Compacted as the app loads it (models.ts).
+  const model = await load('camera_mount');
+  compactMount(model);
+  mounts = new CameraMountsView(LINE, { camera_mount: model } as unknown as Models);
 });
 
 function mountOf(id: string): THREE.Object3D {
@@ -55,6 +58,9 @@ describe('camera mounts', () => {
       expect(box.min.y, cam.id).toBeCloseTo(BELT_Y + TABLE, 3);
       // Reaches up to the camera.
       expect(box.max.y, cam.id).toBeGreaterThan(cameraPose(LINE, cam).position.y);
+      // Camera body, post and foot all made it through loading, not just the cable.
+      const finishes = new Set(meshes(mountOf(cam.id)).map((m) => (m.material as THREE.Material).name));
+      for (const f of ['CamBody', 'ProfileAlu', 'FootSteel']) expect(finishes.has(f), `${cam.id} ${f}`).toBe(true);
     }
   });
 

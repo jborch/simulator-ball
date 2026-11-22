@@ -34,6 +34,9 @@ const HEROES = [
   { id: 'hero-presses', fov: 45, mount: { station: 'EM14B', a: -0.6, y: 0.7, r: 0.9 }, aim: { station: 'EM14B', a: 0.1, y: 0.05, r: 0.05 } },
   { id: 'hero-dial', fov: 42, mount: { station: 'EM40', a: 0.5, y: 0.6, r: 1.1 }, aim: { station: 'EM40', a: -0.1, y: 0.05, r: 0.3 } },
   { id: 'hero-outfeed', fov: 45, mount: { station: 'EM60', a: -0.5, y: 0.75, r: 1.0 }, aim: { station: 'EM60', a: 0.15, y: 0.0, r: 0.3 } },
+  // The station cameras' own mounts, from behind (springbase) and from across the belt (infeed).
+  { id: 'mount-back', fov: 40, mount: { station: 'EM14B', a: 0.55, y: 0.3, r: -1.05 }, aim: { station: 'EM14B', a: 0.12, y: 0.08, r: -0.64 } },
+  { id: 'mount-front', fov: 50, mount: { station: 'EM11', a: 0.75, y: 0.45, r: 0.35 }, aim: { station: 'EM11', a: 0.32, y: 0.12, r: -0.64 } },
   { id: 'hero-movers', fov: 30, mount: { station: 'EM12', a: 0.35, y: 0.12, r: -0.35 }, aim: { station: 'EM12', a: -0.1, y: 0.04, r: 0.0 } },
 ];
 const CAMS = ['overview', 'infeed', 'springbase', 'cartridge', 'housing', 'outfeed'];

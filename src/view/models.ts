@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { compactMount } from './cameramounts';
 import { compact, installHardware } from './hardware';
 import { applyClearFinishes } from './clear';
 import { refinish } from './finishes';
@@ -33,8 +34,10 @@ export async function loadModels(): Promise<Models> {
           if (mesh.isMesh && /_shell$/.test(mesh.name || mesh.parent?.name || '')) mesh.geometry = toCreasedNormals(mesh.geometry, Math.PI / 5);
         });
         applyClearFinishes(gltf.scene);
-        // The mover is compacted with its per-carrier plates and lights (movers.ts).
-        if (name !== 'mover') compact(gltf.scene, (m) => m.name.endsWith('_label'));
+        // The mover is compacted with its per-carrier plates and lights (movers.ts). The camera
+        // mount's parts are placed one by one (cameramounts.ts), so each part is compacted alone.
+        if (name === 'camera_mount') compactMount(gltf.scene);
+        else if (name !== 'mover') compact(gltf.scene, (m) => m.name.endsWith('_label'));
       }
       return [name, gltf.scene] as const;
     }),

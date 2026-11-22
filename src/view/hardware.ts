@@ -424,8 +424,13 @@ export function compact(root: THREE.Object3D, keep: (m: THREE.Mesh) => boolean =
   });
   const merged = mergeByMaterial(root, merge);
   for (const o of kept) root.attach(o);
-  for (const o of merge) o.removeFromParent();
-  for (const o of [...root.children]) if (!(o instanceof THREE.Mesh) && o.children.length === 0) o.removeFromParent();
+  // Drop the groups the merge emptied; empties placed as markers stay.
+  const emptied = new Set<THREE.Object3D>();
+  for (const o of merge) {
+    if (o.parent && o.parent !== root) emptied.add(o.parent);
+    o.removeFromParent();
+  }
+  for (const o of emptied) if (!(o instanceof THREE.Mesh) && o.children.length === 0) o.removeFromParent();
   for (const mesh of merged) root.add(mesh);
 }
 

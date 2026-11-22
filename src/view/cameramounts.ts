@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
 import { BELT_Y, TABLE } from './build';
 import { CAMERAS, type CameraDef, cameraPose } from './cameras';
+import { compact } from './hardware';
 import type { Models } from './models';
 
 /** Camera i's mount is on layer FIRST_LAYER + i; layer 0 is everything else. */
@@ -39,6 +40,16 @@ export function mountLayer(camId: string): number {
 export function viewThrough(camera: THREE.Camera, camId: string | null): void {
   camera.layers.set(0);
   for (const c of CAMERAS) if (c.id !== camId) camera.layers.enable(mountLayer(c.id));
+}
+
+/**
+ * Merges each part of the loaded camera_mount.glb (head, clamp, post, foot) into one mesh per
+ * material, keeping the parts apart and their marker empties, which `buildMount` places by.
+ */
+export function compactMount(model: THREE.Object3D): void {
+  const root = model.getObjectByName('CameraMount');
+  if (!root) throw new Error('camera_mount.glb has no CameraMount');
+  for (const p of [...root.children]) compact(p);
 }
 
 export class CameraMountsView {
