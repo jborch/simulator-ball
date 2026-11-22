@@ -5,7 +5,7 @@ at least --min-track frames, which drops one-off false positives, and each track
 (majority vote) so a box doesn't flip between mover and pen. Every --stride-th frame is written.
 Frames before --split seconds go to train, the rest to val (a time split: val is unseen footage).
 
-usage: uv run python label.py [--split 80] [--stride 5] cam [cam ...]
+usage: uv run python label.py [--split 80] [--stride 5] [--recordings DIR --ext mkv] cam [cam ...]
 """
 import argparse
 import collections
@@ -13,7 +13,7 @@ import pathlib
 
 import cv2
 
-from vp_track import NAMES, visual_prompt_model
+from vp_track import NAMES, PERSON, visual_prompt_model
 
 
 def main():
@@ -26,6 +26,9 @@ def main():
     p.add_argument("--conf", type=float, default=0.05)
     p.add_argument("--min-conf", type=float, default=0.15, help="drop boxes below this even inside a long track")
     p.add_argument("--min-track", type=int, default=12, help="frames; 12 = ~0.5 s at 25 fps")
+    p.add_argument("--person-conf", type=float, default=0.4, help="people: drop boxes below this (machine frames look a bit like people)")
+    p.add_argument("--person-max-area", type=float, default=0.4, help="people: drop boxes bigger than this share of the frame")
+    p.add_argument("--ext", default="mp4", help="recording file extension")
     p.add_argument("--stride", type=int, default=5)
     p.add_argument("--split", type=float, default=80, help="seconds: train before, val after")
     p.add_argument("--device", default="mps")
@@ -38,7 +41,7 @@ def main():
 
     for cam in a.cams:
         model = visual_prompt_model(a.model, a.device)
-        cap = cv2.VideoCapture(f"{a.recordings}/{cam}.mp4")
+        cap = cv2.VideoCapture(f"{a.recordings}/{cam}.{a.ext}")
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
         w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         frames = {}  # frame index -> [(tid, cls, conf, xyxy)]
@@ -54,7 +57,7 @@ def main():
             for b in r.boxes:
                 if b.id is None:
                     continue
-                tid, cls, conf = int(b.id), int(b.cls) % 2, float(b.conf)
+                tid, cls, conf = int(b.id), model.vp_cls[int(b.cls)], float(b.conf)
                 track_len[tid] += 1
                 track_cls[tid][cls] += conf
                 dets.append((tid, cls, conf, b.xyxy[0].tolist()))
@@ -74,10 +77,13 @@ def main():
                     dropped += 1
                     continue
                 cls = track_cls[tid].most_common(1)[0][0]
+                if cls == PERSON and (conf < a.person_conf or (x2 - x1) * (y2 - y1) > a.person_max_area * w * h):
+                    dropped += 1
+                    continue
                 kept[cls] += 1
                 lines.append(f"{cls} {(x1 + x2) / 2 / w:.6f} {(y1 + y2) / 2 / h:.6f} {(x2 - x1) / w:.6f} {(y2 - y1) / h:.6f}")
             (out / "labels" / split / f"{name}.txt").write_text("\n".join(lines) + ("\n" if lines else ""))
-        print(f"{cam}: {n} frames, {len(frames)} images, kept " + ", ".join(f"{kept[c]} {NAMES[c]}" for c in range(2)) + f", dropped {dropped}")
+        print(f"{cam}: {n} frames, {len(frames)} images, kept " + ", ".join(f"{kept[c]} {NAMES[c]}" for c in range(len(NAMES))) + f", dropped {dropped}")
 
     (out / "data.yaml").write_text(f"path: {out.resolve()}\ntrain: images/train\nval: images/val\nnames:\n" + "".join(f"  {i}: {n}\n" for i, n in enumerate(NAMES)))
 

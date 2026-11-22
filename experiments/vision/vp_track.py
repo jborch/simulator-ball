@@ -17,8 +17,8 @@ import torch
 from ultralytics import YOLO
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 
-NAMES = ["mover", "pen"]
-MOVER, PEN = 0, 1
+NAMES = ["mover", "pen", "person"]
+MOVER, PEN, PERSON = 0, 1, 2
 # Example boxes (x1, y1, x2, y2) drawn on reference frames of four cameras.
 REFS = [
     ("out/frames/cartridge.png", [([45, 565, 358, 680], MOVER), ([427, 565, 662, 680], MOVER),
@@ -29,24 +29,38 @@ REFS = [
                                    ([495, 373, 530, 495], PEN), ([850, 373, 890, 495], PEN)]),
     ("out/frames/housing-60.png", [([97, 558, 387, 660], MOVER), ([622, 558, 850, 660], MOVER),
                                    ([697, 195, 752, 585], PEN)]),
+    # People (the visible part: the line's tables hide them below the waist), drawn on frames with the
+    # 2026-11-22 figures, in all lightings: operators close behind the stations, cut off at the top, and a walker.
+    ("out/frames/people-springbase-00142.jpg", [([515, 0, 790, 460], PERSON), ([780, 0, 1112, 455], PERSON)]),
+    ("out/frames/people-cartridge-00010.jpg", [([318, 0, 912, 345], PERSON)]),
+    ("out/frames/people-housing-00105.jpg", [([140, 0, 335, 440], PERSON), ([1010, 0, 1280, 410], PERSON)]),
+    ("out/frames/people-housing-00286.jpg", [([370, 0, 955, 400], PERSON)]),
+    ("out/frames/people-springbase-00040.jpg", [([830, 60, 975, 420], PERSON)]),
+    ("out/frames/people-cartridge-00287.jpg", [([0, 0, 295, 470], PERSON)]),
 ]
 # H.264 where OpenCV has an encoder for it (macOS); pip OpenCV on Linux only has MPEG-4.
 FOURCC = cv2.VideoWriter_fourcc(*("avc1" if __import__("sys").platform == "darwin" else "mp4v"))
-COLORS = {MOVER: (255, 140, 30), PEN: (40, 200, 255)}  # BGR
+COLORS = {MOVER: (255, 140, 30), PEN: (40, 200, 255), PERSON: (90, 220, 90)}  # BGR
 
 
 def visual_prompt_model(weights: str, device: str) -> YOLO:
+    """YOLOE with one embedding per (reference frame, class it shows). `model.vp_cls[i]` is the class (index into
+    NAMES) of the model's class i."""
     model = YOLO(weights)
-    vpes = []
+    vpes, vp_cls = [], []
     for img, boxes in REFS:
+        present = sorted({c for _, c in boxes})  # prompt ids are per frame: 0..k-1 for the classes it shows
+        local = {c: i for i, c in enumerate(present)}
         pred = YOLOEVPSegPredictor(overrides=dict(task="segment", mode="predict", batch=1, device=device, verbose=False))
-        pred.set_prompts(dict(bboxes=np.array([b for b, _ in boxes], float), cls=np.array([c for _, c in boxes])))
+        pred.set_prompts(dict(bboxes=np.array([b for b, _ in boxes], float), cls=np.array([local[c] for _, c in boxes])))
         pred.setup_model(model=model.model, verbose=False)
-        vpes.append(pred.get_vpe(img))  # (1, n_classes, dim), normalised
+        vpes.append(pred.get_vpe(img))  # (1, k, dim), normalised
+        vp_cls += present
     # One embedding per (reference frame, class): a pen looks different at each stage, and an
     # average of a bare spring rod and a blue housing matches neither. Several embeddings share a name.
     vpe = torch.cat(vpes, dim=1)
-    model.set_classes([NAMES[c] for _ in REFS for c in (MOVER, PEN)], vpe)
+    model.set_classes([NAMES[c] for c in vp_cls], vpe)
+    model.vp_cls = vp_cls
     return model
 
 
@@ -98,7 +112,7 @@ def main():
             boxes = []
             for b in r.boxes:
                 x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
-                cls = int(b.cls) % 2  # embeddings alternate mover, pen
+                cls = model.vp_cls[int(b.cls)]
                 tid = int(b.id) if b.id is not None else None
                 dets[cls] += 1
                 if tid is not None:
@@ -112,7 +126,7 @@ def main():
         writer.release()
         dt = time.time() - t0
         print(f"{cam}: {n} frames, {n / dt:.1f} fps")
-        for cls in (MOVER, PEN):
+        for cls in range(len(NAMES)):
             ids = tracks[cls]
             mean = sum(track_frames[i] for i in ids) / len(ids) / fps if ids else 0
             print(f"  {NAMES[cls]:6s} {dets[cls] / max(n, 1):5.2f}/frame  {len(ids):3d} tracks  mean track {mean:5.1f}s")
