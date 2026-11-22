@@ -37,12 +37,13 @@ OUT = os.path.abspath(argv[0] if argv else "public")
 BODY = lambda: mat("CamBody", (0.42, 0.45, 0.5), metallic=0.8, rough=0.38)
 BLACK = lambda: mat("CamBlack", (0.025, 0.025, 0.03), metallic=0.5, rough=0.35)
 RUBBER = lambda: mat("CamRubber", (0.04, 0.04, 0.045), rough=0.85)
-GLASS = lambda: mat("CamGlass", (0.02, 0.04, 0.08), metallic=0.9, rough=0.04)
+GLASS = lambda: mat("CamGlass", (0.05, 0.035, 0.11), metallic=0.9, rough=0.03)
 CHROME = lambda: mat("CamChrome", (0.8, 0.8, 0.82), metallic=1.0, rough=0.18)
 ALU = lambda: mat("ProfileAlu", (0.78, 0.79, 0.81), metallic=1.0, rough=0.42)
 STEEL = lambda: mat("FootSteel", (0.2, 0.22, 0.25), metallic=0.6, rough=0.5)
 LABEL = lambda: mat("CamLabel", (0.82, 0.83, 0.8), rough=0.6)
 LED = lambda: mat("CamLed", (0.1, 0.8, 0.2), emission=(0.2, 1.0, 0.3), strength=4.0)
+LED_AMBER = lambda: mat("CamLedAmber", (0.9, 0.5, 0.05), emission=(1.0, 0.55, 0.05), strength=2.5)
 
 # Camera geometry (Blender axes: X right, Y forward along the lens, Z up; optical centre at 0).
 LENS_R = 0.0145
@@ -54,7 +55,7 @@ BODY_BACK = BODY_FRONT - BODY_S
 # Ball head under the lens/body joint: as far forward as the bracket allows, so the post stands
 # clear of the belt behind cameras that sit close to the other side of the loop.
 PIVOT = (0.0, -0.02, -0.036)
-BALL_R = 0.0075
+BALL_R = 0.006
 POST = 0.02
 # Ball centre down to the bottom of the clamp block.
 CLAMP_DEPTH = BALL_R * 0.6 + 0.008 + 0.024
@@ -141,7 +142,7 @@ def head():
     front = bevel(box(BODY_S, 0.004, BODY_S, (0, BODY_FRONT - 0.002, 0), BLACK(), "cam_front"), 0.0015, 2)
     back = bevel(box(BODY_S - 0.002, 0.003, BODY_S - 0.002, (0, BODY_BACK + 0.0005, 0), BLACK(), "cam_back"), 0.001, 2)
     label = box(0.0005, 0.016, 0.009, (BODY_S / 2 + 0.0002, yc + 0.006, 0.013), LABEL(), "cam_label")
-    leds = [ycyl(0.0013, BODY_BACK - 0.0015, BODY_BACK, LED(), f"cam_led_{i}", x=0.013 - i * 0.005, z=0.013, verts=12) for i in range(2)]
+    leds = [ycyl(0.0009, BODY_BACK - 0.0012, BODY_BACK, m, f"cam_led_{i}", x=0.014 - i * 0.004, z=0.0145, verts=12) for i, m in enumerate((LED(), LED_AMBER()))]
     parts += [body, front, back, label, *leds]
 
     # M12 connector under the back of the body, pointing down (the body's back stays compact, clear
@@ -161,14 +162,14 @@ def head():
     plate_top = -BODY_S / 2
     plate_y0, plate_y1 = BODY_BACK + 0.016, -0.012
     parts += [
-        bevel(box(0.03, plate_y1 - plate_y0, 0.004, (0, (plate_y0 + plate_y1) / 2, plate_top - 0.002), STEEL(), "bracket_plate"), 0.0008, 2),
+        bevel(box(0.03, plate_y1 - plate_y0, 0.006, (0, (plate_y0 + plate_y1) / 2, plate_top - 0.003), STEEL(), "bracket_plate"), 0.0008, 2),
         bevel(box(0.012, 0.008, plate_top + 0.0005 + LENS_R, (0, py, (plate_top - LENS_R + 0.0005) / 2), STEEL(), "bracket_saddle"), 0.0006, 2),
-        at(cyl(0.0035, plate_top - 0.004 - pz, pz, CHROME(), "ball_stem", 20), px, py),
+        at(cyl(0.0035, plate_top - 0.006 - pz, pz, BLACK(), "ball_stem", 20), px, py),
     ]
     bpy.ops.mesh.primitive_uv_sphere_add(radius=BALL_R, segments=24, ring_count=12, location=PIVOT)
     ball = bpy.context.object
     ball.name = "ball"
-    ball.data.materials.append(CHROME())
+    ball.data.materials.append(BLACK())
     bpy.ops.object.shade_smooth()
     parts.append(ball)
 
@@ -180,11 +181,17 @@ def clamp():
     socket = cyl(0.0095, 0.008, -BALL_R * 0.6 - 0.008, BLACK(), "clamp_socket", 32)
     block = bevel(box(POST + 0.008, POST + 0.008, 0.024, (0, 0, -BALL_R * 0.6 - 0.008 - 0.012), BLACK(), "clamp_block"), 0.0015, 2)
     screw = xcyl(0.0025, POST / 2 + 0.004, POST / 2 + 0.012, CHROME(), "clamp_screw", z=-BALL_R * 0.6 - 0.02)
-    knob = xcyl(0.0065, POST / 2 + 0.012, POST / 2 + 0.017, RUBBER(), "clamp_knob", z=-BALL_R * 0.6 - 0.02, verts=10)
+    knob = xcyl(0.0055, POST / 2 + 0.012, POST / 2 + 0.016, RUBBER(), "clamp_knob", z=-BALL_R * 0.6 - 0.02, verts=10)
     lock = xcyl(0.0018, 0.0085, 0.014, CHROME(), "socket_screw", z=-BALL_R * 0.6 - 0.004, verts=12)
+    face = (POST + 0.008) / 2
+    screws = [
+        ycyl(0.0021, s * face, s * (face + 0.0012), CHROME(), f"clamp_cap_{s}_{x}", x=x, z=-BALL_R * 0.6 - 0.008 - 0.017, verts=16)
+        for s in (-1, 1)
+        for x in (-0.0075, 0.0075)
+    ]
     # Where the post's top ends, inside the clamp block.
     post_top = empty("cam_post_top", (0, 0, -CLAMP_DEPTH + 0.01))
-    return group("cam_clamp", [*merge("clamp", [socket, block, screw, knob, lock]), post_top])
+    return group("cam_clamp", [*merge("clamp", [socket, block, screw, knob, lock, *screws]), post_top])
 
 
 def post():
@@ -201,9 +208,11 @@ def post():
     return group("cam_post", [o])
 
 
-FOOT_T = 0.005
-FOOT_BACK = 0.013
+FOOT_T = 0.008
+FOOT_BACK = 0.0165
 FOOT_FRONT = 0.032
+# Cable centre behind the post (cameramounts.ts: half the post plus the cable radius).
+GLAND_Y = POST / 2 + 0.0025
 
 
 def foot():
@@ -216,8 +225,20 @@ def foot():
             box(0.003, 0.016, 0.02, (s * (POST / 2 + 0.0015), 0, FOOT_T + 0.01), STEEL(), f"foot_angle_v_{s}"),
             box(0.012, 0.016, 0.003, (s * (POST / 2 + 0.006), 0, FOOT_T + 0.0015), STEEL(), f"foot_angle_h_{s}"),
             at(cyl(0.0032, 0.003, FOOT_T + 0.003, CHROME(), f"foot_bolt_angle_{s}", 16), s * (POST / 2 + 0.0075)),
-            at(cyl(0.0036, 0.003, FOOT_T, CHROME(), f"foot_bolt_plate_{s}", 16), s * 0.019, 0.023),
         ]
+        # Cap screws into the table, sunk in counterbores at the plate's corners.
+        for y in (-FOOT_BACK + 0.0055, FOOT_FRONT - 0.0055):
+            x = s * (w / 2 - 0.0055)
+            cut(plate, at(cyl(0.0034, 0.004, FOOT_T - 0.0025, STEEL(), f"foot_cbore_{s}_{y}", 20), x, y))
+            parts += [
+                at(cyl(0.0027, 0.0024, FOOT_T - 0.0025, RUBBER(), f"foot_screw_{s}_{y}", 20), x, y),
+                at(cyl(0.0012, 0.0012, FOOT_T - 0.0005, STEEL(), f"foot_hex_{s}_{y}", 6), x, y),
+            ]
+    # Cable gland behind the post, where the camera cable goes through the plate into the table.
+    parts += [
+        at(cyl(0.0041, 0.0022, FOOT_T, CHROME(), "gland_nut", 6), 0, -GLAND_Y),
+        at(cyl(0.0036, 0.0035, FOOT_T + 0.0022, RUBBER(), "gland_seal", 20), 0, -GLAND_Y),
+    ]
     return group("cam_foot", [*merge("foot", parts), empty("cam_post_base", (0, 0, FOOT_T))])
 
 

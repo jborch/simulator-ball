@@ -1,0 +1,66 @@
+"""Bake broad indirect-light occlusion on the two horizontal receiving surfaces.
+Rebuild from the current installed geometry with:
+node tools/scripts/shots.mjs /tmp/line-bake --only overview --wait 1 --bake-contacts
+"""
+
+import math
+import sys
+from pathlib import Path
+import bpy
+from mathutils import Matrix
+
+input_file, deck = sys.argv[sys.argv.index("--") + 1 :]
+output = Path(__file__).resolve().parents[2] / "public/textures"
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.wm.stl_import(filepath=input_file)
+machine = bpy.context.object
+machine.matrix_world = Matrix.Rotation(math.pi / 2, 4, "X")
+machine.visible_camera = False
+
+bpy.ops.mesh.primitive_plane_add(size=12)
+receiver = bpy.context.object
+# Seen only by the camera: occlusion rays must not hit the receiver's own
+# triangles (that drew a seam along the plane's diagonal).
+for flag in ("visible_diffuse", "visible_glossy", "visible_transmission", "visible_volume_scatter", "visible_shadow"):
+    setattr(receiver, flag, False)
+material = bpy.data.materials.new("Irradiance fraction")
+material.use_nodes = True
+tree = material.node_tree
+# Broad occlusion (the hall's light under and between the machines) times a tight one, so the
+# darkening gathers where a foot, post or feeder actually stands on the surface.
+ao = tree.nodes.new("ShaderNodeAmbientOcclusion")
+ao.samples = 32
+tight = tree.nodes.new("ShaderNodeAmbientOcclusion")
+tight.samples = 32
+product = tree.nodes.new("ShaderNodeMath")
+product.operation = "MULTIPLY"
+tree.links.new(ao.outputs["AO"], product.inputs[0])
+tree.links.new(tight.outputs["AO"], product.inputs[1])
+emission = tree.nodes.new("ShaderNodeEmission")
+tree.links.new(product.outputs[0], emission.inputs["Color"])
+tree.links.new(emission.outputs[0], tree.nodes["Material Output"].inputs["Surface"])
+receiver.data.materials.append(material)
+
+bpy.ops.object.camera_add(location=(0, 0, 4))
+camera = bpy.context.object
+camera.rotation_euler = (0, 0, 0)
+camera.data.type = "ORTHO"
+camera.data.ortho_scale = 8
+scene = bpy.context.scene
+scene.camera = camera
+scene.render.engine = "CYCLES"
+scene.cycles.samples = 8
+scene.cycles.use_denoising = False
+scene.render.resolution_percentage = 100
+scene.render.resolution_x = 1536
+scene.render.resolution_y = 960
+scene.view_settings.view_transform = "Raw"
+scene.render.image_settings.file_format = "PNG"
+scene.render.image_settings.color_mode = "BW"
+scene.render.image_settings.color_depth = "8"
+for surface, height, distance, near in [("floor", 0, 1.35, 0.12), ("deck", float(deck), 0.42, 0.05)]:
+    receiver.location.z = height + 0.00065
+    ao.inputs["Distance"].default_value = distance
+    tight.inputs["Distance"].default_value = near
+    scene.render.filepath = str(output / (surface + "_ao.png"))
+    bpy.ops.render.render(write_still=True)

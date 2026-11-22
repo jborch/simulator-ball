@@ -3,9 +3,11 @@ import type { LineConfig, PartType } from '../sim/config';
 import { heldLength } from '../sim/layout';
 import type { MoverFrame } from '../sim/protocol';
 import type { Pose } from '../sim/track';
-import { type Models, findMesh } from './models';
+import { batch } from './hardware';
+import type { Models } from './models';
 import { hash01 } from './scene';
-import { dataMatrixTexture, numberTexture } from './textures';
+import { carrierWear, dataMatrixTexture, numberTexture } from './textures';
+import { varyMoulding } from './finishes';
 
 /**
  * A housing, origin at its base (as fed and as picked). Call `showLabel` to show the label EM31
@@ -13,6 +15,7 @@ import { dataMatrixTexture, numberTexture } from './textures';
  */
 export function housingPart(models: Models): THREE.Object3D {
   const g = models.housing.clone(true);
+  varyMoulding(g);
   showLabel(g, null);
   return g;
 }
@@ -27,10 +30,10 @@ export function showLabel(root: THREE.Object3D, gs1: string | null): void {
     const name = o.name || o.parent?.name || '';
     if (!name.endsWith('_label')) return;
     o.visible = gs1 !== null;
-    if (name !== 'dm_label' && o.parent?.name !== 'dm_label') return;
+    if (!name.endsWith('_dm_label')) return;
     const mesh = o as THREE.Mesh;
     if (!mesh.userData.ownMaterial) {
-      mesh.material = new THREE.MeshStandardMaterial({ color: 0xebebe6, roughness: 0.5 });
+      mesh.material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.83 });
       mesh.userData.ownMaterial = true;
     }
     const m = mesh.material as THREE.MeshStandardMaterial;
@@ -64,6 +67,7 @@ export class AssemblyView {
     this.cartridge = at(models.cartridge.clone(true), 'cartridge');
     // The finished-pen model is the labelled housing with its cap; the body stays inside it.
     this.pen = at(models.pen.clone(true), 'housing');
+    varyMoulding(this.pen);
     showLabel(this.pen, null);
     for (const o of [this.body, this.spring, this.springBase, this.cartridge, this.pen]) {
       o.visible = false;
@@ -141,10 +145,11 @@ export class HeldView {
   }
 }
 
+/** Status light pipes: dark when the carrier is empty, green with a good part, red when a step is missing (NOK). */
 const LED = {
-  empty: new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.4 }),
-  ok: new THREE.MeshStandardMaterial({ color: 0x1f8f3a, emissive: 0x2bd552, emissiveIntensity: 1.2 }),
-  nok: new THREE.MeshStandardMaterial({ color: 0x8f1f1f, emissive: 0xff3030, emissiveIntensity: 1.6 }),
+  empty: new THREE.MeshStandardMaterial({ color: 0x1b1e21, roughness: 0.18, metalness: 0.1 }),
+  ok: new THREE.MeshStandardMaterial({ color: 0x2fae4e, emissive: 0x3dff6e, emissiveIntensity: 1.5, roughness: 0.2 }),
+  nok: new THREE.MeshStandardMaterial({ color: 0xc02020, emissive: 0xff2b1f, emissiveIntensity: 2.6, roughness: 0.2 }),
 };
 
 /** How a visible incident changes the look of one mover (see incidents.ts). */
@@ -157,13 +162,62 @@ export interface MoverLook {
   skew?: number;
 }
 
+/** Placeholders the carrier template is merged with, swapped per carrier for its own plates and lights. */
+const TOP_PLATE = new THREE.MeshStandardMaterial();
+const SIDE_PLATE = new THREE.MeshStandardMaterial();
+const LIGHT_PIPE = new THREE.MeshStandardMaterial();
+const templates = new WeakMap<THREE.Object3D, THREE.Group>();
+
+/** The carrier model merged into one mesh per finish (and one each for its plates and lights). */
+function carrierTemplate(models: Models): THREE.Group {
+  let t = templates.get(models.mover);
+  if (!t) {
+    const src = models.mover.clone(true);
+    src.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const name = mesh.name || mesh.parent?.name || '';
+      if (name.startsWith('label_top')) mesh.material = TOP_PLATE;
+      else if (name.startsWith('label_side')) mesh.material = SIDE_PLATE;
+      else if (name.startsWith('status_led')) mesh.material = LIGHT_PIPE;
+    });
+    t = new THREE.Group();
+    t.add(src);
+    batch(t);
+    templates.set(models.mover, t);
+  }
+  return t;
+}
+
+/** A blurred square: the carriers' contact shadow (their footprint fills 70 % of the patch). */
+let shadowMat: THREE.MeshBasicMaterial | null = null;
+function footprintShadow(): THREE.MeshBasicMaterial {
+  if (shadowMat) return shadowMat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.filter = 'blur(7px)';
+  g.fillStyle = 'rgba(8,10,10,0.78)';
+  g.beginPath();
+  g.roundRect(19, 19, 90, 90, 8);
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  shadowMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  return shadowMat;
+}
+
 export class MoverView {
   readonly root = new THREE.Group();
   private readonly assembly: AssemblyView;
-  private readonly led: THREE.Mesh;
+  private readonly leds: THREE.Mesh[] = [];
   /** The model's own materials, before wear. */
   private readonly baseMaterials = new Map<THREE.Mesh, THREE.MeshStandardMaterial>();
   look: MoverLook | null = null;
+  /**
+   * Soft contact shadow round the carrier's footprint on the belt. Kept out of `root`, whose
+   * bounds are the carrier's ground-truth box (oracle.ts); the line adds it beside the root.
+   */
+  readonly shadow: THREE.Mesh;
 
   constructor(
     readonly id: number,
@@ -174,21 +228,23 @@ export class MoverView {
     this.root.userData.moverId = id;
     this.root.userData.track = { cls: 'mover', id: `mover-${id}` };
 
-    const mover = models.mover.clone(true);
-    const labelMat = new THREE.MeshStandardMaterial({ map: numberTexture(id), roughness: 0.6 });
-    for (const name of ['label_top', 'label_side_a', 'label_side_b']) {
-      const m = findMesh(mover, name);
-      if (m) m.material = labelMat;
-    }
+    const mover = carrierTemplate(models).clone(true);
+    // Laminated ID plates, printed at their own aspect so the digits keep their shape.
+    const sideMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 52 / 18.5), roughness: 0.42 });
+    const topMat = new THREE.MeshStandardMaterial({ map: numberTexture(id, 46 / 22, true), roughness: 0.42 });
     mover.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (mesh.isMesh && mesh.material !== labelMat) this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
+      if (!mesh.isMesh) return;
+      if (mesh.material === TOP_PLATE) mesh.material = topMat;
+      else if (mesh.material === SIDE_PLATE) mesh.material = sideMat;
+      else if (mesh.material === LIGHT_PIPE) {
+        this.leds.push(mesh);
+        mesh.castShadow = false;
+      } else this.baseMaterials.set(mesh, mesh.material as THREE.MeshStandardMaterial);
     });
     this.root.add(mover);
-
-    this.led = new THREE.Mesh(new THREE.SphereGeometry(0.005, 12, 8), LED.empty);
-    this.led.position.set(0.04, 0.031, 0.04);
-    this.root.add(this.led);
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(cfg.mover.length + 0.05, cfg.mover.length + 0.05).rotateX(-Math.PI / 2), footprintShadow());
+    this.shadow.renderOrder = -1;
 
     this.assembly = new AssemblyView(cfg, models);
     this.assembly.root.position.y = cfg.mover.seat;
@@ -209,6 +265,12 @@ export class MoverView {
       m.color.setHSL(hsl.h + (h(2) - 0.5) * 0.02, Math.max(0, hsl.s * (1 - 0.35 * worn) + (h(3) - 0.5) * 0.06), Math.max(0, hsl.l * (1 - 0.25 * worn) + (h(4) - 0.5) * 0.04));
       m.roughness = Math.min(1, base.roughness + 0.3 * worn);
       m.metalness = base.metalness * (1 - 0.5 * worn);
+      // Worn carriers carry grime and scuffs on their body and tooling plate.
+      if (worn > 0.4 && (base.name === 'MoverBody' || base.name === 'ToolPlate')) {
+        const w = carrierWear();
+        m.map = w.map;
+        m.roughnessMap = w.rough;
+      }
       const old = mesh.material as THREE.Material;
       mesh.material = m;
       if (old !== base) old.dispose();
@@ -219,7 +281,9 @@ export class MoverView {
     this.root.position.set(p.x, height, -p.y);
     const look = this.look;
     this.root.rotation.y = p.heading + (look?.skew ?? 0);
-    this.led.material = LED[f.status];
+    this.shadow.position.set(this.root.position.x, height + 0.0004, this.root.position.z);
+    this.shadow.rotation.y = this.root.rotation.y;
+    for (const led of this.leds) led.material = LED[f.status];
     this.assembly.show(look?.hide ? f.parts.filter((x) => !look.hide!.includes(x)) : f.parts);
     this.assembly.setMark(look?.hide?.includes('housing') ? null : f.mark);
     // Leaning along the belt (as the station cameras, looking across it, see best), pivoting on
