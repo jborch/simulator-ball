@@ -4,6 +4,7 @@
 // (handy for a wall display).
 import type * as THREE from 'three';
 import type { LineConfig } from '../sim/config';
+import { viewThrough } from './cameramounts';
 import { CAMERAS, OVERVIEW, cameraPose } from './cameras';
 import type { Stage } from './stage';
 
@@ -46,6 +47,7 @@ export class Monitor {
 
     stage.onUserMove = () => {
       this.active = null;
+      viewThrough(this.stage.camera, null);
       this.updateUi();
     };
     // The overview frames the line for the window's shape, so re-frame it when that changes.
@@ -92,6 +94,8 @@ export class Monitor {
   }
 
   private apply(id: string): void {
+    // Looking through a station camera: leave out its own mount (cameramounts.ts).
+    viewThrough(this.stage.camera, CAMERAS.some((c) => c.id === id) ? id : null);
     if (id === OVERVIEW.id) {
       this.stage.view(this.stage.fitPose(this.lineBounds(), OVERVIEW.direction));
       return;

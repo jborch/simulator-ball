@@ -45,7 +45,17 @@ export function installHardware(root: THREE.Object3D): void {
     if (!obj) throw new Error(`Missing machine component ${name}`);
     kit.set(name, obj);
   }
-  // Printed plates modelled as UV-mapped quads get their artwork here.
+  // Printed plates modelled as UV-mapped quads get their artwork here (in a browser; unit tests
+  // have no canvas and only need the geometry).
+  if (typeof document !== 'undefined') paintPlates(root);
+  // The structural profiles are clear-anodised, unlike the bead-blasted parts mounted on them.
+  kit.get('Profile40')!.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Bead blasted aluminium') mesh.material = anodised;
+  });
+}
+
+function paintPlates(root: THREE.Object3D): void {
   const replace: Record<string, THREE.Material> = {
     'Motor nameplate': ratingPlate(),
     'Gripper plate': jawPlate(),
@@ -59,11 +69,6 @@ export function installHardware(root: THREE.Object3D): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh && !Array.isArray(mesh.material) && replace[mesh.material.name]) mesh.material = replace[mesh.material.name];
-  });
-  // The structural profiles are clear-anodised, unlike the bead-blasted parts mounted on them.
-  kit.get('Profile40')!.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (mesh.isMesh && !Array.isArray(mesh.material) && mesh.material.name === 'Bead blasted aluminium') mesh.material = anodised;
   });
 }
 

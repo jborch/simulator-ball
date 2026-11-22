@@ -5,7 +5,7 @@ import { refinish } from './finishes';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing', 'machine'] as const;
+export const MODEL_NAMES = ['mover', 'pen_body', 'spring', 'spring_base', 'cartridge', 'pen', 'tray', 'housing', 'machine', 'camera_mount'] as const;
 export type ModelName = (typeof MODEL_NAMES)[number];
 export type Models = Record<ModelName, THREE.Object3D>;
 

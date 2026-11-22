@@ -7,7 +7,9 @@ import { mat } from './build';
 import { clearMaterial } from './clear';
 import { batch, block, plate, round } from './hardware';
 
-function canvasMap(size: number, paint: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+function canvasMap(size: number, paint: (ctx: CanvasRenderingContext2D) => void): THREE.Texture {
+  // No DOM in unit tests, which only need the geometry: an empty texture there.
+  if (typeof document === 'undefined') return new THREE.Texture();
   const c = document.createElement('canvas');
   c.width = c.height = size;
   paint(c.getContext('2d')!);

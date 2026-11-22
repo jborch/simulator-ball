@@ -388,10 +388,12 @@ export class InspectionView {
     if (sideReader) {
       const h = cfg.mover.seat + cfg.parts.body.length * 0.41;
       const r = -0.15;
-      this.group.add(span(-0.012, 0.012, TABLE, h - 0.02, r - 0.012, r + 0.012, M.frame));
+      // 2 cm downstream of the station centre, clear of the springbase camera's post.
+      const da = 0.02;
+      this.group.add(span(da - 0.012, da + 0.012, TABLE, h - 0.02, r - 0.012, r + 0.012, M.frame));
       const reader = this.camera(0.05);
       reader.rotation.x = Math.PI / 2; // look outward (+r) at the pen's side
-      reader.position.copy(local(0, h, r));
+      reader.position.copy(local(da, h, r));
       this.group.add(reader);
     }
   }

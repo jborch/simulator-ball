@@ -5,6 +5,7 @@ inspiration/
 .env
 .cache/
 vendor/
+__pycache__/
 
 # Realism rounds: only the baseline and final shots, the rubric and the scores stay in the repo.
 docs/realism/*
