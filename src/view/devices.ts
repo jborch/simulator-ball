@@ -391,10 +391,21 @@ export class InspectionView {
       // Downstream of the station centre, clear of the springbase camera's mount, turned to look
       // back at the pen.
       const da = 0.05;
-      // The reader stands on a 24 mm profile in a column shoe, its cable down the post to a gland.
+      // The reader stands on a 24 mm profile: a bolted foot plate with an angle bracket each side,
+      // a clamp block under the reader, and its cable down the post to a gland.
       const stand = new THREE.Group();
-      profile(stand, [da, TABLE, -r], [da, h - 0.02, -r], 0.024);
-      stand.add(hardware('ColumnShoe', da, TABLE, -r));
+      const foot = 0.008;
+      profile(stand, [da, TABLE + foot, -r], [da, h - 0.028, -r], 0.024);
+      block(stand, da, TABLE + foot / 2, -r, 0.058, foot, 0.058, finish.graphite);
+      contactPatch(stand, da, TABLE + 0.0008, -r, 0.078, 0.078);
+      for (const s of [-1, 1]) {
+        block(stand, da + s * 0.0135, TABLE + foot + 0.011, -r, 0.003, 0.022, 0.018, finish.zinc);
+        block(stand, da + s * 0.019, TABLE + foot + 0.0015, -r, 0.012, 0.003, 0.018, finish.zinc);
+        round(stand, da + s * 0.021, TABLE + foot + 0.0042, -r, 0.0026, 0.0024, finish.seal, 6);
+        for (const t of [-1, 1]) round(stand, da + s * 0.022, TABLE + foot + 0.0012, -r + t * 0.022, 0.0028, 0.0024, finish.seal, 16);
+      }
+      block(stand, da, h - 0.024, -r, 0.032, 0.016, 0.032, finish.graphite);
+      for (const s of [-1, 1]) round(stand, da + s * 0.008, h - 0.026, -r - 0.0165, 0.0021, 0.0012, finish.zinc, 16).rotation.x = Math.PI / 2;
       const c = da + 0.017;
       hose(stand, [[c, h - 0.015, -r - 0.004], [c, h - 0.045, -r - 0.012], [c, TABLE + 0.05, -r - 0.014], [c, TABLE + 0.012, -r - 0.022], [c, TABLE + 0.002, -r - 0.034]], 0.0032);
       gland(stand, c, TABLE, -r - 0.034, 0.0032);
