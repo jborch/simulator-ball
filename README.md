@@ -40,6 +40,9 @@ npm prune --omit=dev    # optional: what's left is dist/ plus the runtime node_m
 CATCHAI_API_KEY=... PORT=8080 npm start
 ```
 
+On Windows, set the variables first (PowerShell: `$env:CATCHAI_API_KEY='...'; $env:PORT=8080; npm start`)
+or put them in a `.env` file.
+
 The server reads its configuration from environment variables. It also loads `.env.production.local`,
 `.env.local`, `.env.production` and `.env` from the project root, most specific file first.
 In dev it loads the `.env.development*` files instead of the `.env.production*` ones. Real
@@ -154,6 +157,7 @@ end-to-end delay is about 0.3 s.
 
 ```sh
 RTSP_CAMERAS=infeed npm start      # → rtsp://<server>:18554/infeed
+# PowerShell: $env:RTSP_CAMERAS='infeed'; npm start
 npm run start:cams                 # build, then stream the five station cameras (2–6, not the overview)
 ```
 
